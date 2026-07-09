@@ -86,7 +86,7 @@ interface AuthContextValue {
   isBlocked: boolean;
   isBusinessSetup: boolean;
   isSupabaseConnected: boolean;
-  hasRole: (role: string, ...args: any[]) => boolean;
+  hasRole: (...roles: string[]) => boolean;
   refreshUser?: () => Promise<void>;
   checkUserApprovalStatus?: () => Promise<void>;
 }
@@ -299,7 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isBlocked: false,
       isBusinessSetup,
       isSupabaseConnected: true,
-      hasRole: (roleToCheck: string) => profile?.role === roleToCheck,
+      hasRole: (...rolesToCheck: string[]) => rolesToCheck.some(r => profile?.role === r || (r === 'admin' && profile?.role === 'admin') || (r === 'super_admin' && isSuperAdmin)),
       refreshUser: async () => {},
       checkUserApprovalStatus: async () => {}
     }}>

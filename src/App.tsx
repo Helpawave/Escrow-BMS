@@ -325,12 +325,12 @@ export default function App() {
                         <Route path="/e-invoice" element={<Navigate to="/billing/e-invoice" replace />} />
 
                         <Route path="/employees" element={<Navigate to="/payroll/employees" replace />} />
-                        <Route path="/payroll" element={<Navigate to="/payroll/payroll" replace />} />
+
                         <Route path="/attendance" element={<Navigate to="/payroll/attendance" replace />} />
                         <Route path="/leave" element={<Navigate to="/payroll/leave" replace />} />
                         <Route path="/payslips" element={<Navigate to="/payroll/payslips" replace />} />
 
-                        <Route path="/ledger" element={<Navigate to="/ledger/ledger" replace />} />
+
                         <Route path="/transfer" element={<Navigate to="/ledger/transfer" replace />} />
                         <Route path="/create/party" element={<Navigate to="/ledger/create/party" replace />} />
                         <Route path="/profile" element={<Navigate to="/ledger/profile" replace />} />
