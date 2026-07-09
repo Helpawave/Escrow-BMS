@@ -46,7 +46,7 @@ export const Signup = () => {
     }
 
     const result = await signup(formData.email, formData.password, formData.name, formData.phone);
-    if (!result.error) {
+    if (result.success) {
       console.log('[SIGNUP_FORM]: Signup successful');
       toast({
         title: "Account created successfully!",
@@ -57,7 +57,7 @@ export const Signup = () => {
       console.log('[SIGNUP_FORM]: Signup failed');
       toast({
         title: "Signup failed",
-        description: result.error instanceof Error ? result.error.message : (result.error || "Please try again"),
+        description: result.error || "Please try again",
         variant: "destructive"
       });
     }

@@ -308,12 +308,12 @@ const InteractiveFinanceChart = () => {
           <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Real-time Analytics</span>
           <h4 className="text-lg font-black text-slate-900 dark:text-white">{data[metric].label}</h4>
         </div>
-        <div className="flex gap-1.5 p-1 bg-slate-150 dark:bg-slate-950 rounded-xl w-full sm:w-auto border border-slate-200/50 dark:border-slate-855">
+        <div className="flex gap-1.5 p-1 bg-slate-150 dark:bg-slate-950 rounded-xl w-full sm:w-auto border border-slate-200/50 dark:border-slate-855 overflow-x-auto scrollbar-none min-w-0">
           {(["revenue", "receivables", "gst"] as const).map((item) => (
             <button
               key={item}
               onClick={() => setMetric(item)}
-              className={`flex-1 sm:flex-none px-3 py-1.5 text-xs font-black rounded-lg transition-all capitalize whitespace-nowrap ${
+              className={`flex-none px-3 py-1.5 text-xs font-black rounded-lg transition-all capitalize whitespace-nowrap ${
                 metric === item 
                   ? "bg-slate-900 dark:bg-slate-850 text-white shadow-sm" 
                   : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
@@ -706,12 +706,12 @@ const IndustrySolutions = ({ activeTab, setActiveTab }: IndustrySolutionsProps) 
           <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-widest">Solutions For You</span>
           <h4 className="text-2xl font-black text-slate-900 dark:text-white mt-1">Tailored for Your Business Model</h4>
         </div>
-        <div className="flex gap-1.5 p-1 bg-slate-150 dark:bg-slate-950 rounded-xl border border-slate-250/50 dark:border-slate-855 w-full lg:w-auto">
+        <div className="flex gap-1.5 p-1 bg-slate-150 dark:bg-slate-955 rounded-xl border border-slate-250/50 dark:border-slate-855 w-full lg:w-auto overflow-x-auto scrollbar-none min-w-0">
           {(["retail", "wholesale", "services"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 lg:flex-none px-4 py-2 text-xs font-black rounded-lg transition-all capitalize whitespace-nowrap cursor-pointer ${
+              className={`flex-none px-4 py-2 text-xs font-black rounded-lg transition-all capitalize whitespace-nowrap cursor-pointer ${
                 activeTab === tab
                   ? "bg-slate-900 dark:bg-slate-800 text-white shadow-sm"
                   : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
@@ -724,7 +724,7 @@ const IndustrySolutions = ({ activeTab, setActiveTab }: IndustrySolutionsProps) 
       </div>
 
       <div className="grid lg:grid-cols-12 gap-8 items-center">
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 space-y-6 min-w-0">
           <div className="inline-flex items-center space-x-2 bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-950/30 px-3 py-1 rounded-full text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider">
             {data[activeTab].badge}
           </div>
@@ -750,7 +750,7 @@ const IndustrySolutions = ({ activeTab, setActiveTab }: IndustrySolutionsProps) 
           </div>
         </div>
 
-        <div className="lg:col-span-5 relative flex justify-center">
+        <div className="lg:col-span-5 relative flex justify-center min-w-0">
           <div className="absolute -inset-4 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-[2.5rem] blur-2xl opacity-15"></div>
           
           <div className="relative w-full max-w-[280px] aspect-square rounded-[2rem] bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col items-center justify-center p-6 text-center space-y-4">
@@ -852,7 +852,7 @@ const FreeGstCalculator = () => {
 
       <div className="grid md:grid-cols-12 gap-8 items-start">
         {/* Input Controls */}
-        <div className="md:col-span-7 space-y-5">
+        <div className="md:col-span-7 space-y-5 min-w-0">
           {/* Amount input */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
@@ -889,7 +889,7 @@ const FreeGstCalculator = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* GST Rate select */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">GST Rate (%)</label>
@@ -908,10 +908,10 @@ const FreeGstCalculator = () => {
             {/* GST Split toggle */}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">Supply Type</label>
-              <div className="flex bg-slate-150 dark:bg-slate-955 p-1 rounded-xl border border-slate-200/50 dark:border-slate-850 h-[46px] items-center">
+              <div className="flex bg-slate-150 dark:bg-slate-955 p-1 rounded-xl border border-slate-200/50 dark:border-slate-855 h-[46px] items-center">
                 <button
                   onClick={() => setIsInterState(false)}
-                  className={`flex-1 text-[9px] font-black py-2 rounded-lg transition-all cursor-pointer ${
+                  className={`flex-1 text-[9px] font-black py-2 rounded-lg transition-all cursor-pointer whitespace-nowrap px-1 ${
                     !isInterState
                       ? "bg-slate-900 dark:bg-slate-800 text-white shadow-sm"
                       : "text-slate-500 dark:text-slate-400"
@@ -921,7 +921,7 @@ const FreeGstCalculator = () => {
                 </button>
                 <button
                   onClick={() => setIsInterState(true)}
-                  className={`flex-1 text-[9px] font-black py-2 rounded-lg transition-all cursor-pointer ${
+                  className={`flex-1 text-[9px] font-black py-2 rounded-lg transition-all cursor-pointer whitespace-nowrap px-1 ${
                     isInterState
                       ? "bg-slate-900 dark:bg-slate-800 text-white shadow-sm"
                       : "text-slate-500 dark:text-slate-400"
@@ -979,7 +979,7 @@ const FreeGstCalculator = () => {
         </div>
 
         {/* Outputs Panel */}
-        <div className="md:col-span-5 space-y-5">
+        <div className="md:col-span-5 space-y-5 min-w-0">
           <div className="p-6 rounded-2xl bg-slate-50 dark:bg-slate-955 border border-slate-100 dark:border-slate-850 space-y-4 font-semibold text-xs text-slate-650 dark:text-slate-3.5 bg-gradient-to-b from-slate-50 to-slate-100/60 dark:from-slate-950 dark:to-slate-950/60 shadow-lg">
             <h5 className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest pb-2 border-b border-slate-200/50 dark:border-slate-900">Summary Sheet</h5>
             
@@ -1511,17 +1511,17 @@ const Landing = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="pt-32 pb-12 md:pb-20 px-6 relative">
+      <section className="pt-32 pb-12 md:pb-20 px-6 relative overflow-hidden">
         {/* Background Gradients */}
         <div className="absolute top-0 right-0 -z-10 w-[800px] h-[800px] bg-gradient-to-br from-primary/10 via-purple-500/5 to-transparent rounded-full blur-[120px] opacity-70 animate-pulse-glow" />
         <div className="absolute -bottom-40 -left-40 -z-10 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[100px] opacity-50" />
 
         <div className="container mx-auto">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-            <div className="lg:col-span-7 max-w-3xl">
-              <div className="inline-flex items-center space-x-2 bg-blue-500/10 dark:bg-blue-400/10 backdrop-blur-md px-4.5 py-2 rounded-full border border-blue-500/20 mb-8">
-                <span className="flex h-2.5 w-2.5 rounded-full bg-blue-500 animate-ping"></span>
-                <span className="text-[10px] sm:text-xs font-black text-blue-600 dark:text-blue-400 tracking-widest uppercase">
+            <div className="lg:col-span-7 max-w-3xl flex flex-col items-center lg:items-start text-center lg:text-left min-w-0">
+              <div className="inline-flex items-center space-x-2 bg-blue-500/10 dark:bg-blue-400/10 backdrop-blur-md px-4.5 py-2 rounded-full border border-blue-500/20 mb-8 self-center lg:self-start text-left">
+                <span className="flex h-2.5 w-2.5 rounded-full bg-blue-500 animate-ping shrink-0"></span>
+                <span className="text-[10px] sm:text-xs font-black text-blue-600 dark:text-blue-400 tracking-widest uppercase leading-tight">
                   100% Tax Compliant & Made for Indian Business Owners
                 </span>
               </div>
@@ -1538,7 +1538,7 @@ const Landing = () => {
               </p>
 
 
-              <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 w-full">
                 <div className="w-full sm:w-auto">
                   <Button size="lg" className="h-14 px-8 text-base rounded-full bg-primary hover:bg-primary/90 shadow-2xl shadow-primary/30 font-black w-full" asChild>
                     <Link to="/auth?view=signup">
@@ -1555,7 +1555,7 @@ const Landing = () => {
               </div>
 
               {/* Compliance Trust Badges */}
-              <div className="mt-12 pt-8 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center gap-x-8 gap-y-4 text-xs font-black text-slate-500 dark:text-slate-400">
+              <div className="mt-12 pt-8 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-4 text-xs font-black text-slate-500 dark:text-slate-400 w-full">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
                   <span>GST & Invoice-Ready</span>
@@ -1572,7 +1572,7 @@ const Landing = () => {
             </div>
 
             {/* Desktop Dashboard Preview with Browser Frame */}
-            <div className="lg:col-span-5 relative">
+            <div className="lg:col-span-5 relative min-w-0">
               <div className="relative z-10 animate-fade-in opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
                 <div className="relative group">
                   <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
@@ -1646,13 +1646,13 @@ const Landing = () => {
       <section id="features" className="py-16 md:py-24 px-6 border-t border-slate-200/50 dark:border-slate-800/40">
         <div className="container mx-auto">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-            <div className="lg:col-span-5 order-2 lg:order-1 relative">
+            <div className="lg:col-span-5 order-2 lg:order-1 relative min-w-0">
               <div className="absolute -inset-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-[2.5rem] blur-2xl opacity-15"></div>
               <LiveInvoiceDemo />
             </div>
             
-            <div className="lg:col-span-7 order-1 lg:order-2">
-              <div className="inline-flex items-center space-x-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3.5 py-1.5 rounded-full text-xs font-bold mb-6">
+            <div className="lg:col-span-7 order-1 lg:order-2 flex flex-col items-center lg:items-start text-center lg:text-left min-w-0">
+              <div className="inline-flex items-center space-x-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-3.5 py-1.5 rounded-full text-xs font-bold mb-6 self-center lg:self-start text-left">
                 <FileText className="w-4 h-4" />
                 <span>GST-Compliant Invoicing</span>
               </div>
@@ -1663,7 +1663,7 @@ const Landing = () => {
                 You don't need to do any manual math or worry about tax rules. Just choose your customer, pick your items, and let the software calculate the correct CGST, SGST, or IGST automatically. Your invoices look clean and print perfectly every time.
               </p>
               
-              <div className="grid sm:grid-cols-2 gap-6">
+              <div className="grid sm:grid-cols-2 gap-6 text-left w-full">
                 <div className="flex gap-3">
                   <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
                   <div>
@@ -1705,11 +1705,11 @@ const Landing = () => {
 
 
       {/* Feature 2: Automated Reminders (Using the original image, WhatsApp/Email notification stack) */}
-      <section id="reminders" className="py-16 md:py-24 px-6 bg-slate-50/50 dark:bg-slate-900/10 border-t border-slate-200/50 dark:border-slate-800/40">
+      <section id="reminders" className="py-16 md:py-24 px-6 bg-slate-50/50 dark:bg-slate-900/10 border-t border-slate-200/50 dark:border-slate-800/40 relative overflow-hidden">
         <div className="container mx-auto">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-            <div className="lg:col-span-7">
-              <div className="inline-flex items-center space-x-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-bold mb-6">
+            <div className="lg:col-span-7 flex flex-col items-center lg:items-start text-center lg:text-left min-w-0">
+              <div className="inline-flex items-center space-x-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-bold mb-6 self-center lg:self-start text-left">
                 <Zap className="w-4 h-4" />
                 <span>Intelligent Reminders</span>
               </div>
@@ -1720,7 +1720,7 @@ const Landing = () => {
                 Chasing unpaid bills is awkward and takes up too much time. EscrowBill sends friendly, automatic reminders on WhatsApp or SMS with a direct payment link, helping you recover cash without manual calls.
               </p>
 
-              <div className="space-y-4">
+              <div className="space-y-4 text-left w-full">
                 <div className="flex items-center gap-3">
                   <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
                   <span className="text-sm font-bold text-slate-700 dark:text-slate-350">Set friendly reminders before, on, or after the due date automatically.</span>
@@ -1736,7 +1736,7 @@ const Landing = () => {
               </div>
             </div>
 
-            <div className="lg:col-span-5 relative">
+            <div className="lg:col-span-5 relative min-w-0">
               <div className="absolute -inset-4 bg-gradient-to-l from-yellow-400 to-orange-500 rounded-3xl blur-2xl opacity-20"></div>
               
               <div className="relative bg-background border border-border rounded-3xl shadow-2xl p-4 sm:p-6 md:p-8 flex flex-col items-center justify-center min-h-[450px] space-y-6 overflow-hidden">
@@ -1794,13 +1794,13 @@ const Landing = () => {
       <section id="analytics" className="py-16 md:py-24 px-6 border-t border-slate-200/50 dark:border-slate-800/40">
         <div className="container mx-auto">
           <div className="grid lg:grid-cols-12 gap-12 items-center">
-            <div className="lg:col-span-5 order-2 lg:order-1 relative">
+            <div className="lg:col-span-5 order-2 lg:order-1 relative min-w-0">
               <div className="absolute -inset-4 bg-gradient-to-b from-indigo-500 to-purple-600 rounded-[2.5rem] blur-2xl opacity-15"></div>
               <InteractiveFinanceChart />
             </div>
 
-            <div className="lg:col-span-7 order-1 lg:order-2">
-              <div className="inline-flex items-center space-x-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3.5 py-1.5 rounded-full text-xs font-bold mb-6">
+            <div className="lg:col-span-7 order-1 lg:order-2 flex flex-col items-center lg:items-start text-center lg:text-left min-w-0">
+              <div className="inline-flex items-center space-x-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3.5 py-1.5 rounded-full text-xs font-bold mb-6 self-center lg:self-start text-left">
                 <BarChart3 className="w-4 h-4" />
                 <span>Financial Analytics</span>
               </div>
@@ -1811,7 +1811,7 @@ const Landing = () => {
                 No more waiting till the end of the month to check your profits. Get a simple, real-time dashboard showing your active revenue, who owes you money (Udhaar), and how much GST you've collected. Export everything for your accountant in a click.
               </p>
 
-              <div className="grid sm:grid-cols-2 gap-6">
+              <div className="grid sm:grid-cols-2 gap-6 text-left w-full">
                 <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-900/30 border border-slate-200/60 dark:border-slate-800 hover:border-indigo-500/30 transition-all">
                   <TrendingUp className="w-6 h-6 text-indigo-500 mb-3" />
                   <h4 className="font-bold text-sm text-slate-900 dark:text-white">Clear Udhaar & Sales Ledgers</h4>

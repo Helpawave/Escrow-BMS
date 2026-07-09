@@ -216,7 +216,7 @@ const CreateInvoicePage = () => {
         isOpen={showSuccess}
         onOpenChange={(open) => {
           setShowSuccess(open);
-          if (!open && !isEditing) navigate(isPurchase ? '/purchase-invoices' : '/invoices');
+          if (!open) navigate(isPurchase ? '/purchase-invoices' : '/invoices');
         }}
         title={successInfo.title}
         message={successInfo.message}

@@ -40,11 +40,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useQueryClient } from "@tanstack/react-query";
-import { 
-  fetchFullInvoiceData, 
-  formatCompanyData, 
-  formatInvoiceData, 
-  formatClientData 
+import {
+  fetchFullInvoiceData,
+  formatCompanyData,
+  formatInvoiceData,
+  formatClientData
 } from "@/utils/invoice-service";
 import { Invoice, InvoiceItem, Client, UserSettings, ClientData, CompanyData, ItemData } from "@/types/invoice";
 
@@ -84,12 +84,10 @@ const InvoicesPage = () => {
   useEffect(() => {
     localStorage.setItem('invoice_shared_status', JSON.stringify(sharedInvoices));
   }, [sharedInvoices]);
-  const [whatsappConfirmationOpen, setWhatsappConfirmationOpen] = useState(false);
-  const [whatsappMessage, setWhatsappMessage] = useState("");
+  const [whatsappResendOpen, setWhatsappResendOpen] = useState(false);
+  const [resendInvoiceData, setResendInvoiceData] = useState<Invoice | null>(null);
   const [whatsappPhone, setWhatsappPhone] = useState("");
-  const [whatsappPdfUrl, setWhatsappPdfUrl] = useState("");
   const [whatsappInvoiceId, setWhatsappInvoiceId] = useState("");
-  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [statusConfirmationOpen, setStatusConfirmationOpen] = useState(false);
   const [statusToConfirm, setStatusToConfirm] = useState<{ id: string, status: string } | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -148,7 +146,7 @@ const InvoicesPage = () => {
     if (user) {
       findInvoicePage();
       // Pre-authenticate Google Drive to reduce first-action latency
-      (googleDriveAPI as unknown as { ensureAuthenticated: () => Promise<boolean> }).ensureAuthenticated().catch(() => {});
+      (googleDriveAPI as unknown as { ensureAuthenticated: () => Promise<boolean> }).ensureAuthenticated().catch(() => { });
     }
   }, [initialInvoiceId, user]);
 
@@ -251,7 +249,7 @@ const InvoicesPage = () => {
           type: 'info'
         });
       }
-      
+
       // Invalidate query to refresh data
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -299,7 +297,7 @@ const InvoicesPage = () => {
       const invoiceData = formatInvoiceData(freshInvoiceData);
       const clientDataForUtils = formatClientData(clientFullData);
       const companyDataForUtils = formatCompanyData(profile, user?.email || "");
-      
+
       const formattedItems = items.map((item) => ({
         description: item.description,
         quantity: item.quantity,
@@ -398,17 +396,17 @@ const InvoicesPage = () => {
       });
 
       if (emailError) throw emailError;
- 
+
       toast({
         title: "Email Sent Successfully",
         description: "Invoice email sent successfully! Check your inbox."
       });
- 
+
       setSharedInvoices(prev => ({
         ...prev,
         [invoice.id]: { ...prev[invoice.id], email: true }
       }));
- 
+
     } catch (error) {
       console.error('Error sending email:', error);
       toast({
@@ -418,14 +416,14 @@ const InvoicesPage = () => {
       });
     }
   }, [user, toast]);
- 
+
   const sendInvoiceSMS = async (invoice: Invoice) => {
     // Prevent double execution
     if (sharingSMS === invoice.id) return;
-    
+
     setSharingSMS(invoice.id);
     setSmsInvoiceId(invoice.id);
-    
+
     // Set initial phone for the dialog (Client's phone)
     if (invoice.clients?.phone) {
       const rawPhone = invoice.clients.phone || '';
@@ -433,11 +431,11 @@ const InvoicesPage = () => {
       const phoneWithCC = digitsOnly.startsWith('91') ? digitsOnly : `91${digitsOnly}`;
       setSmsPhone(phoneWithCC);
     }
-    
+
     // Open dialog immediately for eager UI
     setSmsMessage("Generating your invoice PDF, please wait...");
     setSmsConfirmationOpen(true);
- 
+
     try {
       // Fetch all required data in parallel using consolidated service
       const {
@@ -465,9 +463,9 @@ const InvoicesPage = () => {
         discount: item.discount || 0,
         amount: item.amount
       }));
- 
+
       const template = (settings?.invoice_template as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate') || 'professional';
- 
+
       const blob = await generateInvoicePDFBlob(
         invoiceData,
         clientDataForUtils,
@@ -476,10 +474,10 @@ const InvoicesPage = () => {
         template,
         currencySymbol
       );
- 
+
       const fileName = `invoice-${freshInvoiceData.invoice_number}.pdf`;
       const driveFile = await googleDriveAPI.uploadPDF(blob, fileName);
- 
+
       if (driveFile) {
         const message = `Hello ${clientFullData.name},\n\nYour invoice ${freshInvoiceData.invoice_number} (${currencySymbol}${freshInvoiceData.total_amount.toFixed(2)}) is ready!\n\n📄 Download PDF: ${driveFile.webContentLink}\n\nThank you!`;
         setSmsMessage(message);
@@ -493,11 +491,14 @@ const InvoicesPage = () => {
       setSharingSMS(null);
     }
   };
- 
-  const handleSendWhatsApp = async () => {
-    try {
-      setSendingWhatsApp(true);
 
+  const performSendWhatsApp = async (
+    invoiceId: string,
+    phone: string,
+    message: string,
+    pdfUrl: string
+  ) => {
+    try {
       // Check if user is configured for personal WhatsApp delivery method
       const { data: settings } = await (supabase as any)
         .from('user_settings')
@@ -507,19 +508,23 @@ const InvoicesPage = () => {
 
       if (settings?.whatsapp_provider === 'personal') {
         console.log('User is configured for Personal WhatsApp, opening wa.me link...');
-        const waUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+        const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
         window.open(waUrl, '_blank');
 
         // Mark as sent locally
-        const currentInvoice = (invoices as unknown as Invoice[]).find(inv => inv.id === whatsappInvoiceId);
-        if (currentInvoice && currentInvoice.status === 'draft') {
-          await updateInvoiceStatus(whatsappInvoiceId, 'sent');
+        const { data: invData } = await (supabase as any)
+          .from('invoices')
+          .select('status')
+          .eq('id', invoiceId)
+          .maybeSingle();
+        if (invData && invData.status === 'draft') {
+          await updateInvoiceStatus(invoiceId, 'sent');
         }
 
         setSharedInvoices(prev => {
           const updated = {
             ...prev,
-            [whatsappInvoiceId]: { ...prev[whatsappInvoiceId], whatsapp: true }
+            [invoiceId]: { ...prev[invoiceId], whatsapp: true }
           };
           localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
           return updated;
@@ -529,8 +534,6 @@ const InvoicesPage = () => {
           title: "WhatsApp Opened! 📱",
           description: "Opening personal WhatsApp link to send invoice."
         });
-
-        setWhatsappConfirmationOpen(false);
         return;
       }
 
@@ -538,25 +541,29 @@ const InvoicesPage = () => {
       console.log('Attempting to send WhatsApp via Cloud API Edge Function...');
       const { data, error } = await supabase.functions.invoke('send-invoice-whatsapp', {
         body: {
-          invoiceId: whatsappInvoiceId,
-          recipientPhone: whatsappPhone,
-          message: whatsappMessage,
-          mediaUrl: whatsappPdfUrl
+          invoiceId,
+          recipientPhone: phone,
+          message,
+          mediaUrl: pdfUrl
         }
       });
 
       if (error) throw error;
 
       // Mark as sent locally
-      const currentInvoice = (invoices as unknown as Invoice[]).find(inv => inv.id === whatsappInvoiceId);
-      if (currentInvoice && currentInvoice.status === 'draft') {
-        await updateInvoiceStatus(whatsappInvoiceId, 'sent');
+      const { data: invData } = await (supabase as any)
+        .from('invoices')
+        .select('status')
+        .eq('id', invoiceId)
+        .maybeSingle();
+      if (invData && invData.status === 'draft') {
+        await updateInvoiceStatus(invoiceId, 'sent');
       }
 
       setSharedInvoices(prev => {
         const updated = {
           ...prev,
-          [whatsappInvoiceId]: { ...prev[whatsappInvoiceId], whatsapp: true }
+          [invoiceId]: { ...prev[invoiceId], whatsapp: true }
         };
         localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
         return updated;
@@ -566,59 +573,31 @@ const InvoicesPage = () => {
         title: "WhatsApp Message Sent! 🚀",
         description: "Invoice sent successfully via WhatsApp Cloud API."
       });
-
-      setWhatsappConfirmationOpen(false);
     } catch (error) {
-      console.warn('WhatsApp Cloud API failed, falling back to personal WhatsApp link:', error);
-      
-      // Fallback: Open wa.me so the user can send it from their own WhatsApp
-      const waUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`;
-      window.open(waUrl, '_blank');
-
-      // Mark as sent locally (assuming they will send it in the opened chat)
-      const currentInvoice = (invoices as unknown as Invoice[]).find(inv => inv.id === whatsappInvoiceId);
-      if (currentInvoice && currentInvoice.status === 'draft') {
-        await updateInvoiceStatus(whatsappInvoiceId, 'sent');
-      }
-
-      setSharedInvoices(prev => {
-        const updated = {
-          ...prev,
-          [whatsappInvoiceId]: { ...prev[whatsappInvoiceId], whatsapp: true }
-        };
-        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
-        return updated;
-      });
-
+      console.error('WhatsApp Cloud API failed:', error);
       toast({
-        title: "WhatsApp Opened! 📱",
-        description: "Cloud API failed, opening personal WhatsApp to send instead."
+        variant: "destructive",
+        title: "Send Failed ❌",
+        description: "Failed to send WhatsApp message via Cloud API. Please check your credentials."
       });
-
-      setWhatsappConfirmationOpen(false);
-    } finally {
-      setSendingWhatsApp(false);
     }
   };
 
-  const uploadToGoogleDrive = async (invoice: Invoice) => {
+  const startWhatsAppGenerationAndSend = async (invoice: Invoice) => {
     if (uploadingRef.current || uploadingWhatsApp === invoice.id) return;
- 
+
     uploadingRef.current = true;
     setUploadingWhatsApp(invoice.id);
     setWhatsappInvoiceId(invoice.id);
-    setWhatsappPdfUrl("");
-    
+
+    let phone = "";
     if (invoice.clients?.phone) {
       const rawPhone = invoice.clients.phone || '';
       const digitsOnly = rawPhone.replace(/[^\d]/g, '');
-      const phoneWithCC = digitsOnly.startsWith('91') ? digitsOnly : `91${digitsOnly}`;
-      setWhatsappPhone(phoneWithCC);
+      phone = digitsOnly.startsWith('91') ? digitsOnly : `91${digitsOnly}`;
+      setWhatsappPhone(phone);
     }
-    
-    setWhatsappMessage("Generating your invoice PDF, please wait...");
-    setWhatsappConfirmationOpen(true);
- 
+
     try {
       // Fetch all required data in parallel using consolidated service
       const {
@@ -632,7 +611,7 @@ const InvoicesPage = () => {
       const invoiceData = formatInvoiceData(freshInvoiceData);
       const clientDataForUtils = formatClientData(clientFullData);
       const companyDataForUtils = formatCompanyData(profile, user?.email || "");
-      
+
       const itemsData = items.map((item) => ({
         description: item.description,
         quantity: item.quantity,
@@ -643,10 +622,10 @@ const InvoicesPage = () => {
       }));
 
       const template = (settings?.invoice_template as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate') || 'professional';
- 
+
       const hasValidToken = await googleDriveAPI.ensureAuthenticated();
       if (!hasValidToken) await googleDriveAPI.authenticate();
- 
+
       const blob = await generateInvoicePDFBlob(
         invoiceData,
         clientDataForUtils as ClientData,
@@ -655,17 +634,17 @@ const InvoicesPage = () => {
         template,
         currencySymbol
       );
- 
+
       const fileName = `invoice-${freshInvoiceData.invoice_number}.pdf`;
       const driveFile = await googleDriveAPI.uploadPDF(blob, fileName);
- 
+
       if (driveFile) {
         // Upload to Supabase Storage to get a direct public URL for WhatsApp media attachment
         let directPdfUrl = driveFile.webContentLink;
         try {
           const cleanFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
           const supabaseFileName = `${user?.id}/invoices/${invoice.id}/${cleanFileName}`;
-          
+
           const { error: uploadError } = await supabase.storage
             .from('company-assets')
             .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
@@ -684,24 +663,32 @@ const InvoicesPage = () => {
           console.error('Error during Supabase Storage upload:', storageErr);
         }
 
-        const message = `Hello ${clientFullData.name},\n` +
-          `Thanks for business with ${companyDataForUtils.company_name}.\n\n` +
+        const message = `Hello ${clientFullData.name},\n\n` +
           `Your invoice ${freshInvoiceData.invoice_number} is ready!\n` +
           `Amount: ${currencySymbol}${freshInvoiceData.total_amount.toFixed(2)}\n\n` +
           `📄 Download PDF: ${driveFile.webContentLink}\n\n` +
-          `Thank you for your business!`;
- 
-        setWhatsappMessage(message);
-        setWhatsappPdfUrl(directPdfUrl);
+          `*Thanks for business with ${companyDataForUtils.company_name}. We appreciate your trust!*`;
+
+        await performSendWhatsApp(invoice.id, phone, message, directPdfUrl);
       } else {
         throw new Error('Upload failed');
       }
     } catch (error) {
-      console.error('Error uploading to WhatsApp:', error);
-      setWhatsappMessage(`Hello ${invoice.clients?.name}, your invoice ${invoice.invoice_number} is ready. Thank you!`);
+      console.error('Error uploading/sending to WhatsApp:', error);
+      const fallbackMessage = `Hello ${invoice.clients?.name}, your invoice ${invoice.invoice_number} is ready. Thank you!`;
+      await performSendWhatsApp(invoice.id, phone, fallbackMessage, "");
     } finally {
       setUploadingWhatsApp(null);
       uploadingRef.current = false;
+    }
+  };
+
+  const handleWhatsAppClick = (invoice: Invoice) => {
+    if (sharedInvoices[invoice.id]?.whatsapp) {
+      setResendInvoiceData(invoice);
+      setWhatsappResendOpen(true);
+    } else {
+      startWhatsAppGenerationAndSend(invoice);
     }
   };
 
@@ -797,20 +784,20 @@ const InvoicesPage = () => {
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              type="text"
-              placeholder="Search by invoice number or client name..."
-              className="pl-10 h-11 bg-background border-border/50 rounded-xl"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchLoading && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              </div>
-            )}
-          </div>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search by invoice number or client name..."
+            className="pl-10 h-11 bg-background border-border/50 rounded-xl"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchLoading && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
         <div className="w-full sm:w-48">
           <select
             className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
@@ -917,7 +904,7 @@ const InvoicesPage = () => {
                       aria-label="Download PDF"
                       disabled={downloadingPDFId === invoice.id}
                     >
-                      {downloadingPDFId === invoice.id 
+                      {downloadingPDFId === invoice.id
                         ? <Loader2 className="w-4 h-4 animate-spin" />
                         : <Download className="w-4 h-4" />}
                     </Button>
@@ -925,7 +912,7 @@ const InvoicesPage = () => {
                       variant="outline"
                       size="sm"
                       className={`h-10 w-full ${(sharedInvoices[invoice.id]?.whatsapp && invoice.status !== 'draft') ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); uploadToGoogleDrive(invoice); }}
+                      onClick={(e) => { e.stopPropagation(); handleWhatsAppClick(invoice); }}
                       title="Share to WhatsApp"
                       aria-label="Share to WhatsApp"
                       disabled={uploadingWhatsApp === invoice.id}
@@ -933,8 +920,8 @@ const InvoicesPage = () => {
                       {uploadingWhatsApp === invoice.id
                         ? <Loader2 className="w-4 h-4 animate-spin" />
                         : <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${(sharedInvoices[invoice.id]?.whatsapp && invoice.status !== 'draft') ? 'text-emerald-700' : 'text-emerald-500'}`}>
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                          </svg>}
+                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                        </svg>}
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -949,7 +936,7 @@ const InvoicesPage = () => {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
                         {invoice.clients?.email && (
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => { setInvoiceToSend(invoice); setEmailConfirmationOpen(true); }}
                             className={sharedInvoices[invoice.id]?.email ? "text-emerald-600 font-medium" : ""}
                           >
@@ -957,7 +944,7 @@ const InvoicesPage = () => {
                             Email to Client {sharedInvoices[invoice.id]?.email && "✓"}
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => sendInvoiceSMS(invoice)}
                           className={sharedInvoices[invoice.id]?.sms ? "text-emerald-600 font-medium" : ""}
                         >
@@ -970,7 +957,7 @@ const InvoicesPage = () => {
                               <Pencil className="mr-2 h-4 w-4" />
                               Edit Invoice
                             </DropdownMenuItem>
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => { setStatusToConfirm({ id: invoice.id, status: 'paid' }); setStatusConfirmationOpen(true); }}
                             >
                               <CreditCard className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -978,7 +965,7 @@ const InvoicesPage = () => {
                             </DropdownMenuItem>
                           </>
                         ) : (
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             disabled
                             className="text-emerald-600 font-medium disabled:opacity-100"
                           >
@@ -1047,16 +1034,16 @@ const InvoicesPage = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => uploadToGoogleDrive(invoice)}
+                      onClick={() => handleWhatsAppClick(invoice)}
                       title="Send PDF via WhatsApp"
                       className={`flex items-center gap-1 h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[invoice.id]?.whatsapp ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
                       disabled={uploadingWhatsApp === invoice.id}
                     >
-                      {uploadingWhatsApp === invoice.id 
+                      {uploadingWhatsApp === invoice.id
                         ? <Loader2 className="w-4 h-4 animate-spin" />
                         : <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${sharedInvoices[invoice.id]?.whatsapp ? 'text-emerald-700' : 'text-emerald-500'}`}>
-                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                          </svg>}
+                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                        </svg>}
                       <span className="hidden lg:inline">WhatsApp</span>
                     </Button>
 
@@ -1070,7 +1057,7 @@ const InvoicesPage = () => {
                         className="h-8 lg:h-9 px-2 lg:px-3 bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
                       >
                         <CreditCard className="w-4 h-4 text-emerald-700 lg:mr-1" />
-                        <span className="hidden lg:inline">Paid</span>
+                        <span className="hidden lg:inline">Mark as Paid</span>
                       </Button>
                     )}
 
@@ -1152,7 +1139,7 @@ const InvoicesPage = () => {
           </AlertDialogHeader>
           <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
             <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => invoiceToSend && sendInvoiceEmail(invoiceToSend)}
               className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-primary/20 bg-primary hover:opacity-90 transition-all"
             >
@@ -1162,87 +1149,31 @@ const InvoicesPage = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={whatsappConfirmationOpen} onOpenChange={setWhatsappConfirmationOpen}>
-        <AlertDialogContent className="max-w-lg rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4 border-b">
-            <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4">
-              <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-emerald-500">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-              </svg>
+      <AlertDialog open={whatsappResendOpen} onOpenChange={setWhatsappResendOpen}>
+        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
+          <AlertDialogHeader className="p-4 md:p-8 pb-4">
+            <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-500" />
             </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">WhatsApp Preview</AlertDialogTitle>
+            <AlertDialogTitle className="text-2xl font-black tracking-tight">WhatsApp Sent Already</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              Review and edit the message below. Clicking <strong>Open WhatsApp</strong> will open WhatsApp with this message pre-filled — just press Send.
+              This invoice has already been sent once. Do you want to send it again?
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="p-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat">
-            <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-tr-lg rounded-tl-lg rounded-br-lg p-3 shadow-sm relative max-w-[85%] mb-2">
-              <div className="relative">
-                <Textarea
-                  value={whatsappMessage}
-                  onChange={(e) => setWhatsappMessage(e.target.value)}
-                  className="min-h-[150px] border-none focus-visible:ring-0 resize-none p-0 text-sm leading-relaxed text-gray-800 dark:text-gray-200 bg-transparent"
-                  disabled={uploadingWhatsApp !== null}
-                />
-                {uploadingWhatsApp !== null && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-800/50 rounded-lg">
-                    <div className="flex flex-col items-center gap-2">
-                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
-                      <p className="text-xs font-bold text-emerald-600 animate-pulse">Preparing PDF...</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
-                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                <span className="text-[#34B7F1]">✓✓</span>
-              </div>
-
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-1 right-1 h-6 w-6 text-gray-400 hover:text-gray-600 dark:text-gray-400"
-                onClick={() => {
-                  navigator.clipboard.writeText(whatsappMessage);
-                  toast({
-                    title: "Copied!",
-                    description: "Message copied to clipboard",
-                    duration: 2000,
-                  });
-                }}
-                title="Copy message"
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-
-          <AlertDialogFooter className="p-4 bg-muted/5 flex flex-row gap-3 items-center justify-end border-t">
-            <AlertDialogCancel className="m-0 h-11 px-6 font-bold rounded-xl border-2 hover:bg-muted/50 transition-all">
-              Cancel
+          <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
+            <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">
+              No
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={uploadingWhatsApp !== null || sendingWhatsApp}
-              onClick={(e) => {
-                e.preventDefault();
-                handleSendWhatsApp();
+              onClick={() => {
+                if (resendInvoiceData) {
+                  startWhatsAppGenerationAndSend(resendInvoiceData);
+                }
               }}
-              className="h-11 px-8 font-black rounded-xl shadow-lg shadow-emerald-500/20 bg-[#25D366] hover:bg-[#128C7E] text-white flex items-center gap-2 transition-all disabled:opacity-50"
+              className="flex-1 h-11 font-bold rounded-xl shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white transition-all animate-in fade-in"
             >
-              {sendingWhatsApp ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Opening...
-                </>
-              ) : (
-                <>
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                  </svg>
-                  Open WhatsApp
-                </>
-              )}
+              Yes
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1268,7 +1199,7 @@ const InvoicesPage = () => {
           </div>
           <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
             <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 const smsUrl = `sms:${smsPhone}?body=${encodeURIComponent(smsMessage)}`;
                 window.location.href = smsUrl;
@@ -1302,7 +1233,7 @@ const InvoicesPage = () => {
           </AlertDialogHeader>
           <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
             <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => statusToConfirm && updateInvoiceStatus(statusToConfirm.id, statusToConfirm.status)}
               className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white transition-all"
             >
@@ -1335,63 +1266,63 @@ const InvoicesPage = () => {
           <div className="p-4 md:p-6 md:p-8 space-y-6">
             {invoiceToDelete?.status === 'paid' && (
               <div className="space-y-4">
-                  <div className="space-y-3">
-                    <div
-                      className="flex items-center space-x-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
-                      onClick={() => setPaidVerificationChecked(!paidVerificationChecked)}
-                    >
-                      <Checkbox
-                        id="verify1"
-                        checked={paidVerificationChecked}
-                        className="rounded-lg border-2"
-                      />
-                      <Label htmlFor="verify1" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer group-hover:text-foreground">Permanent Deletion Acknowledged</Label>
-                    </div>
+                <div className="space-y-3">
+                  <div
+                    className="flex items-center space-x-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
+                    onClick={() => setPaidVerificationChecked(!paidVerificationChecked)}
+                  >
+                    <Checkbox
+                      id="verify1"
+                      checked={paidVerificationChecked}
+                      className="rounded-lg border-2"
+                    />
+                    <Label htmlFor="verify1" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer group-hover:text-foreground">Permanent Deletion Acknowledged</Label>
+                  </div>
 
-                    <div
-                      className="flex items-center space-x-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
-                      onClick={() => setPaidVerificationChecked2(!paidVerificationChecked2)}
-                    >
-                      <Checkbox
-                        id="verify2"
-                        checked={paidVerificationChecked2}
-                        className="rounded-lg border-2"
-                      />
-                      <Label htmlFor="verify2" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer group-hover:text-foreground">Financial Impact Verified</Label>
-                    </div>
+                  <div
+                    className="flex items-center space-x-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
+                    onClick={() => setPaidVerificationChecked2(!paidVerificationChecked2)}
+                  >
+                    <Checkbox
+                      id="verify2"
+                      checked={paidVerificationChecked2}
+                      className="rounded-lg border-2"
+                    />
+                    <Label htmlFor="verify2" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer group-hover:text-foreground">Financial Impact Verified</Label>
+                  </div>
 
-                    <div className="space-y-2 pt-2">
-                      <Label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 ml-1">Type "DELETE" to confirm</Label>
-                      <Input
-                        placeholder="Type DELETE"
-                        value={deleteConfirmText}
-                        onChange={(e) => setDeleteConfirmText(e.target.value)}
-                        className="h-12 rounded-md bg-muted/50 border-border text-center font-bold tracking-widest focus-visible:ring-primary/20"
-                      />
-                    </div>
+                  <div className="space-y-2 pt-2">
+                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 ml-1">Type "DELETE" to confirm</Label>
+                    <Input
+                      placeholder="Type DELETE"
+                      value={deleteConfirmText}
+                      onChange={(e) => setDeleteConfirmText(e.target.value)}
+                      className="h-12 rounded-md bg-muted/50 border-border text-center font-bold tracking-widest focus-visible:ring-primary/20"
+                    />
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              <AlertDialogFooter className="sm:justify-center gap-3">
-                <AlertDialogCancel className="flex-1 h-12 rounded-md border border-border font-semibold uppercase tracking-wider text-[10px] m-0">
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={confirmDeleteInvoice}
-                  disabled={invoiceToDelete?.status === 'paid' && (!paidVerificationChecked || !paidVerificationChecked2 || deleteConfirmText !== 'DELETE')}
-                  className={`flex-1 h-12 rounded-md font-bold uppercase tracking-wider text-[10px] shadow-sm transition-all
+            <AlertDialogFooter className="sm:justify-center gap-3">
+              <AlertDialogCancel className="flex-1 h-12 rounded-md border border-border font-semibold uppercase tracking-wider text-[10px] m-0">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDeleteInvoice}
+                disabled={invoiceToDelete?.status === 'paid' && (!paidVerificationChecked || !paidVerificationChecked2 || deleteConfirmText !== 'DELETE')}
+                className={`flex-1 h-12 rounded-md font-bold uppercase tracking-wider text-[10px] shadow-sm transition-all
                     ${invoiceToDelete?.status === 'paid'
-                      ? 'bg-rose-600 hover:bg-rose-700 text-white'
-                      : 'bg-amber-600 hover:bg-amber-700 text-white'
-                    }`}
-                >
-                  Delete Invoice
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </div>
-          </AlertDialogContent>
-        </AlertDialog>
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                    : 'bg-amber-600 hover:bg-amber-700 text-white'
+                  }`}
+              >
+                Delete Invoice
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <SuccessModal
         isOpen={showSuccess}

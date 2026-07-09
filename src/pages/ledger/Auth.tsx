@@ -247,6 +247,22 @@ const Auth = () => {
             </button>
           </form>
 
+          <div className="relative py-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-slate-50 lg:bg-white dark:bg-slate-900 px-4 text-slate-400 dark:text-slate-500 font-medium tracking-widest transition-colors duration-200">Or continue with</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-3 transition-all active:scale-[0.98]"
+          >
+            <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+            Sign in with Google
+          </button>
 
           <div className="mt-8 text-center">
             <p className="text-slate-500 dark:text-slate-400 font-medium">

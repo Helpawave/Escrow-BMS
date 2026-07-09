@@ -143,7 +143,7 @@ export const Login = () => {
                   </Button>
                 </div>
               </div>
-              <Button type="submit" variant="default" className="w-full" disabled={loading}>
+              <Button type="submit" variant="primary" className="w-full" disabled={loading}>
                 {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>

@@ -199,7 +199,7 @@ export const Signup = () => {
                 </div>
               </div>
 
-              <Button type="submit" variant="default" className="w-full" disabled={loading}>
+              <Button type="submit" variant="primary" className="w-full" disabled={loading}>
                 {loading ? "Creating account..." : "Create Account"}
               </Button>
             </form>

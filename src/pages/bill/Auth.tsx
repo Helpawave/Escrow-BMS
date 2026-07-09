@@ -377,7 +377,14 @@ const AuthPage = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     try {
-      await signInWithGoogle();
+      const { error } = await signInWithGoogle();
+      if (error) {
+        toast({
+          variant: "destructive",
+          title: "Google Sign In Failed",
+          description: error.message,
+        });
+      }
     } catch (error: unknown) {
       toast({ variant: "destructive", title: "Error", description: "An unexpected error occurred." });
     } finally {

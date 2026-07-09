@@ -1,4 +1,4 @@
-import Footer from "@/components/Footer";
+import Footer from '@/components/Footer';
 import SEO from "@/components/SEO";
 import { RefreshCcw, ShieldCheck, Clock, CreditCard, HelpCircle, ArrowLeft, Mail, AlertCircle, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";

@@ -1,4 +1,4 @@
-import Footer from "@/components/Footer";
+import Footer from '@/components/Footer';
 import SEO from "@/components/SEO";
 import { Shield, Eye, Lock, FileText, ArrowLeft, Users, Globe, Mail, CheckCircle, Scale } from "lucide-react";
 import { motion } from "framer-motion";

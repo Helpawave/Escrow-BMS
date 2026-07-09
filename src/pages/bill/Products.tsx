@@ -536,7 +536,6 @@ const ProductsPage = () => {
       }
 
       setDialogOpen(false);
-      setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       resetForm();
@@ -589,7 +588,7 @@ const ProductsPage = () => {
       description: product.description || '',
       price: product.price?.toString() || '',
       discount: product.discount?.toString() || '',
-      tax_rate: String(product.tax_rate || 18),
+      tax_rate: String(product.tax_rate !== null && product.tax_rate !== undefined ? product.tax_rate : 18),
       unit: product.unit || 'pcs',
       category: product.category || 'general',
       type: product.type || 'product',

@@ -400,7 +400,7 @@ const EInvoicePage = () => {
           quantity: item.quantity || 1,
           unit: mapProductUnitToInvoiceUnit(item.unit || item.products?.unit),
           rate: item.rate || item.price || 0,
-          tax_rate: item.tax_rate || 18,
+          tax_rate: item.tax_rate !== undefined && item.tax_rate !== null ? item.tax_rate : 18,
           amount: (item.quantity || 1) * (item.rate || item.price || 0)
         }));
         setEInvoiceItems(mappedItems);
@@ -613,7 +613,7 @@ const EInvoicePage = () => {
         quantity: selectedQuantities[p.id],
         unit: mapProductUnitToInvoiceUnit(p.unit),
         rate: p.price,
-        tax_rate: Number(p.tax_rate) || 18,
+        tax_rate: p.tax_rate !== undefined && p.tax_rate !== null ? Number(p.tax_rate) : 18,
         amount: p.price * selectedQuantities[p.id]
       }));
 
@@ -699,7 +699,8 @@ const EInvoicePage = () => {
             .single();
 
           if (product) {
-            const currentStock = parseFloat(String(product.opening_stock ?? "0"));
+            // @ts-expect-error: opening_stock is valid on product but inference fails
+            const currentStock = parseFloat(product.opening_stock || "0");
             const newStock = currentStock - item.quantity;
             await supabase
               .from('products')
@@ -824,7 +825,8 @@ const EInvoicePage = () => {
             .single();
 
           if (product) {
-            const currentStock = parseFloat(String(product.opening_stock ?? "0"));
+            // @ts-expect-error: opening_stock is valid on product but inference fails
+            const currentStock = parseFloat(product.opening_stock || "0");
             const newStock = currentStock - item.quantity;
             await supabase
               .from('products')

@@ -21,15 +21,15 @@ import { LayoutGrid, List as ListIcon } from "lucide-react";
 interface Client {
   id: string;
   name: string;
-  email?: string | null;
-  phone?: string | null;
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  gstin?: string | null;
-  hide_contact_details?: boolean | null;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  gstin: string;
+  hide_contact_details: boolean;
   pending_amount?: number;
 }
 

@@ -105,15 +105,12 @@ import { UserData, RawUserData, RevenueData, AuditLog, SystemSetting } from '@/t
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-const serviceRoleSupabase = (supabaseUrl && supabaseServiceKey)
-  ? createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    })
-  : supabase;
-
+const serviceRoleSupabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false
+  }
+});
 
 const WhatsAppIcon = ({ className }: { className?: string }) => (
   <svg 
@@ -134,7 +131,6 @@ const AdminDashboard = () => {
   const [resetPasswordEmail, setResetPasswordEmail] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
   const [activeTab, setActiveTab] = useState("overview");
-  const [userSubTab, setUserSubTab] = useState<'admins' | 'clients'>('clients');
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -152,9 +148,6 @@ const AdminDashboard = () => {
   const [totalActiveUsersCount, setTotalActiveUsersCount] = useState(0);
   const [totalInvoicesCount, setTotalInvoicesCount] = useState(0);
   const [totalClientsCount, setTotalClientsCount] = useState(0);
-  const [totalPlatformClientsCount, setTotalPlatformClientsCount] = useState(0);
-  const [totalPlatformAdminsCount, setTotalPlatformAdminsCount] = useState(0);
-  const [totalPlatformUsersCount, setTotalPlatformUsersCount] = useState(0);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // System settings states
@@ -334,16 +327,13 @@ const AdminDashboard = () => {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const { data: adminData, error } = await (serviceRoleSupabase as any).rpc('admin_get_all_users', {
+      const { data: adminData } = await (supabase as unknown as { 
+        rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> 
+      }).rpc('admin_get_all_users', {
         p_limit: usersPageSize,
         p_offset: (usersPage - 1) * usersPageSize,
-        p_search: debouncedSearch,
-        p_role_type: userSubTab === 'admins' ? 'admin' : 'client'
+        p_search: debouncedSearch
       });
-      if (error) {
-        console.error('fetchUsers RPC error:', error);
-        return;
-      }
       if (adminData) {
         const userList = adminData as (RawUserData & { total_count: number })[];
         // Extract total count from the first record if available
@@ -369,8 +359,7 @@ const AdminDashboard = () => {
             plan_type: u.plan_type,
             is_blocked: !!u.is_blocked,
             is_paid: !!u.is_paid,
-            whatsapp_provider: u.whatsapp_provider || 'meta',
-            role: u.role || 'user'
+            whatsapp_provider: u.whatsapp_provider || 'meta'
           }));
         setUsers(mappedUsers);
 
@@ -380,7 +369,7 @@ const AdminDashboard = () => {
     } catch (error) {
       console.error('Error fetching users:', error);
     }
-  }, [usersPage, usersPageSize, debouncedSearch, userSubTab]);
+  }, [usersPage, usersPageSize, debouncedSearch]);
 
 
   const fetchAuditLogs = useCallback(async () => {
@@ -450,15 +439,13 @@ const AdminDashboard = () => {
 
   const fetchSystemStats = useCallback(async () => {
     try {
-      const { data, error } = await (serviceRoleSupabase as any).rpc('admin_get_stats');
+      const { data, error } = await (supabase as any).rpc('admin_get_stats');
       if (error) throw error;
       if (data) {
-        setTotalPlatformUsersCount(Number(data.total_users || 0));
+        setTotalUsersCount(Number(data.total_users || 0));
         setTotalActiveUsersCount(Number(data.active_users || 0));
         setTotalInvoicesCount(Number(data.total_invoices || 0));
         setTotalClientsCount(Number(data.total_clients || 0));
-        setTotalPlatformClientsCount(Number(data.total_platform_clients || 0));
-        setTotalPlatformAdminsCount(Number(data.total_platform_admins || 0));
       }
     } catch (error) {
       console.error('Error fetching system stats:', error);
@@ -805,7 +792,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     setUsersPage(1);
-  }, [searchTerm, usersPageSize, userSubTab]);
+  }, [searchTerm, usersPageSize]);
 
   useEffect(() => {
     if (usersPage > totalUserPages) {
@@ -847,7 +834,7 @@ const AdminDashboard = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {[
-            { label: 'Total Users', value: totalPlatformUsersCount, icon: <Users className="w-6 h-6 text-blue-500" />, bgColor: 'bg-blue-500/10' },
+            { label: 'Total Users', value: totalUsersCount, icon: <Users className="w-6 h-6 text-blue-500" />, bgColor: 'bg-blue-500/10' },
             { label: 'Active Users', value: totalActiveUsersCount, icon: <CheckCircle className="w-6 h-6 text-emerald-500" />, bgColor: 'bg-emerald-500/10' },
             { label: 'Total Invoices', value: totalInvoicesCount, icon: <FileText className="w-6 h-6 text-indigo-500" />, bgColor: 'bg-indigo-500/10' },
             { label: 'Total Clients', value: totalClientsCount, icon: <Users className="w-6 h-6 text-amber-500" />, bgColor: 'bg-amber-500/10' },
@@ -979,57 +966,11 @@ const AdminDashboard = () => {
           </TabsContent>
 
           <TabsContent value="users" className="space-y-6 outline-none">
-            {/* Admin / Client sub-tabs */}
-            <div className="flex gap-2 mb-2">
-              <button
-                onClick={() => setUserSubTab('clients')}
-                className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold text-sm transition-all border ${
-                  userSubTab === 'clients'
-                    ? 'bg-blue-600 text-white border-blue-600 shadow'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-400'
-                }`}
-              >
-                <Users className="w-4 h-4" />
-                Clients
-                <span className={`ml-1 text-xs px-2 py-0.5 rounded-full font-bold ${
-                  userSubTab === 'clients' ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
-                }`}>
-                  {totalPlatformClientsCount}
-                </span>
-              </button>
-              <button
-                onClick={() => setUserSubTab('admins')}
-                className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold text-sm transition-all border ${
-                  userSubTab === 'admins'
-                    ? 'bg-indigo-600 text-white border-indigo-600 shadow'
-                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
-                }`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                Business Admins
-                <span className={`ml-1 text-xs px-2 py-0.5 rounded-full font-bold ${
-                  userSubTab === 'admins' ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
-                }`}>
-                  {totalPlatformAdminsCount}
-                </span>
-              </button>
-            </div>
-
             <Card className="border-none shadow-md overflow-hidden bg-white dark:bg-slate-800/50 backdrop-blur-md dark:bg-slate-800/50">
               <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-0 mb-6">
                 <div className="pb-4">
-                  <CardTitle className="text-xl font-bold flex items-center gap-2">
-                    {userSubTab === 'admins' ? (
-                      <><ShieldCheck className="w-5 h-5 text-indigo-500" /> Business Admin Directory</>
-                    ) : (
-                      <><Users className="w-5 h-5 text-blue-500" /> Client Directory</>
-                    )}
-                  </CardTitle>
-                  <CardDescription>
-                    {userSubTab === 'admins'
-                      ? 'Users with admin role — they manage their own business workspace'
-                      : 'Regular platform users / clients'}
-                  </CardDescription>
+                  <CardTitle className="text-xl font-bold">User Directory</CardTitle>
+                  <CardDescription>Manage profile access and billing for all platform users</CardDescription>
                 </div>
                 <div className="flex gap-3 pb-4">
                   <div className="relative">
@@ -1068,27 +1009,19 @@ const AdminDashboard = () => {
                         </TableRow>
                       ))
                     ) : (
-                      (() => {
-                        const filtered = users;
-                        if (filtered.length === 0) return (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center py-20">
-                              <div className="flex flex-col items-center">
-                                <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4">
-                                  {userSubTab === 'admins'
-                                    ? <ShieldCheck className="w-8 h-8 text-slate-400" />
-                                    : <Search className="w-8 h-8 text-slate-400" />}
-                                </div>
-                                <p className="text-slate-500 dark:text-slate-400 font-bold text-lg">
-                                  {userSubTab === 'admins'
-                                    ? 'No business admins found'
-                                    : `No clients found matching "${searchTerm}"`}
-                                </p>
+                      users.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-20">
+                            <div className="flex flex-col items-center">
+                              <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4">
+                                <Search className="w-8 h-8 text-slate-400" />
                               </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                        return filtered.map((user) => (
+                              <p className="text-slate-500 dark:text-slate-400 font-bold text-lg">No users found matching "{searchTerm}"</p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        users.map((user) => (
                           <TableRow key={user.user_id} className="group border-slate-100 dark:border-slate-800 transition-colors">
                             <TableCell className="py-4">
                               <div className="flex items-center gap-3">
@@ -1233,8 +1166,8 @@ const AdminDashboard = () => {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ));
-                      })()
+                        ))
+                      )
                     )}
                   </TableBody>
                 </Table>
