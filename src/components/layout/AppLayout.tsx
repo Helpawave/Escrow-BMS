@@ -20,7 +20,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const location = useLocation();
   const { t } = useLanguage();
-  const { user, profile, refreshProfile, isSubscribed } = useAuth();
+  const { user, profile, refreshProfile, isSubscribed, loading: authLoading } = useAuth();
 
   // Modal form states
   const [fullName, setFullName] = useState('');
@@ -144,14 +144,14 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   };
 
-  // Determine if profile details are missing
-  const isProfileIncomplete = user && (
+  // Determine if profile details are missing (after loading completes)
+  const isProfileIncomplete = user && !authLoading && profile && (
     !profile?.full_name?.trim() || 
     !profile?.company_name?.trim() || 
     !profile?.phone?.trim()
   );
 
-  const shouldBlockWorkspace = isSubscribed === false && !isProfileIncomplete;
+  const shouldBlockWorkspace = isSubscribed === false && !authLoading && !isProfileIncomplete;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
@@ -264,7 +264,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         </div>
       )}
 
-      {isSubscribed === false && (
+      {isSubscribed === false && !authLoading && (
         <SubscriptionModal />
       )}
     </div>
