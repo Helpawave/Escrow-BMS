@@ -261,16 +261,6 @@ export default function Dashboard() {
           });
         }
 
-        // Demo fallback if completely empty
-        const totalSalesSum = last6Months.reduce((sum, m) => sum + m.sales, 0);
-        if (totalSalesSum === 0) {
-          last6Months[0] = { monthName: 'Jan', sales: 12000, revenue: 10000, expense: 4000, estimates: 14000 };
-          last6Months[1] = { monthName: 'Feb', sales: 19000, revenue: 15000, expense: 6000, estimates: 21000 };
-          last6Months[2] = { monthName: 'Mar', sales: 15000, revenue: 14000, expense: 5000, estimates: 16000 };
-          last6Months[3] = { monthName: 'Apr', sales: 22000, revenue: 18000, expense: 7000, estimates: 24000 };
-          last6Months[4] = { monthName: 'May', sales: 30000, revenue: 25000, expense: 9000, estimates: 32000 };
-          last6Months[5] = { monthName: 'Jun', sales: 35000, revenue: 31000, expense: 11000, estimates: 38000 };
-        }
 
         const totalRevenue = last6Months.reduce((sum, m) => sum + m.revenue, 0);
         const totalExpenses = last6Months.reduce((sum, m) => sum + m.expense, 0);
