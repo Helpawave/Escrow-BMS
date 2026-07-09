@@ -13,16 +13,14 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 BEGIN
-  -- Insert into profiles table with admin role and free plan type
-  INSERT INTO public.profiles (user_id, first_name, last_name, display_name, role, plan_type, is_paid)
+  -- Insert into profiles table with admin role by default
+  INSERT INTO public.profiles (user_id, first_name, last_name, display_name, role)
   VALUES (
     NEW.id,
     NEW.raw_user_meta_data ->> 'first_name',
     NEW.raw_user_meta_data ->> 'last_name',
     COALESCE(NEW.raw_user_meta_data ->> 'display_name', NEW.raw_user_meta_data ->> 'first_name'),
-    'admin',
-    'free',
-    false
+    'admin'
   );
   
   -- Insert default user role as admin (owner of their workspace)

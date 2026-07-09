@@ -110,7 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Profile not created yet (trigger may not have fired) — create it
         const { data: created } = await supabase
           .from('profiles')
-          .insert({ id: userId, role: 'admin', plan_type: 'free' })
+          .insert({ id: userId, role: 'admin' })
           .select()
           .maybeSingle();
         if (created) setProfile(created as Profile);
