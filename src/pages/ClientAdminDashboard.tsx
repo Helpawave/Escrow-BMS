@@ -14,7 +14,17 @@ interface TeamMember {
   email: string;
   role: 'Owner' | 'Manager' | 'Auditor' | 'Staff';
   dateAdded: string;
+  allowedModules?: string[];
 }
+
+const MODULES_LIST = [
+  { key: 'billing', label: 'Billing' },
+  { key: 'payroll', label: 'Payroll' },
+  { key: 'ledger', label: 'Ledger' },
+  { key: 'inventory', label: 'Inventory' },
+  { key: 'crm', label: 'CRM' },
+  { key: 'daily-hisab', label: 'Hisab' }
+];
 
 export default function ClientAdminDashboard() {
   const { user, profile } = useAuth();
@@ -82,7 +92,8 @@ export default function ClientAdminDashboard() {
           name: m.full_name || 'Team Member',
           email: m.email || 'No Email',
           role: m.role === 'admin' ? 'Owner' : 'Staff',
-          dateAdded: m.created_at || new Date().toISOString()
+          dateAdded: m.created_at || new Date().toISOString(),
+          allowedModules: m.allowed_modules || JSON.parse(localStorage.getItem(`bms_permissions_${m.id}`) || '["billing", "payroll", "ledger", "inventory", "crm", "daily-hisab"]')
         })));
       }
 
@@ -254,6 +265,42 @@ export default function ClientAdminDashboard() {
       loadWorkspaceData();
     } catch (err: any) {
       toast.error(`Error updating role: ${err.message}`);
+    }
+  };
+
+  const handleToggleModuleAccess = async (member: TeamMember, moduleKey: string) => {
+    const currentModules = member.allowedModules || ['billing', 'payroll', 'ledger', 'inventory', 'crm', 'daily-hisab'];
+    let updatedModules: string[];
+    
+    if (currentModules.includes(moduleKey)) {
+      updatedModules = currentModules.filter(m => m !== moduleKey);
+    } else {
+      updatedModules = [...currentModules, moduleKey];
+    }
+
+    try {
+      // 1. Try to update public.profiles table in Supabase
+      const { error } = await supabase
+        .from('profiles')
+        .update({ allowed_modules: updatedModules })
+        .eq('id', member.id);
+        
+      if (error) {
+        // Fallback to local storage if column does not exist
+        console.warn("allowed_modules column might not exist. Falling back to local storage.", error);
+        localStorage.setItem(`bms_permissions_${member.id}`, JSON.stringify(updatedModules));
+        toast.info(`Permissions saved locally (Run SQL Migration to save on DB).`);
+      } else {
+        toast.success(`Updated access permissions for ${member.name}`);
+      }
+      
+      // Update local state
+      setTeam(prev => prev.map(m => m.id === member.id ? { ...m, allowedModules: updatedModules } : m));
+    } catch (err: any) {
+      console.error(err);
+      localStorage.setItem(`bms_permissions_${member.id}`, JSON.stringify(updatedModules));
+      toast.info(`Permissions saved locally.`);
+      setTeam(prev => prev.map(m => m.id === member.id ? { ...m, allowedModules: updatedModules } : m));
     }
   };
 
@@ -465,6 +512,7 @@ export default function ClientAdminDashboard() {
                       <th className="py-3.5 px-3">Name / Email</th>
                       <th className="py-3.5 px-3">Workspace Role</th>
                       <th className="py-3.5 px-3">Access Tier Details</th>
+                      <th className="py-3.5 px-3">Module Access</th>
                       <th className="py-3.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -493,6 +541,31 @@ export default function ClientAdminDashboard() {
                           {member.role === 'Manager' && 'Full edits except configuration'}
                           {member.role === 'Auditor' && 'Read-only financial audit logs'}
                           {member.role === 'Staff' && 'Restricted operational metrics'}
+                        </td>
+                        <td className="py-4 px-3">
+                          {member.role === 'Owner' ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-650 dark:text-indigo-400">All Modules</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5 max-w-[280px]">
+                              {MODULES_LIST.map(m => {
+                                const hasAccess = (member.allowedModules || []).includes(m.key);
+                                return (
+                                  <button
+                                    key={m.key}
+                                    type="button"
+                                    onClick={() => handleToggleModuleAccess(member, m.key)}
+                                    className={`px-2 py-0.5 rounded-md text-[9px] font-bold transition-all border ${
+                                      hasAccess 
+                                        ? 'bg-emerald-500/15 text-emerald-650 dark:text-emerald-400 border-emerald-500/35 shadow-xs shadow-emerald-500/5 hover:bg-emerald-500/20' 
+                                        : 'bg-slate-50 dark:bg-slate-950 text-slate-400 border-slate-200 dark:border-slate-850 hover:bg-slate-100 dark:hover:bg-slate-900'
+                                    }`}
+                                  >
+                                    {m.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </td>
                         <td className="py-4 px-3 text-right">
                           <button

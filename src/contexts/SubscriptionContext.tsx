@@ -42,13 +42,23 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return ALL_MODULES;
     }
     
-    // During active trial, grant access to all modules
-    if (isTrialActive) {
-      return ALL_MODULES;
+    // Determine base active modules for the company's plan
+    let baseModules = ALL_MODULES;
+    if (!isTrialActive) {
+      const plan = (profile?.plan_type || 'free').toLowerCase();
+      baseModules = planModules[plan] || planModules['starter'];
+    }
+
+    // If the logged-in user is an employee (not admin/owner), restrict by their specific allowed modules
+    const isOwner = profile?.role === 'admin' || !profile?.role; // Default to owner if role is undefined or admin
+    if (!isOwner && profile) {
+      const allowed = (profile as any).allowed_modules || JSON.parse(localStorage.getItem(`bms_permissions_${profile.id}`) || '["billing", "payroll", "ledger", "inventory", "crm", "hisab"]');
+      // Normalize 'daily-hisab' to 'hisab'
+      const normalizedAllowed = allowed.map((m: string) => m === 'daily-hisab' ? 'hisab' : m);
+      return baseModules.filter(m => normalizedAllowed.includes(m));
     }
     
-    const plan = (profile?.plan_type || 'free').toLowerCase();
-    return planModules[plan] || planModules['starter'];
+    return baseModules;
   }, [profile, isSuperAdmin, planModules, isTrialActive]);
 
   // Generate subscriptions list for compatibility
