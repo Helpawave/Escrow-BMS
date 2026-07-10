@@ -64,10 +64,10 @@ export const Dashboard = () => {
     });
   }, [user]);
 
-  // Redirect to login if not authenticated
+  // Redirect to auth if not authenticated (SaaS uses /auth route)
   useEffect(() => {
     if (!user) {
-      navigate("/login");
+      navigate("/auth");
     }
   }, [user, navigate]);
 

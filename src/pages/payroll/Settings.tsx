@@ -3,7 +3,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { useTheme } from "@/hooks/use-theme";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Sun, Moon, Building2, Globe, Shield, Bell, Palette } from "lucide-react";
 import { RolesPermissions } from "@/components/settings/RolesPermissions";
 import { TeamManagement } from "@/components/settings/TeamManagement";

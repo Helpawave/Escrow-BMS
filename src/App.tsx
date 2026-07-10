@@ -352,6 +352,10 @@ export default function App() {
                         <Route path="/hisab" element={<Navigate to="/calculation" replace />} />
                         <Route path="/hisab/*" element={<Navigate to="/calculation" replace />} />
 
+                        {/* Login redirect - some modules still use /login, redirect to /auth */}
+                        <Route path="/login" element={<Navigate to="/auth" replace />} />
+                        <Route path="/register" element={<Navigate to="/auth" replace />} />
+
                         {/* Catch-all */}
                         <Route path="*" element={<Navigate to="/" replace />} />
                       </Routes>
