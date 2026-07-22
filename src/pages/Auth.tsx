@@ -110,10 +110,14 @@ export default function Auth() {
     if (!loginErr) {
       const { data: userSession } = await supabase.auth.getSession();
       if (userSession?.session?.user) {
-        await supabase
-          .from('profiles')
-          .update({ plan_type: targetPlan })
-          .eq('id', userSession.session.user.id);
+        try {
+          await supabase
+            .from('profiles')
+            .update({ plan_type: targetPlan })
+            .eq('id', userSession.session.user.id);
+        } catch (err) {
+          console.warn('Could not update profile plan_type:', err);
+        }
       }
       navigate('/dashboard');
     } else {
@@ -404,6 +408,7 @@ export default function Auth() {
                         value={form.password}
                         onChange={handleChange}
                         placeholder="••••••••"
+                        autoComplete={tab === 'signup' ? 'new-password' : 'current-password'}
                         required
                         className="w-full h-10 pl-9 pr-10 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-50 text-xs font-semibold rounded-xl focus:outline-none focus:border-indigo-500 transition-colors" 
                       />

@@ -27,7 +27,10 @@ DROP POLICY IF EXISTS "Users can manage their own settings" ON public.user_setti
 CREATE POLICY "Users can manage their own settings" ON public.user_settings
   FOR ALL USING (auth.uid() = user_id);
 
--- 2. Alter parties table to rename "name" to "party_name" (or create it if missing)
+-- 2. Add plan_type to profiles table if missing
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan_type text DEFAULT 'free';
+
+-- 3. Alter parties table to rename "name" to "party_name" (or create it if missing)
 DO $$
 BEGIN
   IF EXISTS (

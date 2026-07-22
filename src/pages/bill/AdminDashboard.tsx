@@ -107,8 +107,10 @@ const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
 const serviceRoleSupabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
+    storageKey: 'supabase-admin-service-role',
     persistSession: false,
-    autoRefreshToken: false
+    autoRefreshToken: false,
+    detectSessionInUrl: false
   }
 });
 
