@@ -5,6 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { MODULES, type ModuleKey } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { preloadPage } from '@/lib/preloader';
 import {
   LayoutDashboard,
   Users,
@@ -172,6 +173,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             <Link
               key={item.route}
               to={item.locked ? '/pricing' : item.route}
+              onMouseEnter={() => preloadPage(item.route)}
+              onTouchStart={() => preloadPage(item.route)}
               title={collapsed ? item.label : undefined}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 group relative',

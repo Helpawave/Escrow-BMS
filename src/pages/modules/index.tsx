@@ -66,8 +66,8 @@ export function LedgerModule() {
           <Route path="/ledger" element={<LedgerView />} />
           <Route path="/transfer" element={<LedgerTransfer />} />
           <Route path="/create/party" element={<LedgerCreateParty />} />
-          <Route path="/profile" element={<LedgerProfile />} />
-          <Route path="/configure/company" element={<Navigate to="/settings" replace />} />
+          <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
+          <Route path="/configure/company" element={<Navigate to="/settings?tab=business" replace />} />
           <Route path="/reports/balance-sheet" element={<LedgerBalanceSheet />} />
           <Route path="/reports/profit-loss" element={<LedgerProfitLoss />} />
           <Route path="/reports/parties" element={<LedgerPartyReport />} />

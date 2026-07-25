@@ -4,6 +4,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { MODULES, type ModuleKey } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { preloadPage } from '@/lib/preloader';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,6 +109,7 @@ export function ProductSwitcher({ align = 'start', showActiveLabel = true }: Pro
               <DropdownMenuItem
                 key={item.key}
                 onClick={() => handleProductSelect(item.route, !unlocked)}
+                onMouseEnter={() => preloadPage(item.route)}
                 className={cn(
                   "flex items-center gap-3 p-2.5 rounded-xl transition-all duration-200 cursor-pointer outline-none relative group",
                   isActive

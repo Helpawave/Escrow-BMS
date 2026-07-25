@@ -122,7 +122,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'leave', route: '/payroll/leave', icon: Calendar },
     { labelKey: 'payslips', route: '/payroll/payslips', icon: FileText },
     { labelKey: 'reports', route: '/payroll/reports', icon: TrendingUp },
-    { labelKey: 'settings', route: '/settings?tab=team', icon: Settings },
   ],
   ledger: [
     { labelKey: 'dashboard', route: '/ledger', icon: LayoutDashboard },
@@ -133,8 +132,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'profitLoss', route: '/ledger/reports/profit-loss', icon: TrendingUp },
     { labelKey: 'partiesReport', route: '/ledger/reports/parties', icon: ClipboardList },
     { labelKey: 'transactionsReport', route: '/ledger/reports/transactions', icon: History },
-    { labelKey: 'companySettings', route: '/settings?tab=business', icon: Sliders },
-    { labelKey: 'profile', route: '/ledger/profile', icon: User },
   ],
   billing: [
     { labelKey: 'dashboard', route: '/billing', icon: LayoutDashboard },
@@ -148,7 +145,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'products', route: '/billing/products', icon: Package },
     { labelKey: 'eInvoice', route: '/billing/e-invoice', icon: Zap },
     { labelKey: 'reports', route: '/billing/reports', icon: TrendingUp },
-    { labelKey: 'settings', route: '/settings?tab=business', icon: Settings },
   ],
   hisab: [
     { labelKey: 'dashboard', route: '/calculation', icon: LayoutDashboard },
@@ -161,7 +157,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'stockHistory', route: '/inventory/history', icon: History },
     { labelKey: 'reports', route: '/inventory/reports', icon: TrendingUp },
     { labelKey: 'usersStaff', route: '/inventory/users', icon: Users },
-    { labelKey: 'settings', route: '/settings', icon: Settings },
   ],
   crm: [
     { labelKey: 'dashboard', route: '/crm', icon: LayoutDashboard },
@@ -170,6 +165,5 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'taskBoard', route: '/crm/tasks', icon: KanbanSquare },
     { labelKey: 'analytics', route: '/crm/analytics', icon: BarChart3 },
     { labelKey: 'teamMembers', route: '/crm/team', icon: UserCog },
-    { labelKey: 'settings', route: '/settings', icon: Settings },
   ],
 };

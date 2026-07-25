@@ -190,7 +190,15 @@ function SuperadminLogin() {
 }
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 1000 * 60 } },
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 1000 * 60 * 5, // 5 minutes in-memory cache across tab switches
+      gcTime: 1000 * 60 * 30, // 30 minutes garbage collection time
+      refetchOnWindowFocus: false, // Prevent background refetch loaders on window focus
+      refetchOnReconnect: false,
+    },
+  },
 });
 
 export default function App() {
@@ -340,8 +348,8 @@ export default function App() {
 
                           <Route path="/transfer" element={<Navigate to="/ledger/transfer" replace />} />
                           <Route path="/create/party" element={<Navigate to="/ledger/create/party" replace />} />
-                          <Route path="/profile" element={<Navigate to="/ledger/profile" replace />} />
-                          <Route path="/configure/company" element={<Navigate to="/ledger/configure/company" replace />} />
+                          <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
+                          <Route path="/configure/company" element={<Navigate to="/settings?tab=business" replace />} />
                           <Route path="/reports/balance-sheet" element={<Navigate to="/ledger/reports/balance-sheet" replace />} />
                           <Route path="/reports/profit-loss" element={<Navigate to="/ledger/reports/profit-loss" replace />} />
                           <Route path="/reports/parties" element={<Navigate to="/ledger/reports/parties" replace />} />
