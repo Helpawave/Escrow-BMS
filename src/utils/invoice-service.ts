@@ -28,7 +28,7 @@ export async function fetchFullInvoiceData(invoiceId: string, userId: string): P
     supabase.from('invoices').select('*, clients(*)').eq('id', invoiceId).single(),
     supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('created_at', { ascending: true }),
     supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle(),
-    supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle()
+    supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
   ]);
 
   if (invoiceRes.error) throw invoiceRes.error;

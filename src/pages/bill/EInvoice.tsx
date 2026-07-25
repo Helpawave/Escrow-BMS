@@ -350,8 +350,8 @@ const EInvoicePage = () => {
     try {
       setLoading(true);
       const [clientsRes, profileRes, productsRes, invoicesRes] = await Promise.all([
-        supabase.from('clients').select('id, name, email, gstin, address, state, postal_code, hide_contact_details').eq('user_id', user.id),
-        supabase.from('profiles').select('*').eq('user_id', user.id).single(),
+        supabase.from('clients').select('id, name, email, gstin, address, state, postal_code').eq('user_id', user.id),
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('products').select('id, name, sku, price, tax_rate, opening_stock, unit, hsn_code').eq('user_id', user.id).order('name'),
         supabase.from('invoices').select(`
           id, invoice_number, client_id, total_amount, issue_date, 
@@ -699,8 +699,7 @@ const EInvoicePage = () => {
             .single();
 
           if (product) {
-            // @ts-expect-error: opening_stock is valid on product but inference fails
-            const currentStock = parseFloat(product.opening_stock || "0");
+            const currentStock = parseFloat((product as any).opening_stock || "0");
             const newStock = currentStock - item.quantity;
             await supabase
               .from('products')
@@ -825,8 +824,7 @@ const EInvoicePage = () => {
             .single();
 
           if (product) {
-            // @ts-expect-error: opening_stock is valid on product but inference fails
-            const currentStock = parseFloat(product.opening_stock || "0");
+            const currentStock = parseFloat((product as any).opening_stock || "0");
             const newStock = currentStock - item.quantity;
             await supabase
               .from('products')

@@ -18,21 +18,7 @@ import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LayoutGrid, List as ListIcon } from "lucide-react";
 
-interface Client {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  state: string;
-  postal_code: string;
-  country: string;
-  gstin: string;
-  hide_contact_details: boolean;
-  pending_amount?: number;
-}
-
+import { Client } from "@/types/invoice";
 import { useClients } from "@/hooks/useClients";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -157,8 +143,9 @@ const ClientsPage = () => {
     }
 
     try {
+      const { hide_contact_details, ...payloadData } = formData;
       const finalizedData = {
-        ...formData,
+        ...payloadData,
         gstin: formData.gstin.trim(),
         name: formData.name.trim(),
         email: formData.email.trim()
@@ -223,15 +210,15 @@ const ClientsPage = () => {
 
   const handleEdit = (client: Client) => {
     setFormData({
-      name: client.name,
-      email: client.email,
-      phone: client.phone,
-      address: client.address,
-      city: client.city,
-      state: client.state,
-      postal_code: client.postal_code,
-      country: client.country,
-      gstin: client.gstin,
+      name: client.name || '',
+      email: client.email || '',
+      phone: client.phone || '',
+      address: client.address || '',
+      city: client.city || '',
+      state: client.state || '',
+      postal_code: client.postal_code || '',
+      country: client.country || 'India',
+      gstin: client.gstin || '',
       hide_contact_details: client.hide_contact_details ?? false
     });
     setEditingId(client.id);

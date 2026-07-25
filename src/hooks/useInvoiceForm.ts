@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Client, Product, Vendor, InvoiceItem, Invoice, PurchaseInvoice, Expense } from '@/types/invoice';
 import { adjustStock } from '@/utils/inventory';
+import { postInvoiceToLedger } from '@/utils/erpPosting';
 import { calculateItemAmount as calcItemAmount, generateInvoiceNumber as genInvNum } from '@/utils/invoice-helpers';
 import { type HSNCode } from '@/types/hsn';
 import { type InvoiceFormData } from '@/components/invoice/InvoiceHeader';
@@ -399,9 +400,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
     setCreatingClient(true);
     try {
+      const { hide_contact_details, ...clientPayload } = newClientFormData;
       const { data, error } = await supabase
         .from('clients')
-        .insert([{ ...newClientFormData, user_id: user?.id }])
+        .insert([{ ...clientPayload, user_id: user?.id }])
         .select()
         .single();
 
@@ -873,6 +875,18 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
               await adjustStock(item.product_id, -item.quantity);
             }
           }
+        }
+
+        // ERP Auto-Posting: Sync invoice to Party Ledger statement
+        const clientObj = clients.find(c => c.id === formData.client_id);
+        if (clientObj?.name) {
+          await postInvoiceToLedger({
+            invoiceId: (invoiceData as Invoice).id,
+            invoiceNumber: (invoiceData as Invoice).invoice_number,
+            partyName: clientObj.name,
+            amount: total,
+            type: 'sales'
+          });
         }
 
         setSuccessInfo({

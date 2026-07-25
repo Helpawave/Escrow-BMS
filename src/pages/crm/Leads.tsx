@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useCrm } from '@/contexts/CrmContext';
 import type { Lead } from '@/contexts/CrmContext';
-import { Plus, Search, Edit3, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Edit3, Trash2, FileText } from 'lucide-react';
 import { LeadModal } from '@/components/LeadModal';
 
 interface LeadsProps {
@@ -10,6 +11,7 @@ interface LeadsProps {
 }
 
 export const Leads: React.FC<LeadsProps> = ({ globalSearch, setGlobalSearch }) => {
+  const navigate = useNavigate();
   const { leads, deleteLead } = useCrm();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -201,6 +203,17 @@ export const Leads: React.FC<LeadsProps> = ({ globalSearch, setGlobalSearch }) =
                       <td className="px-6 py-4.5 text-slate-500 dark:text-slate-400 text-sm">{lead.createdDate}</td>
                       <td className="px-6 py-4.5">
                         <div className="flex items-center justify-center gap-1.5">
+                          {lead.status === 'won' && (
+                            <button
+                              onClick={() => {
+                                navigate(`/bill/invoices/create?search=${encodeURIComponent(lead.name)}`);
+                              }}
+                              className="px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
+                              title="Convert to Invoice"
+                            >
+                              <FileText className="w-3.5 h-3.5" /> Invoice
+                            </button>
+                          )}
                           <button
                             onClick={() => openEditModal(lead.id)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-500/10 dark:hover:text-blue-400 transition-all cursor-pointer"

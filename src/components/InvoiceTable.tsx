@@ -103,7 +103,7 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
       
       const [itemsRes, profileRes, settingsRes] = await Promise.all([
         supabase.from('invoice_items').select('*, products(*)').eq('invoice_id', invoice.id),
-        supabase.from('profiles').select('*').eq('user_id', user?.id).single(),
+        supabase.from('profiles').select('*').eq('id', user?.id).single(),
         supabase.from('user_settings').select('invoice_template, hide_company_details').eq('user_id', user?.id).single()
       ]);
 

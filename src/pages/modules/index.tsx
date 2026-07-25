@@ -134,7 +134,7 @@ const HisabHistory = React.lazy(() => import('../daily-hisab/user/History').then
 const HisabAdminLogin = React.lazy(() => import('../daily-hisab/admin/AdminLogin').then(m => ({ default: m.AdminLogin })));
 const HisabAdminDashboard = React.lazy(() => import('../daily-hisab/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 
-const HisabProfile = React.lazy(() => import('../daily-hisab/user/Profile'));
+const HisabProfile = React.lazy(() => import('../daily-hisab/user/Profile').then(m => ({ default: (m as any).Profile || (m as any).default })));
 
 export function HisabModule() {
   return (

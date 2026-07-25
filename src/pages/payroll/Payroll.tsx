@@ -92,14 +92,15 @@ const Payroll = () => {
     setConfirmDialog({ open: true, runId, nextStatus });
   };
 
-  const confirmAdvance = () => {
+  const confirmAdvance = async () => {
     const { runId, nextStatus } = confirmDialog;
     if (!nextStatus) return;
+
+    const targetRun = runs.find(r => r.id === runId);
 
     setRuns(prev => prev.map(r => {
       if (r.id !== runId) return r;
       const updated = { ...r, status: nextStatus };
-      // Simulate values when moving from VALIDATING to CALCULATED
       if (nextStatus === "CALCULATED" && r.gross === "₹0") {
         updated.gross = `₹${(r.employees * 50000).toLocaleString("en-IN")}`;
         updated.deductions = `₹${(r.employees * 10000).toLocaleString("en-IN")}`;
@@ -108,7 +109,19 @@ const Payroll = () => {
       return updated;
     }));
 
-    toast.success(`Payroll moved to ${nextStatus}`);
+    if (nextStatus === "PAID" && targetRun) {
+      const netAmt = parseInt(targetRun.net.replace(/[^\d]/g, '')) || (targetRun.employees * 40000);
+      const { postPayrollToExpenses } = await import('@/utils/erpPosting');
+      await postPayrollToExpenses({
+        month: targetRun.period,
+        totalSalary: netAmt,
+        employeeCount: targetRun.employees
+      });
+      toast.success(`Payroll disbursed & automatically posted to Billing Expenses!`);
+    } else {
+      toast.success(`Payroll moved to ${nextStatus}`);
+    }
+
     setConfirmDialog({ open: false, runId: "", nextStatus: null });
   };
 
