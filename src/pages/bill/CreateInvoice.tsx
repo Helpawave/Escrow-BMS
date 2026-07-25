@@ -75,6 +75,32 @@ const CreateInvoicePage = () => {
         </div>
       </div>
 
+      {(!isPurchase && clients.length === 0) && (
+        <Alert className="bg-amber-50 border-amber-200 text-amber-900 mb-6 shadow-sm">
+          <AlertTriangle className="h-5 w-5 text-amber-600" />
+          <AlertTitle className="font-bold">No Clients Found</AlertTitle>
+          <AlertDescription className="flex items-center justify-between mt-1 flex-wrap gap-2">
+            <span>You don't have any saved clients yet. Please add a client to issue invoices.</span>
+            <Button size="sm" type="button" onClick={() => setNewClientDialogOpen(true)} className="bg-amber-600 hover:bg-amber-700 text-white font-semibold">
+              + Add First Client
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {products.length === 0 && (
+        <Alert className="bg-blue-50 border-blue-200 text-blue-900 mb-6 shadow-sm">
+          <AlertTriangle className="h-5 w-5 text-blue-600" />
+          <AlertTitle className="font-bold">No Products or Services Found</AlertTitle>
+          <AlertDescription className="flex items-center justify-between mt-1 flex-wrap gap-2">
+            <span>Your inventory catalog is currently empty. Add a product or service to quickly add line items.</span>
+            <Button size="sm" type="button" onClick={() => setNewProductDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+              + Add First Product
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6 md:space-y-8">
         {showValidationErrors && !isPurchase && !formData.client_id && (
           <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-800 animate-in slide-in-from-top duration-300">

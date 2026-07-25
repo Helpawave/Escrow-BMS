@@ -26,11 +26,14 @@ const PayrollLeave = React.lazy(() => import('../payroll/Leave'));
 const PayrollPayslips = React.lazy(() => import('../payroll/Payslips'));
 const PayrollReports = React.lazy(() => import('../payroll/Reports'));
 
+const PayrollIntro = React.lazy(() => import('../payroll/Intro'));
+
 export function PayrollModule() {
   return (
     <Suspense fallback={<ModuleLoader />}>
       <Routes>
         <Route path="/" element={<PayrollIndex />} />
+        <Route path="/intro" element={<PayrollIntro />} />
         <Route path="/employees" element={<PayrollEmployees />} />
         <Route path="/payroll" element={<PayrollSalary />} />
         <Route path="/attendance" element={<PayrollAttendance />} />
@@ -131,6 +134,8 @@ const HisabHistory = React.lazy(() => import('../daily-hisab/user/History').then
 const HisabAdminLogin = React.lazy(() => import('../daily-hisab/admin/AdminLogin').then(m => ({ default: m.AdminLogin })));
 const HisabAdminDashboard = React.lazy(() => import('../daily-hisab/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 
+const HisabProfile = React.lazy(() => import('../daily-hisab/user/Profile'));
+
 export function HisabModule() {
   return (
     <FinanceProvider>
@@ -139,6 +144,7 @@ export function HisabModule() {
           <Routes>
             <Route path="/" element={<HisabDashboard />} />
             <Route path="/history" element={<HisabHistory />} />
+            <Route path="/profile" element={<HisabProfile />} />
             <Route path="/admin" element={<HisabAdminLogin />} />
             <Route path="/admin/dashboard" element={<HisabAdminDashboard />} />
             <Route path="*" element={<Navigate to="" replace />} />

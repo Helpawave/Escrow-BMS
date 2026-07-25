@@ -238,7 +238,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const isAdmin = profile?.role === 'admin';
-  const isBusinessSetup = !!profile?.company_name;
+  const isBusinessSetup = !!(profile?.company_name && profile?.company_name.trim() !== '');
+  const isBlocked = !!(profile as any)?.is_blocked;
 
   // ── Subscription / Trial Calculations ─────────────────────────
   const { isSubscribed, isTrialActive, trialDaysRemaining } = React.useMemo(() => {
@@ -301,7 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isSubscribed,
       isTrialActive,
       trialDaysRemaining,
-      isBlocked: false,
+      isBlocked,
       isBusinessSetup,
       isSupabaseConnected: true,
       hasRole: (...rolesToCheck: string[]) => rolesToCheck.some(r => profile?.role === r || (r === 'admin' && profile?.role === 'admin') || (r === 'super_admin' && isSuperAdmin)),
