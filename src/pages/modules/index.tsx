@@ -11,8 +11,8 @@ import { CrmProvider } from '@/contexts/CrmContext';
 
 function ModuleLoader() {
   return (
-    <div className="min-h-[400px] flex items-center justify-center p-8">
-      <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+    <div className="w-full h-1 bg-indigo-500/10 overflow-hidden relative">
+      <div className="w-1/3 h-full bg-indigo-600 animate-pulse rounded-full" />
     </div>
   );
 }

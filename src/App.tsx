@@ -34,9 +34,7 @@ const CrmModule = React.lazy(() => import('@/pages/modules').then(m => ({ defaul
 
 function PageFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-      <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-    </div>
+    <div className="fixed top-0 left-0 right-0 h-1 bg-indigo-600 animate-pulse z-[9999]" />
   );
 }
 
