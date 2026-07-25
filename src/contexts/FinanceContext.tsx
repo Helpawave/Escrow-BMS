@@ -77,7 +77,8 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       .select('*')
       .eq('user_id', user.id)
       .order('date', { ascending: false })
-      .order('time', { ascending: false });
+      .order('time', { ascending: false })
+      .limit(100);
     if (!error && data) setEntries(data.map(rowToEntry));
     setIsLoading(false);
   };

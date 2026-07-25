@@ -103,7 +103,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (userId: string, email?: string) => {
     try {
-      const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      const [profileRes, rolesRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
+        supabase.from('user_roles').select('role').eq('user_id', userId)
+      ]);
+
+      const data = profileRes.data;
       if (data) {
         setProfile(data as Profile);
       } else {
@@ -117,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Check if user is superadmin in user_roles or email list
-      const { data: roles } = await supabase.from('user_roles').select('role').eq('user_id', userId);
+      const roles = rolesRes.data;
       const hasSuperRole = roles?.some((r: any) => r.role === 'super_admin') || false;
       const isSuperEmail = email === 'admin_bms@escrowbms.com';
       setIsSuperAdmin(hasSuperRole || isSuperEmail);

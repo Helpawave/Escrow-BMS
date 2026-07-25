@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/contexts/AuthContext';
@@ -13,26 +13,32 @@ import { ModuleGuard } from '@/components/guards/ModuleGuard';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
-import { useState } from 'react';
 
-// Pages
+// Core pages (loaded synchronously for immediate initial paint)
 import Auth from '@/pages/Auth';
 import Dashboard from '@/pages/Dashboard';
-import Pricing from '@/pages/Pricing';
-import Settings from '@/pages/Settings';
 import Landing from '@/pages/Landing';
-import SuperadminDashboard from '@/pages/bill/AdminDashboard';
-import ClientAdminDashboard from '@/pages/ClientAdminDashboard';
 
-// Modules
-import {
-  PayrollModule,
-  LedgerModule,
-  BillingModule,
-  HisabModule,
-  InventoryModule,
-  CrmModule,
-} from '@/pages/modules';
+// Lazy-loaded secondary pages & sub-modules
+const Pricing = React.lazy(() => import('@/pages/Pricing'));
+const Settings = React.lazy(() => import('@/pages/Settings'));
+const SuperadminDashboard = React.lazy(() => import('@/pages/bill/AdminDashboard'));
+const ClientAdminDashboard = React.lazy(() => import('@/pages/ClientAdminDashboard'));
+
+const PayrollModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.PayrollModule })));
+const LedgerModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.LedgerModule })));
+const BillingModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.BillingModule })));
+const HisabModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.HisabModule })));
+const InventoryModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.InventoryModule })));
+const CrmModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.CrmModule })));
+
+function PageFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+    </div>
+  );
+}
 
 // Dynamic Redirect helper components
 function DynamicProductsRedirect() {
@@ -198,167 +204,169 @@ export default function App() {
                 <AdminAuthProvider>
                   <LanguageProvider>
                     <SubscriptionProvider>
-                      <Routes>
-                        {/* Public Landing Page */}
-                        <Route path="/" element={<Landing />} />
+                      <Suspense fallback={<PageFallback />}>
+                        <Routes>
+                          {/* Public Landing Page */}
+                          <Route path="/" element={<Landing />} />
 
-                        {/* Auth */}
-                        <Route
-                          path="/auth"
-                          element={
-                            <PublicOnlyGuard>
-                              <Auth />
-                            </PublicOnlyGuard>
-                          }
-                        />
+                          {/* Auth */}
+                          <Route
+                            path="/auth"
+                            element={
+                              <PublicOnlyGuard>
+                                <Auth />
+                              </PublicOnlyGuard>
+                            }
+                          />
 
-                        {/* Protected Core Routes */}
-                        <Route
-                          path="/dashboard"
-                          element={
-                            <AuthGuard>
-                              <Dashboard />
-                            </AuthGuard>
-                          }
-                        />
+                          {/* Protected Core Routes */}
+                          <Route
+                            path="/dashboard"
+                            element={
+                              <AuthGuard>
+                                <Dashboard />
+                              </AuthGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/pricing"
-                          element={
-                            <AuthGuard>
-                              <Pricing />
-                            </AuthGuard>
-                          }
-                        />
+                          <Route
+                            path="/pricing"
+                            element={
+                              <AuthGuard>
+                                <Pricing />
+                              </AuthGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/settings"
-                          element={
-                            <AuthGuard>
-                              <Settings />
-                            </AuthGuard>
-                          }
-                        />
+                          <Route
+                            path="/settings"
+                            element={
+                              <AuthGuard>
+                                <Settings />
+                              </AuthGuard>
+                            }
+                          />
 
-                        {/* Protected Module Routes */}
-                        <Route
-                          path="/payroll/*"
-                          element={
-                            <ModuleGuard moduleKey="payroll">
-                              <PayrollModule />
-                            </ModuleGuard>
-                          }
-                        />
+                          {/* Protected Module Routes */}
+                          <Route
+                            path="/payroll/*"
+                            element={
+                              <ModuleGuard moduleKey="payroll">
+                                <PayrollModule />
+                              </ModuleGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/ledger/*"
-                          element={
-                            <ModuleGuard moduleKey="ledger">
-                              <LedgerModule />
-                            </ModuleGuard>
-                          }
-                        />
+                          <Route
+                            path="/ledger/*"
+                            element={
+                              <ModuleGuard moduleKey="ledger">
+                                <LedgerModule />
+                              </ModuleGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/billing/*"
-                          element={
-                            <ModuleGuard moduleKey="billing">
-                              <BillingModule />
-                            </ModuleGuard>
-                          }
-                        />
+                          <Route
+                            path="/billing/*"
+                            element={
+                              <ModuleGuard moduleKey="billing">
+                                <BillingModule />
+                              </ModuleGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/calculation/*"
-                          element={
-                            <ModuleGuard moduleKey="hisab">
-                              <HisabModule />
-                            </ModuleGuard>
-                          }
-                        />
+                          <Route
+                            path="/calculation/*"
+                            element={
+                              <ModuleGuard moduleKey="hisab">
+                                <HisabModule />
+                              </ModuleGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/inventory/*"
-                          element={
-                            <ModuleGuard moduleKey="inventory">
-                              <InventoryModule />
-                            </ModuleGuard>
-                          }
-                        />
+                          <Route
+                            path="/inventory/*"
+                            element={
+                              <ModuleGuard moduleKey="inventory">
+                                <InventoryModule />
+                              </ModuleGuard>
+                            }
+                          />
 
-                        <Route
-                          path="/crm/*"
-                          element={
-                            <ModuleGuard moduleKey="crm">
-                              <CrmModule />
-                            </ModuleGuard>
-                          }
-                        />
+                          <Route
+                            path="/crm/*"
+                            element={
+                              <ModuleGuard moduleKey="crm">
+                                <CrmModule />
+                              </ModuleGuard>
+                            }
+                          />
 
-                        {/* Platform Owner Dashboard */}
-                        <Route
-                          path="/workspace-admin"
-                          element={
-                            <AuthGuard>
-                              <ClientAdminDashboard />
-                            </AuthGuard>
-                          }
-                        />
+                          {/* Platform Owner Dashboard */}
+                          <Route
+                            path="/workspace-admin"
+                            element={
+                              <AuthGuard>
+                                <ClientAdminDashboard />
+                              </AuthGuard>
+                            }
+                          />
 
-                        {/* Dynamic Redirects for conflicting absolute paths in modules */}
-                        <Route path="/products" element={<DynamicProductsRedirect />} />
-                        <Route path="/settings" element={<DynamicSettingsRedirect />} />
-                        <Route path="/reports" element={<DynamicReportsRedirect />} />
-                        <Route path="/history" element={<DynamicHistoryRedirect />} />
-                        <Route path="/admin" element={<SuperadminLogin />} />
-                        <Route path="/admin/dashboard" element={<SuperadminLogin />} />
+                          {/* Dynamic Redirects for conflicting absolute paths in modules */}
+                          <Route path="/products" element={<DynamicProductsRedirect />} />
+                          <Route path="/settings" element={<DynamicSettingsRedirect />} />
+                          <Route path="/reports" element={<DynamicReportsRedirect />} />
+                          <Route path="/history" element={<DynamicHistoryRedirect />} />
+                          <Route path="/admin" element={<SuperadminLogin />} />
+                          <Route path="/admin/dashboard" element={<SuperadminLogin />} />
 
-                        {/* Static Redirects to prevent broken links from absolute routing in sub-modules */}
-                        <Route path="/invoices" element={<Navigate to="/billing/invoices" replace />} />
-                        <Route path="/invoices/:invoiceId/edit" element={<Navigate to="/billing/invoices/:invoiceId/edit" replace />} />
-                        <Route path="/create-invoice" element={<Navigate to="/billing/create-invoice" replace />} />
-                        <Route path="/clients" element={<Navigate to="/billing/clients" replace />} />
-                        <Route path="/vendors" element={<Navigate to="/billing/vendors" replace />} />
-                        <Route path="/purchase-invoices" element={<Navigate to="/billing/purchase-invoices" replace />} />
-                        <Route path="/expenses" element={<Navigate to="/billing/expenses" replace />} />
-                        <Route path="/payments" element={<Navigate to="/billing/payments" replace />} />
-                        <Route path="/e-invoice" element={<Navigate to="/billing/e-invoice" replace />} />
+                          {/* Static Redirects to prevent broken links from absolute routing in sub-modules */}
+                          <Route path="/invoices" element={<Navigate to="/billing/invoices" replace />} />
+                          <Route path="/invoices/:invoiceId/edit" element={<Navigate to="/billing/invoices/:invoiceId/edit" replace />} />
+                          <Route path="/create-invoice" element={<Navigate to="/billing/create-invoice" replace />} />
+                          <Route path="/clients" element={<Navigate to="/billing/clients" replace />} />
+                          <Route path="/vendors" element={<Navigate to="/billing/vendors" replace />} />
+                          <Route path="/purchase-invoices" element={<Navigate to="/billing/purchase-invoices" replace />} />
+                          <Route path="/expenses" element={<Navigate to="/billing/expenses" replace />} />
+                          <Route path="/payments" element={<Navigate to="/billing/payments" replace />} />
+                          <Route path="/e-invoice" element={<Navigate to="/billing/e-invoice" replace />} />
 
-                        <Route path="/employees" element={<Navigate to="/payroll/employees" replace />} />
+                          <Route path="/employees" element={<Navigate to="/payroll/employees" replace />} />
 
-                        <Route path="/attendance" element={<Navigate to="/payroll/attendance" replace />} />
-                        <Route path="/leave" element={<Navigate to="/payroll/leave" replace />} />
-                        <Route path="/payslips" element={<Navigate to="/payroll/payslips" replace />} />
+                          <Route path="/attendance" element={<Navigate to="/payroll/attendance" replace />} />
+                          <Route path="/leave" element={<Navigate to="/payroll/leave" replace />} />
+                          <Route path="/payslips" element={<Navigate to="/payroll/payslips" replace />} />
 
 
-                        <Route path="/transfer" element={<Navigate to="/ledger/transfer" replace />} />
-                        <Route path="/create/party" element={<Navigate to="/ledger/create/party" replace />} />
-                        <Route path="/profile" element={<Navigate to="/ledger/profile" replace />} />
-                        <Route path="/configure/company" element={<Navigate to="/ledger/configure/company" replace />} />
-                        <Route path="/reports/balance-sheet" element={<Navigate to="/ledger/reports/balance-sheet" replace />} />
-                        <Route path="/reports/profit-loss" element={<Navigate to="/ledger/reports/profit-loss" replace />} />
-                        <Route path="/reports/parties" element={<Navigate to="/ledger/reports/parties" replace />} />
-                        <Route path="/reports/transactions" element={<Navigate to="/ledger/reports/transactions" replace />} />
+                          <Route path="/transfer" element={<Navigate to="/ledger/transfer" replace />} />
+                          <Route path="/create/party" element={<Navigate to="/ledger/create/party" replace />} />
+                          <Route path="/profile" element={<Navigate to="/ledger/profile" replace />} />
+                          <Route path="/configure/company" element={<Navigate to="/ledger/configure/company" replace />} />
+                          <Route path="/reports/balance-sheet" element={<Navigate to="/ledger/reports/balance-sheet" replace />} />
+                          <Route path="/reports/profit-loss" element={<Navigate to="/ledger/reports/profit-loss" replace />} />
+                          <Route path="/reports/parties" element={<Navigate to="/ledger/reports/parties" replace />} />
+                          <Route path="/reports/transactions" element={<Navigate to="/ledger/reports/transactions" replace />} />
 
-                        <Route path="/scan" element={<Navigate to="/inventory/scan" replace />} />
-                        <Route path="/users" element={<Navigate to="/inventory/users" replace />} />
+                          <Route path="/scan" element={<Navigate to="/inventory/scan" replace />} />
+                          <Route path="/users" element={<Navigate to="/inventory/users" replace />} />
 
-                        <Route path="/leads" element={<Navigate to="/crm/leads" replace />} />
-                        <Route path="/contacts" element={<Navigate to="/crm/contacts" replace />} />
-                        <Route path="/tasks" element={<Navigate to="/crm/tasks" replace />} />
-                        <Route path="/analytics" element={<Navigate to="/crm/analytics" replace />} />
-                        <Route path="/team" element={<Navigate to="/crm/team" replace />} />
+                          <Route path="/leads" element={<Navigate to="/crm/leads" replace />} />
+                          <Route path="/contacts" element={<Navigate to="/crm/contacts" replace />} />
+                          <Route path="/tasks" element={<Navigate to="/crm/tasks" replace />} />
+                          <Route path="/analytics" element={<Navigate to="/crm/analytics" replace />} />
+                          <Route path="/team" element={<Navigate to="/crm/team" replace />} />
 
-                        <Route path="/hisab" element={<Navigate to="/calculation" replace />} />
-                        <Route path="/hisab/*" element={<Navigate to="/calculation" replace />} />
+                          <Route path="/hisab" element={<Navigate to="/calculation" replace />} />
+                          <Route path="/hisab/*" element={<Navigate to="/calculation" replace />} />
 
-                        {/* Login redirect - some modules still use /login, redirect to /auth */}
-                        <Route path="/login" element={<Navigate to="/auth" replace />} />
-                        <Route path="/register" element={<Navigate to="/auth" replace />} />
+                          {/* Login redirect - some modules still use /login, redirect to /auth */}
+                          <Route path="/login" element={<Navigate to="/auth" replace />} />
+                          <Route path="/register" element={<Navigate to="/auth" replace />} />
 
-                        {/* Catch-all */}
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                      </Routes>
+                          {/* Catch-all */}
+                          <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                      </Suspense>
                       <Toaster position="top-right" richColors />
                     </SubscriptionProvider>
                   </LanguageProvider>

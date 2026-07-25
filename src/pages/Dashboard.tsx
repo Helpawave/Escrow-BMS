@@ -93,118 +93,6 @@ export default function Dashboard() {
       try {
         setLoadingStats(true);
 
-        let totalSales = 0;
-        let unpaidAmount = 0;
-        let invoiceCount = 0;
-        let employeeCount = 0;
-        let pendingLeaves = 0;
-        let leadsCount = 0;
-        let pendingTasksCount = 0;
-        let ledgerBalance = 0;
-
-        // 1. Fetch Invoices summary
-        if (showBilling) {
-          const { data: invoicesData } = await supabase
-            .from('invoices')
-            .select('status, total_amount')
-            .eq('user_id', user.id);
-
-          totalSales = invoicesData?.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0) || 0;
-          unpaidAmount = invoicesData
-            ?.filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled')
-            ?.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0) || 0;
-          invoiceCount = invoicesData?.length || 0;
-
-          // Fetch recent 5 invoices
-          const { data: recentInvs } = await supabase
-            .from('invoices')
-            .select('id, invoice_number, total_amount, status, issue_date, client_id')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-          if (recentInvs && recentInvs.length > 0) {
-            const clientIds = recentInvs.map(i => i.client_id);
-            const { data: clientsData } = await supabase
-              .from('clients')
-              .select('id, name')
-              .in('id', clientIds);
-
-            const clientMap = Object.fromEntries((clientsData || []).map(c => [c.id, c.name]));
-            const formattedInvoices: RecentInvoice[] = recentInvs.map(inv => ({
-              id: inv.id,
-              invoice_number: inv.invoice_number,
-              total_amount: Number(inv.total_amount),
-              status: inv.status,
-              issue_date: inv.issue_date,
-              client_name: clientMap[inv.client_id] || 'Unknown Client'
-            }));
-            setRecentInvoices(formattedInvoices);
-          } else {
-            setRecentInvoices([]);
-          }
-        }
-
-        // 2. Fetch Payroll summary
-        if (showPayroll) {
-          const { count: empCount } = await supabase
-            .from('employees')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('status', 'active');
-
-          const { count: pendLeaves } = await supabase
-            .from('leaves')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .eq('status', 'pending');
-
-          employeeCount = empCount || 0;
-          pendingLeaves = pendLeaves || 0;
-        }
-
-        // 3. Fetch CRM metrics
-        if (showCRM) {
-          const { count: lCount } = await supabase
-            .from('leads')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id);
-
-          const { count: pendTasksCount } = await supabase
-            .from('tasks')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id)
-            .neq('status', 'done');
-
-          leadsCount = lCount || 0;
-          pendingTasksCount = pendTasksCount || 0;
-
-          // Fetch recent 5 pending tasks
-          const { data: tasksData } = await supabase
-            .from('tasks')
-            .select('id, title, status, priority, due_date')
-            .eq('user_id', user.id)
-            .neq('status', 'done')
-            .order('created_at', { ascending: false })
-            .limit(5);
-          
-          if (tasksData) {
-            setRecentTasks(tasksData as RecentTask[]);
-          } else {
-            setRecentTasks([]);
-          }
-        }
-
-        // 4. Fetch Ledger Accounts balance
-        if (showLedger) {
-          const { data: accountsData } = await supabase
-            .from('accounts')
-            .select('balance')
-            .eq('user_id', user.id);
-          ledgerBalance = accountsData?.reduce((sum, acc) => sum + Number(acc.balance || 0), 0) || 0;
-        }
-
-        // 5. Aggregate past 6 months data for Charts
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const last6Months = [];
         for (let i = 5; i >= 0; i--) {
@@ -220,19 +108,54 @@ export default function Dashboard() {
           });
         }
 
-        const { data: invs } = await supabase
-          .from('invoices')
-          .select('total_amount, status, issue_date')
-          .eq('user_id', user.id);
+        // Fire all root module queries concurrently
+        const [
+          invoicesRes,
+          recentInvsRes,
+          empCountRes,
+          pendLeavesRes,
+          leadsCountRes,
+          pendTasksCountRes,
+          tasksDataRes,
+          accountsRes,
+          expensesRes
+        ] = await Promise.all([
+          // 1. Invoices full data (used for stats + charts - eliminates duplicate query)
+          showBilling ? supabase.from('invoices').select('status, total_amount, issue_date').eq('user_id', user.id) : Promise.resolve({ data: [] as any[] }),
+          // 2. Recent 5 invoices
+          showBilling ? supabase.from('invoices').select('id, invoice_number, total_amount, status, issue_date, client_id').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5) : Promise.resolve({ data: [] as any[] }),
+          // 3. Employee count
+          showPayroll ? supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active') : Promise.resolve({ count: 0 }),
+          // 4. Pending leaves count
+          showPayroll ? supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'pending') : Promise.resolve({ count: 0 }),
+          // 5. Leads count
+          showCRM ? supabase.from('leads').select('*', { count: 'exact', head: true }).eq('user_id', user.id) : Promise.resolve({ count: 0 }),
+          // 6. Pending tasks count
+          showCRM ? supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('status', 'done') : Promise.resolve({ count: 0 }),
+          // 7. Recent 5 pending tasks
+          showCRM ? supabase.from('tasks').select('id, title, status, priority, due_date').eq('user_id', user.id).neq('status', 'done').order('created_at', { ascending: false }).limit(5) : Promise.resolve({ data: [] as any[] }),
+          // 8. Accounts balance
+          showLedger ? supabase.from('accounts').select('balance').eq('user_id', user.id) : Promise.resolve({ data: [] as any[] }),
+          // 9. Expenses
+          supabase.from('expenses').select('amount, created_at').eq('user_id', user.id)
+        ]);
 
-        const { data: exps } = await supabase
-          .from('expenses')
-          .select('amount, created_at')
-          .eq('user_id', user.id);
+        // Process Billing & Recent Invoices
+        let totalSales = 0;
+        let unpaidAmount = 0;
+        let invoiceCount = 0;
+        const invoicesData = invoicesRes.data || [];
 
-        if (invs) {
-          invs.forEach(inv => {
-            const dateStr = inv.issue_date; // YYYY-MM-DD
+        if (showBilling && invoicesData.length > 0) {
+          totalSales = invoicesData.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
+          unpaidAmount = invoicesData
+            .filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled')
+            .reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
+          invoiceCount = invoicesData.length;
+
+          // Chart data calculation from single invoices fetch
+          invoicesData.forEach(inv => {
+            const dateStr = inv.issue_date;
             if (dateStr) {
               const ym = dateStr.substring(0, 7);
               const mData = last6Months.find(m => m.yearMonth === ym);
@@ -248,23 +171,62 @@ export default function Dashboard() {
           });
         }
 
-        if (exps) {
-          exps.forEach(exp => {
-            const dateStr = exp.created_at; // ISO string
-            if (dateStr) {
-              const ym = dateStr.substring(0, 7);
-              const mData = last6Months.find(m => m.yearMonth === ym);
-              if (mData) {
-                mData.expense += Number(exp.amount || 0);
-              }
-            }
-          });
+        const recentInvs = recentInvsRes.data || [];
+        if (showBilling && recentInvs.length > 0) {
+          const clientIds = recentInvs.map(i => i.client_id).filter(Boolean);
+          let clientMap: Record<string, string> = {};
+          if (clientIds.length > 0) {
+            const { data: clientsData } = await supabase
+              .from('clients')
+              .select('id, name')
+              .in('id', clientIds);
+            clientMap = Object.fromEntries((clientsData || []).map(c => [c.id, c.name]));
+          }
+
+          const formattedInvoices: RecentInvoice[] = recentInvs.map(inv => ({
+            id: inv.id,
+            invoice_number: inv.invoice_number,
+            total_amount: Number(inv.total_amount),
+            status: inv.status,
+            issue_date: inv.issue_date,
+            client_name: clientMap[inv.client_id] || 'Unknown Client'
+          }));
+          setRecentInvoices(formattedInvoices);
+        } else {
+          setRecentInvoices([]);
         }
 
+        // Process Payroll & CRM & Ledger
+        const employeeCount = empCountRes.count || 0;
+        const pendingLeaves = pendLeavesRes.count || 0;
+        const leadsCount = leadsCountRes.count || 0;
+        const pendingTasksCount = pendTasksCountRes.count || 0;
+
+        if (showCRM && tasksDataRes.data) {
+          setRecentTasks(tasksDataRes.data as RecentTask[]);
+        } else {
+          setRecentTasks([]);
+        }
+
+        const accountsData = accountsRes.data || [];
+        const ledgerBalance = accountsData.reduce((sum: number, acc: any) => sum + Number(acc.balance || 0), 0);
+
+        // Process Expenses for Chart
+        const exps = expensesRes.data || [];
+        exps.forEach((exp: any) => {
+          const dateStr = exp.created_at;
+          if (dateStr) {
+            const ym = dateStr.substring(0, 7);
+            const mData = last6Months.find(m => m.yearMonth === ym);
+            if (mData) {
+              mData.expense += Number(exp.amount || 0);
+            }
+          }
+        });
 
         const totalRevenue = last6Months.reduce((sum, m) => sum + m.revenue, 0);
         const totalExpenses = last6Months.reduce((sum, m) => sum + m.expense, 0);
-        const totalPurchaseCost = last6Months.reduce((sum, m) => sum + m.expense, 0);
+        const totalPurchaseCost = totalExpenses;
         const netProfit = totalRevenue - totalExpenses;
 
         setChartData(last6Months.map(m => ({

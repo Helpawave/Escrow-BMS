@@ -18,8 +18,29 @@ export default defineConfig({
     },
   },
   build: {
-    chunkSizeWarningLimit: 5000, // Increase chunk limit warning to 5MB to handle heavy bundles without warnings
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+              return 'vendor-react';
+            }
+            if (id.includes('@supabase')) {
+              return 'vendor-supabase';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('recharts')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('html2pdf')) {
+              return 'vendor-pdf';
+            }
+          }
+        }
+      },
       onwarn(warning, warn) {
         // Suppress dynamic import warnings for jspdf/html2canvas
         if (warning.code === 'DYNAMIC_IMPORT_IN_STATIC_CHUNK' || warning.message.includes('dynamic import will not move module')) {
