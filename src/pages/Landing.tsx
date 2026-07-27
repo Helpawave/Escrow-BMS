@@ -70,73 +70,477 @@ const PLANS = [
 ];
 const ALL_MODS = ['Billing & Invoices', 'Daily Calculation', 'Account Ledger', 'Inventory', 'Payroll', 'CRM'];
 
-/* ─── ThreeDBackground ──────────────────────────────────────────────── */
+/* ─── Mind-Blowing 3D Interactive Canvas Engine ──────────────────────── */
 function ThreeDBackground({ isDark }: { isDark: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let width = (canvas.width = canvas.offsetWidth);
+    let height = (canvas.height = canvas.offsetHeight);
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = canvas.offsetWidth;
+      height = canvas.height = canvas.offsetHeight;
+    };
+    window.addEventListener('resize', handleResize);
+
+    // Mouse Parallax State
+    let mouseX = 0;
+    let mouseY = 0;
+    let targetMouseX = 0;
+    let targetMouseY = 0;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      targetMouseX = (e.clientX - rect.left - width / 2) * 0.0005;
+      targetMouseY = (e.clientY - rect.top - height / 2) * 0.0005;
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+
+    // 3D Particles
+    const PARTICLE_COUNT = 55;
+    const particles = Array.from({ length: PARTICLE_COUNT }, () => ({
+      x: (Math.random() - 0.5) * width * 1.5,
+      y: (Math.random() - 0.5) * height * 1.5,
+      z: Math.random() * 800 + 100,
+      vx: (Math.random() - 0.5) * 0.6,
+      vy: (Math.random() - 0.5) * 0.6,
+      vz: (Math.random() - 0.5) * 0.8,
+      size: Math.random() * 2.5 + 1.5,
+    }));
+
+    // 3D Wireframe Polyhedra (Cubes & Icosahedrons)
+    const createCube = (size: number, offsetX: number, offsetY: number, offsetZ: number, rotSpeedX: number, rotSpeedY: number) => {
+      const s = size / 2;
+      const vertices = [
+        [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
+        [-s, -s, s],  [s, -s, s],  [s, s, s],  [-s, s, s],
+      ];
+      const edges = [
+        [0,1],[1,2],[2,3],[3,0],
+        [4,5],[5,6],[6,7],[7,4],
+        [0,4],[1,5],[2,6],[3,7]
+      ];
+      return { vertices, edges, x: offsetX, y: offsetY, z: offsetZ, rx: 0, ry: 0, rz: 0, rotSpeedX, rotSpeedY };
+    };
+
+    const createIcosahedron = (size: number, offsetX: number, offsetY: number, offsetZ: number, rotSpeedX: number, rotSpeedY: number) => {
+      const phi = (1 + Math.sqrt(5)) / 2;
+      const a = size / 2;
+      const b = a / phi;
+      const vertices = [
+        [-b,  a,  0], [ b,  a,  0], [-b, -a,  0], [ b, -a,  0],
+        [ 0, -b,  a], [ 0,  b,  a], [ 0, -b, -a], [ 0,  b, -a],
+        [ a,  0, -b], [ a,  0,  b], [-a,  0, -b], [-a,  0,  b]
+      ];
+      const edges = [
+        [0,11],[0,5],[0,1],[0,7],[0,10],[1,7],[1,8],[1,9],[1,5],[2,3],
+        [2,4],[2,6],[2,10],[2,11],[3,4],[3,6],[3,8],[3,9],[4,5],[4,9],
+        [4,11],[5,9],[6,7],[6,8],[6,10],[7,8],[8,9],[10,11]
+      ];
+      return { vertices, edges, x: offsetX, y: offsetY, z: offsetZ, rx: 0, ry: 0, rz: 0, rotSpeedX, rotSpeedY };
+    };
+
+    const cubes = [
+      createIcosahedron(220, width * 0.15, -height * 0.05, 300, 0.005, 0.008),
+      createCube(140, -width * 0.35, -height * 0.2, 400, 0.008, 0.012),
+      createCube(180, width * 0.35, height * 0.2, 350, -0.006, 0.009),
+      createCube(110, -width * 0.25, height * 0.25, 500, 0.01, -0.007),
+    ];
+
+    const focalLength = 400;
+
+    const project = (x: number, y: number, z: number) => {
+      const scale = focalLength / (focalLength + z);
+      return {
+        px: x * scale + width / 2,
+        py: y * scale + height / 2,
+        scale,
+      };
+    };
+
+    let angleX = 0;
+    let angleY = 0;
+
+    const render = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      // Smooth mouse interpolation
+      mouseX += (targetMouseX - mouseX) * 0.05;
+      mouseY += (targetMouseY - mouseY) * 0.05;
+
+      angleX += 0.003 + mouseY;
+      angleY += 0.004 + mouseX;
+
+      // Color Palette based on Theme
+      const lineStroke = isDark ? 'rgba(59, 130, 246, 0.25)' : 'rgba(99, 102, 241, 0.25)';
+      const nodeFill = isDark ? 'rgba(6, 182, 212, 0.95)' : 'rgba(79, 70, 229, 0.95)';
+      const cubeStroke = isDark ? 'rgba(34, 211, 238, 0.65)' : 'rgba(99, 102, 241, 0.65)';
+      const cubeFill = isDark ? 'rgba(6, 182, 212, 0.08)' : 'rgba(99, 102, 241, 0.08)';
+
+      // 1. Draw 3D Particles & Constellation Connections
+      particles.forEach((p, i) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.z += p.vz;
+
+        if (p.x < -width) p.x = width;
+        if (p.x > width) p.x = -width;
+        if (p.y < -height) p.y = height;
+        if (p.y > height) p.y = -height;
+        if (p.z < 50) p.z = 800;
+        if (p.z > 850) p.z = 50;
+
+        const proj = project(p.x, p.y, p.z);
+        if (proj.px >= 0 && proj.px <= width && proj.py >= 0 && proj.py <= height) {
+          ctx.beginPath();
+          ctx.arc(proj.px, proj.py, Math.max(0.5, p.size * proj.scale), 0, Math.PI * 2);
+          ctx.fillStyle = nodeFill;
+          ctx.fill();
+
+          // Connect nearby particles
+          for (let j = i + 1; j < particles.length; j++) {
+            const p2 = particles[j];
+            const dx = p.x - p2.x;
+            const dy = p.y - p2.y;
+            const dz = p.z - p2.z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (dist < 180) {
+              const proj2 = project(p2.x, p2.y, p2.z);
+              ctx.beginPath();
+              ctx.moveTo(proj.px, proj.py);
+              ctx.lineTo(proj2.px, proj2.py);
+              ctx.strokeStyle = lineStroke;
+              ctx.lineWidth = Math.max(0.2, (1 - dist / 180) * 1.5 * proj.scale);
+              ctx.stroke();
+            }
+          }
+        }
+      });
+
+      // 2. Draw 3D Wireframe Cubes
+      cubes.forEach((cube) => {
+        cube.rx += cube.rotSpeedX;
+        cube.ry += cube.rotSpeedY;
+
+        const cosX = Math.cos(cube.rx);
+        const sinX = Math.sin(cube.rx);
+        const cosY = Math.cos(cube.ry);
+        const sinY = Math.sin(cube.ry);
+
+        const transformedVertices = cube.vertices.map(([vx, vy, vz]) => {
+          // Rotate Y
+          let x1 = vx * cosY - vz * sinY;
+          let z1 = vx * sinY + vz * cosY;
+          // Rotate X
+          let y2 = vy * cosX - z1 * sinX;
+          let z2 = vy * sinX + z1 * cosX;
+
+          return project(x1 + cube.x, y2 + cube.y, z2 + cube.z);
+        });
+
+        // Draw cube faces translucency
+        ctx.fillStyle = cubeFill;
+        ctx.beginPath();
+        transformedVertices.forEach((v, idx) => {
+          if (idx === 0) ctx.moveTo(v.px, v.py);
+          else ctx.lineTo(v.px, v.py);
+        });
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw cube wireframe edges
+        ctx.strokeStyle = cubeStroke;
+        ctx.lineWidth = 1.8;
+        cube.edges.forEach(([startIdx, endIdx]) => {
+          const p1 = transformedVertices[startIdx];
+          const p2 = transformedVertices[endIdx];
+          ctx.beginPath();
+          ctx.moveTo(p1.px, p1.py);
+          ctx.lineTo(p2.px, p2.py);
+          ctx.stroke();
+        });
+
+        // Draw vertex glowing dots
+        transformedVertices.forEach((v) => {
+          ctx.beginPath();
+          ctx.arc(v.px, v.py, 3 * v.scale, 0, Math.PI * 2);
+          ctx.fillStyle = nodeFill;
+          ctx.fill();
+        });
+      });
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [isDark]);
+
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-      {/* 1. Moving 3D Perspective Grid */}
-      <div className="absolute inset-0 opacity-60 dark:opacity-30 [perspective:1000px]">
-        <div
-          className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] animate-3d-grid"
-          style={{
-            transform: "rotateX(60deg) scale(1.2)",
-            backgroundImage: isDark
-              ? "linear-gradient(rgba(59, 130, 246, 0.2) 1.5px, transparent 1.5px), linear-gradient(90deg, rgba(59, 130, 246, 0.2) 1.5px, transparent 1.5px)"
-              : "linear-gradient(rgba(99, 102, 241, 0.18) 1.5px, transparent 1.5px), linear-gradient(90deg, rgba(99, 102, 241, 0.18) 1.5px, transparent 1.5px)",
-            backgroundSize: "60px 60px",
-          }}
-        />
-      </div>
+      {/* 3D Canvas Layer */}
+      <canvas ref={canvasRef} className="w-full h-full block opacity-90 dark:opacity-85" />
 
-      {/* 2. Floating 3D Spinning Cubes */}
-      <div className="absolute top-20 right-[15%] w-32 h-32 animate-3d-float [perspective:800px]">
-        <div
-          className={`w-full h-full rounded-2xl border-2 backdrop-blur-md animate-3d-spin shadow-2xl ${
-            isDark
-              ? "bg-cyan-500/10 border-cyan-400/50 shadow-[0_0_50px_rgba(6,182,212,0.4)]"
-              : "bg-indigo-500/15 border-indigo-400/60 shadow-[0_20px_40px_rgba(99,102,241,0.25)]"
-          }`}
-        />
-      </div>
-
-      <div className="absolute bottom-32 left-[8%] w-24 h-24 animate-3d-float [perspective:800px]" style={{ animationDelay: "-3s" }}>
-        <div
-          className={`w-full h-full rounded-2xl border-2 backdrop-blur-md animate-3d-spin shadow-xl ${
-            isDark
-              ? "bg-purple-500/10 border-purple-400/50 shadow-[0_0_40px_rgba(168,85,247,0.3)]"
-              : "bg-blue-400/20 border-blue-400/60 shadow-[0_15px_30px_rgba(59,130,246,0.2)]"
-          }`}
-        />
-      </div>
-
-      {/* 3. Floating 3D Glowing Ambient Orbs */}
+      {/* Floating 3D Glowing Ambient Orbs */}
       <div
-        className={`absolute top-12 left-10 w-72 h-72 rounded-full blur-3xl animate-pulse ${
+        className={`absolute top-10 left-12 w-80 h-80 rounded-full blur-3xl animate-pulse ${
           isDark
-            ? "bg-gradient-to-tr from-blue-600/40 via-purple-600/30 to-emerald-500/30 shadow-[0_0_120px_rgba(59,130,246,0.5)]"
-            : "bg-gradient-to-tr from-blue-300/60 via-indigo-200/50 to-sky-300/60 shadow-[0_30px_70px_rgba(99,102,241,0.3)]"
+            ? 'bg-gradient-to-tr from-blue-600/35 via-violet-600/30 to-cyan-500/25 shadow-[0_0_150px_rgba(59,130,246,0.5)]'
+            : 'bg-gradient-to-tr from-blue-300/50 via-indigo-200/50 to-sky-300/50 shadow-[0_30px_80px_rgba(99,102,241,0.25)]'
         }`}
-        style={{ animationDuration: "8s" }}
+        style={{ animationDuration: '8s' }}
       />
 
       <div
-        className={`absolute bottom-10 right-10 w-80 h-80 rounded-full blur-3xl animate-pulse ${
+        className={`absolute bottom-12 right-12 w-96 h-96 rounded-full blur-3xl animate-pulse ${
           isDark
-            ? "bg-gradient-to-br from-emerald-500/30 via-teal-600/25 to-blue-600/30 shadow-[0_0_140px_rgba(16,185,129,0.4)]"
-            : "bg-gradient-to-br from-indigo-200/60 via-blue-200/60 to-purple-200/60 shadow-[0_35px_80px_rgba(56,189,248,0.3)]"
+            ? 'bg-gradient-to-br from-emerald-500/30 via-teal-600/25 to-blue-600/30 shadow-[0_0_160px_rgba(16,185,129,0.4)]'
+            : 'bg-gradient-to-br from-indigo-200/50 via-blue-200/50 to-purple-200/50 shadow-[0_35px_90px_rgba(56,189,248,0.25)]'
         }`}
-        style={{ animationDuration: "10s", animationDelay: "-4s" }}
+        style={{ animationDuration: '10s', animationDelay: '-4s' }}
       />
 
-      {/* 4. Light / Dark Ambient Ray Overlay */}
+      {/* Light / Dark Ambient Ray Overlay */}
       <div
         className={`absolute inset-0 bg-gradient-to-b ${
           isDark
-            ? "from-blue-950/20 via-transparent to-[#05080f]"
-            : "from-blue-100/40 via-transparent to-slate-50"
+            ? 'from-blue-950/20 via-transparent to-[#05080f]'
+            : 'from-blue-50/50 via-transparent to-slate-50'
         }`}
       />
     </div>
+  );
+}
+
+/* ─── ModuleSimulator Component ─────────────────────────────────────── */
+function ModuleSimulator({ isDark, onStart }: { isDark: boolean; onStart: () => void }) {
+  const [activeTab, setActiveTab] = useState('billing');
+
+  const modules = [
+    { id: 'billing', label: 'GST Billing', icon: FileText, color: 'text-blue-500', badge: 'Auto GST' },
+    { id: 'payroll', label: 'Payroll & PF/ESI', icon: Users, color: 'text-violet-500', badge: 'Auto Slips' },
+    { id: 'ledger', label: 'Account Ledger', icon: BookOpen, color: 'text-emerald-500', badge: 'P&L Reports' },
+    { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-amber-500', badge: 'Stock Alert' },
+    { id: 'hisab', label: 'Daily Hisab', icon: Calculator, color: 'text-pink-500', badge: 'Quick Calc' },
+    { id: 'crm', label: 'CRM Leads', icon: Users, color: 'text-sky-500', badge: 'Pipeline' },
+  ];
+
+  return (
+    <section className={`py-24 px-6 border-b transition-colors duration-300 ${isDark ? 'bg-[#080d1a] border-white/5' : 'bg-slate-50 border-gray-200'}`}>
+      <div className="max-w-6xl mx-auto">
+        <FadeUp className="text-center mb-12">
+          <p className="text-blue-600 text-xs font-black uppercase tracking-widest mb-2">Live ERP Simulator</p>
+          <h2 className={`text-3xl sm:text-5xl font-black tracking-tight mb-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Experience the power of Escrow BMS in real-time
+          </h2>
+          <p className={`text-base max-w-xl mx-auto ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Click between modules below to see how Escrow BMS unifies your business operations into one seamless dashboard.
+          </p>
+        </FadeUp>
+
+        {/* Tab Switcher */}
+        <div className="flex flex-wrap justify-center gap-2.5 mb-10">
+          {modules.map((m) => {
+            const Icon = m.icon;
+            const active = activeTab === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setActiveTab(m.id)}
+                className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all duration-300 active:scale-95 border ${
+                  active
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-xl shadow-blue-500/25 scale-105'
+                    : isDark
+                    ? 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:text-white'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100 hover:text-gray-900 shadow-sm'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${active ? 'text-white' : m.color}`} />
+                <span>{m.label}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${active ? 'bg-white/20 text-white' : isDark ? 'bg-white/10 text-gray-400' : 'bg-gray-100 text-gray-600'}`}>
+                  {m.badge}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Dynamic Simulator Screen */}
+        <div className={`p-8 rounded-3xl border shadow-2xl transition-all duration-500 relative overflow-hidden backdrop-blur-xl ${
+          isDark ? 'bg-[#0b1224] border-white/10' : 'bg-white border-blue-150 shadow-blue-100'
+        }`}>
+          {activeTab === 'billing' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-center animate-fade-in">
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600/15 flex items-center justify-center text-blue-600 font-bold">INV</div>
+                    <div>
+                      <h4 className={`font-black text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>GST Invoice #INV-2026-904</h4>
+                      <p className="text-xs text-emerald-500 font-bold">🟢 Auto-calculated CGST (9%) + SGST (9%)</p>
+                    </div>
+                  </div>
+                  <span className="bg-emerald-500/15 text-emerald-500 font-bold text-xs px-3 py-1 rounded-full">Paid via UPI</span>
+                </div>
+
+                <div className={`p-4 rounded-xl border space-y-2 text-xs ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex justify-between font-medium"><span>Cotton Silk Fabrics (100m)</span><span className="font-bold">₹45,000</span></div>
+                  <div className="flex justify-between font-medium"><span>Custom Embroidery Design</span><span className="font-bold">₹8,500</span></div>
+                  <div className="flex justify-between text-blue-500 font-bold pt-2 border-t border-dashed border-gray-300 dark:border-white/10">
+                    <span>CGST 9% + SGST 9%</span><span>₹9,630</span>
+                  </div>
+                  <div className="flex justify-between text-base font-black text-emerald-500 pt-1">
+                    <span>Total Taxable Amount</span><span>₹63,130</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={onStart} className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md transition-all">
+                    📲 Send PDF Invoice on WhatsApp →
+                  </button>
+                </div>
+              </div>
+
+              <div className={`p-6 rounded-2xl border text-center space-y-4 ${isDark ? 'bg-blue-950/40 border-blue-500/20' : 'bg-blue-50/70 border-blue-100'}`}>
+                <p className="text-xs font-bold uppercase tracking-widest text-blue-500">Billing Highlights</p>
+                <div className="text-3xl font-black text-blue-600">⚡ 10 Seconds</div>
+                <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Create invoice, calculate GST, export PDF and WhatsApp link instantly.</p>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-600/10 text-blue-600 font-bold text-xs">
+                  ✅ 100% Tax Compliant
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'payroll' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-center animate-fade-in">
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-violet-600/15 flex items-center justify-center text-violet-600 font-bold">EMP</div>
+                    <div>
+                      <h4 className={`font-black text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>Monthly Salary Processing</h4>
+                      <p className="text-xs text-violet-500 font-bold">⚡ PF (12%) + ESI (0.75%) Auto Deductions</p>
+                    </div>
+                  </div>
+                  <span className="bg-violet-500/15 text-violet-500 font-bold text-xs px-3 py-1 rounded-full">28 Active Staff</span>
+                </div>
+
+                <div className={`p-4 rounded-xl border space-y-2 text-xs ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex justify-between font-medium"><span>Gross Payroll Total</span><span className="font-bold">₹8,45,000</span></div>
+                  <div className="flex justify-between font-medium text-violet-400"><span>Provident Fund (PF) Contribution</span><span className="font-bold">-₹1,01,400</span></div>
+                  <div className="flex justify-between font-medium text-violet-400"><span>ESI Contribution</span><span className="font-bold">-₹6,337</span></div>
+                  <div className="flex justify-between text-base font-black text-violet-600 pt-2 border-t border-dashed border-gray-300 dark:border-white/10">
+                    <span>Net Staff Payout</span><span>₹7,37,263</span>
+                  </div>
+                </div>
+
+                <button onClick={onStart} className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs rounded-xl shadow-md transition-all">
+                  📄 Generate All Payslips PDF →
+                </button>
+              </div>
+
+              <div className={`p-6 rounded-2xl border text-center space-y-4 ${isDark ? 'bg-violet-950/40 border-violet-500/20' : 'bg-violet-50/70 border-violet-100'}`}>
+                <p className="text-xs font-bold uppercase tracking-widest text-violet-500">Payroll Highlights</p>
+                <div className="text-3xl font-black text-violet-600">Zero Errors</div>
+                <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Attendance integration, leave tracking, automated slip PDF generation.</p>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-600/10 text-violet-600 font-bold text-xs">
+                  ✨ Auto Salary Slips
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'ledger' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-center animate-fade-in">
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600/15 flex items-center justify-center text-emerald-600 font-bold">LED</div>
+                    <div>
+                      <h4 className={`font-black text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>Party Account Ledger</h4>
+                      <p className="text-xs text-emerald-500 font-bold">🟢 Real-time Debit / Credit Balance</p>
+                    </div>
+                  </div>
+                  <span className="bg-emerald-500/15 text-emerald-500 font-bold text-xs px-3 py-1 rounded-full">Synced</span>
+                </div>
+
+                <div className={`p-4 rounded-xl border space-y-2 text-xs ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex justify-between font-medium"><span>Opening Balance</span><span className="font-bold">₹1,20,000</span></div>
+                  <div className="flex justify-between font-medium text-emerald-500"><span>Payment Received (UPI)</span><span className="font-bold">+₹75,000</span></div>
+                  <div className="flex justify-between font-medium text-rose-500"><span>Purchase Invoice #PUR-881</span><span className="font-bold">-₹32,000</span></div>
+                  <div className="flex justify-between text-base font-black text-emerald-600 pt-2 border-t border-dashed border-gray-300 dark:border-white/10">
+                    <span>Closing Net Balance</span><span>₹1,63,000 Cr</span>
+                  </div>
+                </div>
+
+                <button onClick={onStart} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all">
+                  📊 Export Ledger Excel & Statement →
+                </button>
+              </div>
+
+              <div className={`p-6 rounded-2xl border text-center space-y-4 ${isDark ? 'bg-emerald-950/40 border-emerald-500/20' : 'bg-emerald-50/70 border-emerald-100'}`}>
+                <p className="text-xs font-bold uppercase tracking-widest text-emerald-500">Ledger Highlights</p>
+                <div className="text-3xl font-black text-emerald-600">Double Entry</div>
+                <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Instant P&L statements, party balances, and trial balance reports.</p>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-600/10 text-emerald-600 font-bold text-xs">
+                  📈 Realtime Profit & Loss
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(activeTab === 'inventory' || activeTab === 'hisab' || activeTab === 'crm') && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-center animate-fade-in">
+              <div className="lg:col-span-2 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-600/15 flex items-center justify-center text-amber-600 font-bold">ERP</div>
+                    <div>
+                      <h4 className={`font-black text-lg ${isDark ? 'text-white' : 'text-gray-900'}`}>Automated Operations</h4>
+                      <p className="text-xs text-amber-500 font-bold">⚡ Low Stock Alerts & Barcode Scanner</p>
+                    </div>
+                  </div>
+                  <span className="bg-amber-500/15 text-amber-500 font-bold text-xs px-3 py-1 rounded-full">Live Sync</span>
+                </div>
+
+                <div className={`p-4 rounded-xl border space-y-2 text-xs ${isDark ? 'bg-white/5 border-white/5' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex justify-between font-medium"><span>Stock Items Tracked</span><span className="font-bold">1,420 Items</span></div>
+                  <div className="flex justify-between font-medium text-amber-500"><span>Low Stock Warning Trigger</span><span className="font-bold">12 Items</span></div>
+                  <div className="flex justify-between text-base font-black text-amber-600 pt-2 border-t border-dashed border-gray-300 dark:border-white/10">
+                    <span>Total Valuation</span><span>₹18,40,000</span>
+                  </div>
+                </div>
+
+                <button onClick={onStart} className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-md transition-all">
+                  🚀 Launch Escrow BMS Free Demo →
+                </button>
+              </div>
+
+              <div className={`p-6 rounded-2xl border text-center space-y-4 ${isDark ? 'bg-amber-950/40 border-amber-500/20' : 'bg-amber-50/70 border-amber-100'}`}>
+                <p className="text-xs font-bold uppercase tracking-widest text-amber-500">Automation</p>
+                <div className="text-3xl font-black text-amber-600">100% Unified</div>
+                <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Barcode scanning, CRM lead management, daily Hisab cash closing.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -816,6 +1220,9 @@ export default function Landing() {
           </div>
         </FadeUp>
       </section>
+
+      {/* ═══ LIVE MODULE SIMULATOR ═════════════════════════════════════ */}
+      <ModuleSimulator isDark={isDark} onStart={go} />
 
       {/* ═══ ROI CALCULATOR ═════════════════════════════════════════════ */}
       <ROICalculator isDark={isDark} onStart={go} />
