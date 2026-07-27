@@ -143,6 +143,15 @@ const ClientsPage = () => {
     }
 
     try {
+      let activeUserId = user?.id;
+      if (!activeUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUserId = authData?.user?.id;
+      }
+      if (!activeUserId) {
+        throw new Error("Please log in to save client details.");
+      }
+
       const { hide_contact_details, ...payloadData } = formData;
       const finalizedData = {
         ...payloadData,
@@ -152,23 +161,32 @@ const ClientsPage = () => {
       };
 
       if (editingId) {
-        const { error } = await supabase
+        const { error, data: updatedData } = await supabase
           .from('clients')
-          .update(finalizedData)
+          .update({ ...finalizedData, user_id: activeUserId })
           .eq('id', editingId)
-          .eq('user_id', user?.id);
+          .select();
 
         if (error) throw error;
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error("Failed to update client. Please try again.");
+        }
+
         setSuccessInfo({
           title: 'Client Updated',
           message: 'Client profile has been successfully synchronized with your records.'
         });
       } else {
-        const { error } = await supabase
+        const { error, data: insertedData } = await supabase
           .from('clients')
-          .insert([{ ...finalizedData, user_id: user?.id }]);
+          .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
+          .select();
 
         if (error) throw error;
+        if (!insertedData || insertedData.length === 0) {
+          throw new Error("Failed to create client. Please try again.");
+        }
+
         setSuccessInfo({
           title: 'Client Registered',
           message: 'Success! Your new client discovery is now part of your network.'

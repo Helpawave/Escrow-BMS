@@ -451,6 +451,15 @@ const ProductsPage = () => {
     }
 
     try {
+      let activeUserId = user?.id;
+      if (!activeUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUserId = authData?.user?.id;
+      }
+      if (!activeUserId) {
+        throw new Error("Please log in to save product details.");
+      }
+
       const productData = {
         name: formData.name.trim(),
         description: formData.description,
@@ -466,20 +475,25 @@ const ProductsPage = () => {
         hsn_code: formData.hsn_code,
         low_stock_warning: formData.low_stock_warning,
         vendor_id: formData.vendor_id || null,
-        user_id: user?.id
+        user_id: activeUserId,
+        id: crypto.randomUUID()
       };
 
       console.log('Attempting to save product with data:', productData);
 
       if (editingId) {
-        const { error } = await supabase
+        const { error, data: updatedData } = await supabase
           .from('products')
           .update(productData)
-          .eq('id', editingId);
+          .eq('id', editingId)
+          .select();
 
         if (error) {
           console.error('Supabase update error:', error);
           throw new Error(`Failed to update product: ${error.message}`);
+        }
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error("Failed to update product. Please try again.");
         }
 
         setSuccessInfo({
@@ -503,29 +517,24 @@ const ProductsPage = () => {
         if (formData.vendor_id && Number(formData.purchase_price) > 0 && newProduct) {
           const invoiceNumber = `PUR-${Date.now()}`;
           const totalAmount = Number(formData.purchase_price) * (Number(formData.opening_stock) || 1);
+          const today = new Date().toISOString().split('T')[0];
 
-          const { data: invData, error: invError } = await supabase
-            .from('purchase_invoices')
-            .insert([{
-              user_id: user?.id,
-              vendor_id: formData.vendor_id,
-              invoice_number: invoiceNumber,
-              issue_date: new Date().toISOString().split('T')[0],
-              total_amount: totalAmount,
-              status: 'paid'
-            }])
-            .select();
-
-          if (invError) {
-            console.error('Error creating purchase invoice:', invError);
-          } else if (invData?.[0]) {
-            await supabase.from('purchase_invoice_items').insert([{
-              invoice_id: (invData[0] as unknown as { id: string }).id,
-              product_id: newProduct.id,
-              quantity: Number(formData.opening_stock) || 1,
-              rate: Number(formData.purchase_price),
-              amount: totalAmount
-            }]);
+          try {
+            await supabase
+              .from('purchase_invoices')
+              .insert([{
+                id: crypto.randomUUID(),
+                user_id: activeUserId,
+                vendor_id: formData.vendor_id,
+                invoice_number: invoiceNumber,
+                issue_date: today,
+                due_date: today,
+                total_amount: totalAmount,
+                status: 'paid'
+              }])
+              .select();
+          } catch (invErr) {
+            console.error('Error creating purchase invoice:', invErr);
           }
         }
 

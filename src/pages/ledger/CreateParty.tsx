@@ -71,12 +71,16 @@ const CreateParty = () => {
     setSuccess(false);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("User not authenticated");
+      let user = (await supabase.auth.getUser())?.data?.user;
+      if (!user) {
+        user = (await supabase.auth.getSession())?.data?.session?.user;
+      }
+      if (!user) throw new Error("Please log in to add a party.");
 
       const { error: dbError } = await supabase
         .from('parties')
         .insert([{
+          id: crypto.randomUUID(),
           user_id: user.id,
           sr_no: formData.srNo,
           party_name: formData.partyName,

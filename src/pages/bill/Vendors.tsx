@@ -115,6 +115,15 @@ const VendorsPage = () => {
     }
 
     try {
+      let activeUserId = user?.id;
+      if (!activeUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUserId = authData?.user?.id;
+      }
+      if (!activeUserId) {
+        throw new Error("Please log in to save vendor details.");
+      }
+
       const finalizedData = {
         ...formData,
         gstin: formData.gstin.trim(),
@@ -123,23 +132,32 @@ const VendorsPage = () => {
       };
 
       if (editingId) {
-        const { error } = await supabase
+        const { error, data: updatedData } = await supabase
           .from('vendors')
-          .update(finalizedData)
+          .update({ ...finalizedData, user_id: activeUserId })
           .eq('id', editingId)
-          .eq('user_id', user?.id);
+          .select();
 
         if (error) throw error;
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error("Failed to update vendor. Please try again.");
+        }
+
         setSuccessInfo({
           title: 'Vendor Updated',
           message: 'Vendor profile has been successfully updated.'
         });
       } else {
-        const { error } = await supabase
+        const { error, data: insertedData } = await supabase
           .from('vendors')
-          .insert([{ ...finalizedData, user_id: user?.id }]);
+          .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
+          .select();
 
         if (error) throw error;
+        if (!insertedData || insertedData.length === 0) {
+          throw new Error("Failed to create vendor. Please try again.");
+        }
+
         setSuccessInfo({
           title: 'Vendor Registered',
           message: 'Success! New vendor has been added to your procurement list.'

@@ -183,23 +183,43 @@ const ExpensesPage = () => {
     }
 
     try {
+      let activeUserId = user?.id;
+      if (!activeUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUserId = authData?.user?.id;
+      }
+      if (!activeUserId) {
+        throw new Error("Please log in to save expense details.");
+      }
+
       if (editingId) {
-        const { error } = await supabase
+        const { error, data: updatedData } = await supabase
           .from('expenses')
-          .update(formData)
-          .eq('id', editingId);
+          .update({ ...formData, user_id: activeUserId })
+          .eq('id', editingId)
+          .select();
 
         if (error) throw error;
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error("Failed to update expense. Please try again.");
+        }
+
         setSuccessInfo({
           title: 'Expense Updated',
           message: 'Your expense record has been successfully adjusted.'
         });
       } else {
-        const { error } = await supabase
+        const expenseDate = formData.expense_date || new Date().toISOString().split('T')[0];
+        const { error, data: insertedData } = await supabase
           .from('expenses')
-          .insert([{ ...formData, user_id: user?.id }]);
+          .insert([{ id: crypto.randomUUID(), ...formData, expense_date: expenseDate, user_id: activeUserId }])
+          .select();
 
         if (error) throw error;
+        if (!insertedData || insertedData.length === 0) {
+          throw new Error("Failed to create expense. Please try again.");
+        }
+
         setSuccessInfo({
           title: 'Expense Recorded',
           message: 'New expense has been safely logged into your financial records.'

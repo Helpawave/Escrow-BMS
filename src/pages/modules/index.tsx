@@ -25,7 +25,7 @@ const PayrollAttendance = React.lazy(() => import('../payroll/Attendance'));
 const PayrollLeave = React.lazy(() => import('../payroll/Leave'));
 const PayrollPayslips = React.lazy(() => import('../payroll/Payslips'));
 const PayrollReports = React.lazy(() => import('../payroll/Reports'));
-
+const PayrollNotifications = React.lazy(() => import('../payroll/Notifications'));
 const PayrollIntro = React.lazy(() => import('../payroll/Intro'));
 
 export function PayrollModule() {
@@ -40,6 +40,7 @@ export function PayrollModule() {
         <Route path="/leave" element={<PayrollLeave />} />
         <Route path="/payslips" element={<PayrollPayslips />} />
         <Route path="/reports" element={<PayrollReports />} />
+        <Route path="/notifications" element={<PayrollNotifications />} />
         <Route path="/settings" element={<Navigate to="/settings" replace />} />
         <Route path="*" element={<Navigate to="" replace />} />
       </Routes>
@@ -96,6 +97,7 @@ const BillPayments = React.lazy(() => import('../bill/Payments'));
 const BillExpenses = React.lazy(() => import('../bill/Expenses'));
 const BillReports = React.lazy(() => import('../bill/Reports'));
 const BillEInvoice = React.lazy(() => import('../bill/EInvoice'));
+const BillScanProduct = React.lazy(() => import('../bill/ScanProduct'));
 const BillAdminLogin = React.lazy(() => import('../bill/AdminLogin'));
 const BillAdminDashboard = React.lazy(() => import('../bill/AdminDashboard'));
 const BillBusinessSetup = React.lazy(() => import('../bill/BusinessSetup'));
@@ -117,6 +119,7 @@ export function BillingModule() {
           <Route path="/expenses" element={<BillExpenses />} />
           <Route path="/reports" element={<BillReports />} />
           <Route path="/e-invoice" element={<BillEInvoice />} />
+          <Route path="/scan" element={<BillScanProduct />} />
           <Route path="/settings" element={<Navigate to="/settings" replace />} />
           <Route path="/admin" element={<BillAdminLogin />} />
           <Route path="/admin/dashboard" element={<BillAdminDashboard />} />

@@ -74,15 +74,17 @@ export function Dashboard() {
   const { data: profile } = useQuery({
     queryKey: ['profile', user?.id],
     queryFn: async () => {
+      if (!user?.id) return null;
       const { data, error } = await supabase
         .from('profiles')
         .select('company_name, logo_url')
-        .eq('user_id', user?.id)
-        .single();
+        .eq('id', user?.id)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },
-    enabled: !!user,
+    enabled: !!user?.id,
+    staleTime: 5 * 60 * 1000,
   });
 
   const queryClient = useQueryClient();

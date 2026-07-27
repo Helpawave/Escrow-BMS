@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { UserLayout } from "@/components/layout/UserLayout";
 import {
   Card,
@@ -160,10 +161,22 @@ export const Dashboard = () => {
   };
 
   const performSave = async () => {
-    if (!user) return;
+    let activeUserId = user?.id;
+    if (!activeUserId) {
+      const { data: authData } = await supabase.auth.getUser();
+      activeUserId = authData?.user?.id;
+    }
+    if (!activeUserId) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to save calculation entries.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const success = await addEntry({
-      userId: user.id,
+      userId: activeUserId,
       ...results,
       previousHisab,
       difference,

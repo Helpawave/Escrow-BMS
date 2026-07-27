@@ -104,24 +104,42 @@ const PaymentsPage = () => {
     }
 
     try {
+      let activeUserId = user?.id;
+      if (!activeUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        activeUserId = authData?.user?.id;
+      }
+      if (!activeUserId) {
+        throw new Error("Please log in to record payment.");
+      }
+
       if (editingId) {
-        const { error } = await supabase
+        const { error, data: updatedData } = await supabase
           .from('payments')
-          .update(formData)
-          .eq('id', editingId);
+          .update({ ...formData, user_id: activeUserId })
+          .eq('id', editingId)
+          .select();
 
         if (error) throw error;
+        if (!updatedData || updatedData.length === 0) {
+          throw new Error("Failed to update payment. Please try again.");
+        }
+
         setSuccessInfo({
           title: "Payment Updated",
           message: "The payment record has been successfully modified."
         });
         setShowSuccess(true);
       } else {
-        const { error } = await supabase
+        const { error, data: insertedData } = await supabase
           .from('payments')
-          .insert([{ ...formData, user_id: user?.id }]);
+          .insert([{ id: crypto.randomUUID(), ...formData, user_id: activeUserId }])
+          .select();
 
         if (error) throw error;
+        if (!insertedData || insertedData.length === 0) {
+          throw new Error("Failed to record payment. Please try again.");
+        }
 
         // Update invoice status to paid if full payment (with ₹1 tolerance for rounding)
         const selectedInvoice = invoices.find(inv => inv.id === formData.invoice_id);

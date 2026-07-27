@@ -10,7 +10,7 @@ export function useDashboardStats(range: DateRangeFilter = 'current_month') {
   return useQuery({
     queryKey: ['dashboard-stats', user?.id, range],
     queryFn: async () => {
-      if (!user) throw new Error("User not authenticated");
+      if (!user?.id) return null;
 
       let cutoffDate: string | null = null;
       let cutoffEnd: string | null = null;
@@ -116,6 +116,8 @@ export function useDashboardStats(range: DateRangeFilter = 'current_month') {
         }
       };
     },
-    enabled: !!user,
+    enabled: !!user?.id,
+    staleTime: 60 * 1000,
+    retry: 1,
   });
 }
