@@ -269,9 +269,10 @@ const ProductsPage = () => {
 
   useEffect(() => {
     if (showHSNDialog && hsnCodesData.length === 0) {
-      import('@/data/hsnCodes.json').then(module => {
-        setHsnCodesData(module.default);
-      });
+      fetch('/data/hsnCodes.json')
+        .then(res => res.json())
+        .then(data => setHsnCodesData(data))
+        .catch(err => console.error('Failed to load HSN codes:', err));
     }
   }, [showHSNDialog, hsnCodesData.length]);
 

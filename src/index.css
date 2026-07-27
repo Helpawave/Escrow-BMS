@@ -168,3 +168,45 @@
 .btn-secondary {
   @apply inline-flex items-center justify-center px-4 py-2 bg-secondary text-secondary-foreground font-semibold rounded-xl transition-all duration-200 hover:bg-secondary/80 active:scale-95;
 }
+
+/* 3D Keyframe Animations */
+@keyframes spin3D {
+  0% {
+    transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+  }
+  100% {
+    transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg);
+  }
+}
+
+@keyframes gridPerspective {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 60px;
+  }
+}
+
+@keyframes float3D {
+  0%, 100% {
+    transform: translateY(0px) rotateX(10deg) rotateY(-10deg);
+  }
+  50% {
+    transform: translateY(-25px) rotateX(20deg) rotateY(10deg);
+  }
+}
+
+.animate-3d-spin {
+  animation: spin3D 20s linear infinite;
+  transform-style: preserve-3d;
+}
+
+.animate-3d-grid {
+  animation: gridPerspective 4s linear infinite;
+}
+
+.animate-3d-float {
+  animation: float3D 6s ease-in-out infinite;
+  transform-style: preserve-3d;
+}

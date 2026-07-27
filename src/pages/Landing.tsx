@@ -74,53 +74,66 @@ const ALL_MODS = ['Billing & Invoices', 'Daily Calculation', 'Account Ledger', '
 function ThreeDBackground({ isDark }: { isDark: boolean }) {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-      {/* 3D Isometric Mesh Layer */}
-      <div
-        className="absolute inset-0 opacity-40 dark:opacity-20"
-        style={{
-          perspective: '1000px',
-          backgroundImage: isDark
-            ? 'radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.18), transparent 70%), linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px)'
-            : 'radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.15), transparent 70%), linear-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px)',
-          backgroundSize: '100% 100%, 60px 60px, 60px 60px',
-          transform: 'rotateX(15deg) scale(1.1)',
-        }}
-      />
+      {/* 1. Moving 3D Perspective Grid */}
+      <div className="absolute inset-0 opacity-60 dark:opacity-30 [perspective:1000px]">
+        <div
+          className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] animate-3d-grid"
+          style={{
+            transform: "rotateX(60deg) scale(1.2)",
+            backgroundImage: isDark
+              ? "linear-gradient(rgba(59, 130, 246, 0.2) 1.5px, transparent 1.5px), linear-gradient(90deg, rgba(59, 130, 246, 0.2) 1.5px, transparent 1.5px)"
+              : "linear-gradient(rgba(99, 102, 241, 0.18) 1.5px, transparent 1.5px), linear-gradient(90deg, rgba(99, 102, 241, 0.18) 1.5px, transparent 1.5px)",
+            backgroundSize: "60px 60px",
+          }}
+        />
+      </div>
 
-      {/* Floating 3D Geometric Orbs */}
+      {/* 2. Floating 3D Spinning Cubes */}
+      <div className="absolute top-20 right-[15%] w-32 h-32 animate-3d-float [perspective:800px]">
+        <div
+          className={`w-full h-full rounded-2xl border-2 backdrop-blur-md animate-3d-spin shadow-2xl ${
+            isDark
+              ? "bg-cyan-500/10 border-cyan-400/50 shadow-[0_0_50px_rgba(6,182,212,0.4)]"
+              : "bg-indigo-500/15 border-indigo-400/60 shadow-[0_20px_40px_rgba(99,102,241,0.25)]"
+          }`}
+        />
+      </div>
+
+      <div className="absolute bottom-32 left-[8%] w-24 h-24 animate-3d-float [perspective:800px]" style={{ animationDelay: "-3s" }}>
+        <div
+          className={`w-full h-full rounded-2xl border-2 backdrop-blur-md animate-3d-spin shadow-xl ${
+            isDark
+              ? "bg-purple-500/10 border-purple-400/50 shadow-[0_0_40px_rgba(168,85,247,0.3)]"
+              : "bg-blue-400/20 border-blue-400/60 shadow-[0_15px_30px_rgba(59,130,246,0.2)]"
+          }`}
+        />
+      </div>
+
+      {/* 3. Floating 3D Glowing Ambient Orbs */}
       <div
-        className={`absolute top-12 left-10 w-48 h-48 rounded-full blur-xl animate-bounce ${
+        className={`absolute top-12 left-10 w-72 h-72 rounded-full blur-3xl animate-pulse ${
           isDark
-            ? 'bg-gradient-to-tr from-blue-600/30 to-violet-600/30 shadow-[0_0_80px_rgba(59,130,246,0.3)]'
-            : 'bg-gradient-to-tr from-blue-300/40 to-indigo-300/40 shadow-[0_20px_50px_rgba(99,102,241,0.2)]'
+            ? "bg-gradient-to-tr from-blue-600/40 via-purple-600/30 to-emerald-500/30 shadow-[0_0_120px_rgba(59,130,246,0.5)]"
+            : "bg-gradient-to-tr from-blue-300/60 via-indigo-200/50 to-sky-300/60 shadow-[0_30px_70px_rgba(99,102,241,0.3)]"
         }`}
-        style={{ animationDuration: '9s' }}
+        style={{ animationDuration: "8s" }}
       />
 
       <div
-        className={`absolute bottom-20 right-16 w-60 h-60 rounded-full blur-2xl animate-pulse ${
+        className={`absolute bottom-10 right-10 w-80 h-80 rounded-full blur-3xl animate-pulse ${
           isDark
-            ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 shadow-[0_0_100px_rgba(16,185,129,0.25)]'
-            : 'bg-gradient-to-br from-sky-200/50 to-blue-200/50 shadow-[0_25px_60px_rgba(56,189,248,0.2)]'
+            ? "bg-gradient-to-br from-emerald-500/30 via-teal-600/25 to-blue-600/30 shadow-[0_0_140px_rgba(16,185,129,0.4)]"
+            : "bg-gradient-to-br from-indigo-200/60 via-blue-200/60 to-purple-200/60 shadow-[0_35px_80px_rgba(56,189,248,0.3)]"
         }`}
-        style={{ animationDuration: '7s' }}
+        style={{ animationDuration: "10s", animationDelay: "-4s" }}
       />
 
+      {/* 4. Light / Dark Ambient Ray Overlay */}
       <div
-        className={`absolute top-1/3 right-1/4 w-36 h-36 rounded-2xl rotate-12 blur-lg animate-spin ${
+        className={`absolute inset-0 bg-gradient-to-b ${
           isDark
-            ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30'
-            : 'bg-gradient-to-r from-purple-200/40 to-pink-200/40 border border-purple-200/50'
-        }`}
-        style={{ animationDuration: '25s' }}
-      />
-
-      {/* Light Reflection Ray Overlay */}
-      <div
-        className={`absolute top-0 inset-x-0 h-96 bg-gradient-to-b ${
-          isDark
-            ? 'from-blue-600/10 via-transparent to-transparent'
-            : 'from-indigo-100/50 via-transparent to-transparent'
+            ? "from-blue-950/20 via-transparent to-[#05080f]"
+            : "from-blue-100/40 via-transparent to-slate-50"
         }`}
       />
     </div>

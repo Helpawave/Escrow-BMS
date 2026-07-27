@@ -105,8 +105,9 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     if (showHSNDialog && hsnCodesData.length === 0) {
       const loadHSN = async () => {
         try {
-          const module = await import('@/data/hsnCodes.json');
-          setHsnCodesData(module.default as unknown as HSNCode[]);
+          const res = await fetch('/data/hsnCodes.json');
+          const data = await res.json();
+          setHsnCodesData(data as HSNCode[]);
         } catch (error) {
           console.error('Failed to load HSN codes:', error);
         }

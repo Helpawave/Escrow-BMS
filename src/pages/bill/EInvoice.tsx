@@ -439,11 +439,10 @@ const EInvoicePage = () => {
   // Dynamically import HSN codes only when search is opened to reduce initial bundle size
   useEffect(() => {
     if (showHSNDialog && hsnCodesData.length === 0) {
-      import('@/data/hsnCodes.json').then(module => {
-        setHsnCodesData(module.default);
-      }).catch(err => {
-        console.error('Failed to load HSN codes:', err);
-      });
+      fetch('/data/hsnCodes.json')
+        .then(res => res.json())
+        .then(data => setHsnCodesData(data))
+        .catch(err => console.error('Failed to load HSN codes:', err));
     }
   }, [showHSNDialog, hsnCodesData.length]);
 

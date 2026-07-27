@@ -18,25 +18,38 @@ export default defineConfig({
     },
   },
   build: {
-    chunkSizeWarningLimit: 1500,
+    target: "esnext",
+    minify: "esbuild",
+    cssMinify: true,
+    modulePreload: false,
+    reportCompressedSize: false,
+    sourcemap: false,
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
-              return 'vendor-react';
+            if (
+              id.includes('react') ||
+              id.includes('react-dom') ||
+              id.includes('react-router') ||
+              id.includes('@radix-ui') ||
+              id.includes('cmdk') ||
+              id.includes('framer-motion')
+            ) {
+              return 'vendor-core';
             }
             if (id.includes('@supabase')) {
               return 'vendor-supabase';
-            }
-            if (id.includes('lucide-react')) {
-              return 'vendor-icons';
             }
             if (id.includes('recharts')) {
               return 'vendor-charts';
             }
             if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('html2pdf')) {
               return 'vendor-pdf';
+            }
+            if (id.includes('xlsx')) {
+              return 'vendor-xlsx';
             }
           }
         }
