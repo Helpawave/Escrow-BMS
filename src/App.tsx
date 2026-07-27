@@ -22,6 +22,11 @@ import Landing from '@/pages/Landing';
 // Lazy-loaded secondary pages & sub-modules
 const Pricing = React.lazy(() => import('@/pages/Pricing'));
 const Settings = React.lazy(() => import('@/pages/Settings'));
+const AboutUs = React.lazy(() => import('@/pages/AboutUs'));
+const ContactUs = React.lazy(() => import('@/pages/ContactUs'));
+const PrivacyPolicy = React.lazy(() => import('@/pages/PrivacyPolicy'));
+const TermsAndConditions = React.lazy(() => import('@/pages/TermsAndConditions'));
+const RefundPolicy = React.lazy(() => import('@/pages/RefundPolicy'));
 const SuperadminDashboard = React.lazy(() => import('@/pages/bill/AdminDashboard'));
 const ClientAdminDashboard = React.lazy(() => import('@/pages/ClientAdminDashboard'));
 
@@ -212,8 +217,13 @@ export default function App() {
                     <SubscriptionProvider>
                       <Suspense fallback={<PageFallback />}>
                         <Routes>
-                          {/* Public Landing Page */}
+                          {/* Public Landing Page & Company/Legal Pages */}
                           <Route path="/" element={<Landing />} />
+                          <Route path="/about" element={<AboutUs />} />
+                          <Route path="/contact" element={<ContactUs />} />
+                          <Route path="/privacy" element={<PrivacyPolicy />} />
+                          <Route path="/terms" element={<TermsAndConditions />} />
+                          <Route path="/refund" element={<RefundPolicy />} />
 
                           {/* Auth */}
                           <Route

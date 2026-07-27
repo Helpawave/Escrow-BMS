@@ -44,6 +44,8 @@ const Dashboard = () => {
     }
   });
 
+  const [recentActivityList, setRecentActivityList] = useState<any[]>([]);
+
   useEffect(() => {
     if (!user) return;
     let mounted = true;
@@ -72,7 +74,7 @@ const Dashboard = () => {
             .gte('transaction_date', today.toISOString()),
           supabase
             .from('transactions')
-            .select('party_id, balance, transaction_date, parties(system_type)')
+            .select('id, party_id, credit, debit, balance, remarks, transaction_date, parties(name, system_type)')
             .eq('user_id', user.id)
             .order('transaction_date', { ascending: false })
         ]);
@@ -126,12 +128,13 @@ const Dashboard = () => {
             pendingFinals
           };
           setStatsData(newStats);
+          setRecentActivityList(allTns?.slice(0, 5) || []);
           try {
             localStorage.setItem('cached_dashboard_stats', JSON.stringify(newStats));
           } catch {}
         }
       } catch (err) {
-        console.error('Error fetching dashboard data:', err);
+        console.error("Dashboard error:", err);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -239,20 +242,42 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* Recent Activity Placeholder (Could be expanded later) */}
+        {/* Recent Activity Table */}
         <div className="mt-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm transition-colors duration-200">
           <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center text-slate-900 dark:text-white">
             <h3 className="text-lg font-bold">Recent Activity</h3>
             <button 
-              onClick={() => navigate('/ledger')}
+              onClick={() => navigate('/ledger/ledger')}
               className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
             >
               View Ledger
             </button>
           </div>
-          <div className="p-8 text-center py-20 text-slate-400 dark:text-slate-500 italic">
-            Check your ledger for the most up-to-date transaction history.
-          </div>
+          {recentActivityList.length > 0 ? (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {recentActivityList.map((t: any) => (
+                <div key={t.id} className="px-8 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                  <div>
+                    <p className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+                      {t.parties?.name || 'Party Transaction'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {t.remarks || 'Journal Entry'} · {new Date(t.transaction_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className={`font-mono font-bold text-sm ${t.credit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      {t.credit > 0 ? `+₹${t.credit.toLocaleString('en-IN')}` : `-₹${t.debit.toLocaleString('en-IN')}`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-8 text-center py-16 text-slate-400 dark:text-slate-500 italic text-sm">
+              No recent ledger entries found. Click Transfer Entry to record your first transaction.
+            </div>
+          )}
         </div>
       </div>
     </div>

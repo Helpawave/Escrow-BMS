@@ -206,7 +206,7 @@ export const Leads: React.FC<LeadsProps> = ({ globalSearch, setGlobalSearch }) =
                           {lead.status === 'won' && (
                             <button
                               onClick={() => {
-                                navigate(`/bill/invoices/create?search=${encodeURIComponent(lead.name)}`);
+                                navigate(`/billing/create-invoice?client=${encodeURIComponent(lead.company || lead.name)}`);
                               }}
                               className="px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer"
                               title="Convert to Invoice"

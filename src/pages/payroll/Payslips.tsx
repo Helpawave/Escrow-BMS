@@ -64,7 +64,76 @@ const Payslips = () => {
   };
 
   const handleDownload = (slip: Payslip) => {
-    toast.success(`Downloading payslip for ${slip.employee} — ${slip.period}`);
+    toast.success(`Preparing printable payslip for ${slip.employee} (${slip.period})...`);
+    const printWin = window.open('', '_blank');
+    if (!printWin) return;
+    printWin.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Payslip - ${slip.employee} - ${slip.period}</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; color: #1e293b; max-width: 700px; margin: 0 auto; }
+            .header { text-align: center; border-bottom: 2px solid #6366f1; padding-bottom: 20px; margin-bottom: 20px; }
+            .header h1 { margin: 0; color: #4338ca; font-size: 24px; }
+            .header p { margin: 5px 0 0 0; color: #64748b; font-size: 13px; }
+            .meta { display: flex; justify-content: space-between; margin-bottom: 25px; background: #f8fafc; padding: 15px; border-radius: 8px; }
+            .section { margin-bottom: 20px; }
+            .section h3 { margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+            th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+            .text-right { text-align: right; }
+            .net-box { background: #e0e7ff; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; color: #3730a3; margin-top: 20px; }
+            @media print { body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>ESCOROLL PAYROLL SLIP</h1>
+            <p>Official Salary Statement for ${slip.period}</p>
+          </div>
+          <div class="meta">
+            <div>
+              <strong>Employee Name:</strong> ${slip.employee}<br/>
+              <strong>Employee ID:</strong> ${slip.empId}
+            </div>
+            <div style="text-align: right;">
+              <strong>Payslip Ref:</strong> ${slip.id}<br/>
+              <strong>Pay Period:</strong> ${slip.period}
+            </div>
+          </div>
+          <div class="section">
+            <h3>Earnings Breakdown</h3>
+            <table>
+              <tr><td>Basic Salary</td><td class="text-right">${slip.basic}</td></tr>
+              <tr><td>HRA (House Rent Allowance)</td><td class="text-right">${slip.hra}</td></tr>
+              <tr><td>Special & Conveyance Allowances</td><td class="text-right">${slip.allowances}</td></tr>
+              <tr style="font-weight: bold; background: #f8fafc;"><td>Gross Salary</td><td class="text-right">${slip.gross}</td></tr>
+            </table>
+          </div>
+          <div class="section">
+            <h3>Deductions Breakdown</h3>
+            <table>
+              <tr><td>Provident Fund (PF)</td><td class="text-right" style="color:#dc2626;">${slip.pf}</td></tr>
+              <tr><td>Income Tax / TDS</td><td class="text-right" style="color:#dc2626;">${slip.tax}</td></tr>
+              <tr><td>ESI Contribution</td><td class="text-right" style="color:#dc2626;">${slip.esi}</td></tr>
+              <tr style="font-weight: bold; background: #f8fafc;"><td>Total Deductions</td><td class="text-right" style="color:#dc2626;">${slip.deductions}</td></tr>
+            </table>
+          </div>
+          <div class="net-box">
+            <span>NET TAKE-HOME SALARY</span>
+            <span>${slip.net}</span>
+          </div>
+          <div style="margin-top: 40px; font-size: 11px; color: #94a3b8; text-align: center;">
+            This is a computer-generated document requiring no signature.
+          </div>
+        </body>
+      </html>
+    `);
+    printWin.document.close();
+    setTimeout(() => {
+      printWin.print();
+    }, 400);
   };
 
   const handleEmail = (slip: Payslip) => {

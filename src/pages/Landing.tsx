@@ -867,16 +867,33 @@ export default function Landing() {
               <p className="text-sm text-gray-600 leading-relaxed mb-5 max-w-[260px]">All-in-one business management suite built specifically for Indian SMBs.</p>
               <p className="text-xs text-gray-700">support@escrowbms.in</p>
             </div>
-            {[
-              { t: 'Product', ls: ['Billing & Invoices', 'Payroll', 'Account Ledger', 'Inventory', 'CRM', 'Daily Calculation'] },
-              { t: 'Company', ls: ['About Us', 'Blog', 'Careers', 'Contact'] },
-              { t: 'Legal', ls: ['Privacy Policy', 'Terms of Service', 'Refund Policy', 'Security'] },
-            ].map(c => (
-              <div key={c.t}>
-                <h4 className="text-white font-bold text-sm mb-5">{c.t}</h4>
-                <ul className="space-y-3">{c.ls.map(l => <li key={l}><a href="#" className="text-sm text-gray-600 hover:text-gray-300 transition-colors">{l}</a></li>)}</ul>
-              </div>
-            ))}
+            <div>
+              <h4 className="text-white font-bold text-sm mb-5">Product</h4>
+              <ul className="space-y-3">
+                <li><Link to="/billing" className="text-sm text-gray-400 hover:text-white transition-colors">Billing & Invoices</Link></li>
+                <li><Link to="/payroll" className="text-sm text-gray-400 hover:text-white transition-colors">Payroll</Link></li>
+                <li><Link to="/ledger" className="text-sm text-gray-400 hover:text-white transition-colors">Account Ledger</Link></li>
+                <li><Link to="/inventory" className="text-sm text-gray-400 hover:text-white transition-colors">Inventory</Link></li>
+                <li><Link to="/crm" className="text-sm text-gray-400 hover:text-white transition-colors">CRM</Link></li>
+                <li><Link to="/calculation" className="text-sm text-gray-400 hover:text-white transition-colors">Daily Calculation</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-bold text-sm mb-5">Company</h4>
+              <ul className="space-y-3">
+                <li><Link to="/about" className="text-sm text-gray-400 hover:text-white transition-colors">About Us</Link></li>
+                <li><Link to="/contact" className="text-sm text-gray-400 hover:text-white transition-colors">Contact Us</Link></li>
+                <li><Link to="/pricing" className="text-sm text-gray-400 hover:text-white transition-colors">Pricing</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-bold text-sm mb-5">Legal</h4>
+              <ul className="space-y-3">
+                <li><Link to="/privacy" className="text-sm text-gray-400 hover:text-white transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="text-sm text-gray-400 hover:text-white transition-colors">Terms & Conditions</Link></li>
+                <li><Link to="/refund" className="text-sm text-gray-400 hover:text-white transition-colors">Refund Policy</Link></li>
+              </ul>
+            </div>
           </div>
           <div className="border-t border-white/5 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-xs text-gray-700">© {new Date().getFullYear()} Escrow BMS. All rights reserved.</p>
