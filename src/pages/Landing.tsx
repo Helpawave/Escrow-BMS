@@ -70,6 +70,144 @@ const PLANS = [
 ];
 const ALL_MODS = ['Billing & Invoices', 'Daily Calculation', 'Account Ledger', 'Inventory', 'Payroll', 'CRM'];
 
+/* ─── ThreeDBackground ──────────────────────────────────────────────── */
+function ThreeDBackground({ isDark }: { isDark: boolean }) {
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+      {/* 3D Isometric Mesh Layer */}
+      <div
+        className="absolute inset-0 opacity-40 dark:opacity-20"
+        style={{
+          perspective: '1000px',
+          backgroundImage: isDark
+            ? 'radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.18), transparent 70%), linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px)'
+            : 'radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.15), transparent 70%), linear-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px)',
+          backgroundSize: '100% 100%, 60px 60px, 60px 60px',
+          transform: 'rotateX(15deg) scale(1.1)',
+        }}
+      />
+
+      {/* Floating 3D Geometric Orbs */}
+      <div
+        className={`absolute top-12 left-10 w-48 h-48 rounded-full blur-xl animate-bounce ${
+          isDark
+            ? 'bg-gradient-to-tr from-blue-600/30 to-violet-600/30 shadow-[0_0_80px_rgba(59,130,246,0.3)]'
+            : 'bg-gradient-to-tr from-blue-300/40 to-indigo-300/40 shadow-[0_20px_50px_rgba(99,102,241,0.2)]'
+        }`}
+        style={{ animationDuration: '9s' }}
+      />
+
+      <div
+        className={`absolute bottom-20 right-16 w-60 h-60 rounded-full blur-2xl animate-pulse ${
+          isDark
+            ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 shadow-[0_0_100px_rgba(16,185,129,0.25)]'
+            : 'bg-gradient-to-br from-sky-200/50 to-blue-200/50 shadow-[0_25px_60px_rgba(56,189,248,0.2)]'
+        }`}
+        style={{ animationDuration: '7s' }}
+      />
+
+      <div
+        className={`absolute top-1/3 right-1/4 w-36 h-36 rounded-2xl rotate-12 blur-lg animate-spin ${
+          isDark
+            ? 'bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30'
+            : 'bg-gradient-to-r from-purple-200/40 to-pink-200/40 border border-purple-200/50'
+        }`}
+        style={{ animationDuration: '25s' }}
+      />
+
+      {/* Light Reflection Ray Overlay */}
+      <div
+        className={`absolute top-0 inset-x-0 h-96 bg-gradient-to-b ${
+          isDark
+            ? 'from-blue-600/10 via-transparent to-transparent'
+            : 'from-indigo-100/50 via-transparent to-transparent'
+        }`}
+      />
+    </div>
+  );
+}
+
+/* ─── ROICalculator ─────────────────────────────────────────────────── */
+function ROICalculator({ isDark, onStart }: { isDark: boolean; onStart: () => void }) {
+  const [teamSize, setTeamSize] = useState(15);
+  const [monthlyInvoices, setMonthlyInvoices] = useState(250);
+
+  const hoursSaved = Math.round(teamSize * 3.5 + monthlyInvoices * 0.15);
+  const rupeeSavings = Math.round(hoursSaved * 450);
+
+  return (
+    <section className={`py-20 px-6 transition-colors duration-300 border-b ${isDark ? 'bg-slate-950/80 border-white/5' : 'bg-gradient-to-br from-blue-50/60 via-indigo-50/30 to-white border-blue-100'}`}>
+      <div className="max-w-5xl mx-auto">
+        <FadeUp className="text-center mb-12">
+          <p className="text-blue-700 text-sm font-black uppercase tracking-widest mb-2">Interactive Business Calculator</p>
+          <h2 className={`text-3xl sm:text-4xl font-black tracking-tight mb-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Calculate how much time & money Escrow BMS saves you
+          </h2>
+          <p className={`text-base max-w-lg mx-auto ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Adjust the sliders below based on your business operations to estimate your monthly productivity gain.
+          </p>
+        </FadeUp>
+
+        <div className={`p-8 rounded-3xl border shadow-xl backdrop-blur-md grid grid-cols-1 lg:grid-cols-2 gap-10 items-center ${isDark ? 'bg-[#0a0f1d] border-white/10' : 'bg-white border-blue-150'}`}>
+          {/* Controls */}
+          <div className="space-y-8">
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>Team Size / Employees</label>
+                <span className="text-lg font-black text-blue-600">{teamSize} Employees</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                value={teamSize}
+                onChange={(e) => setTeamSize(Number(e.target.value))}
+                className="w-full h-2.5 bg-blue-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>Monthly Invoices Issued</label>
+                <span className="text-lg font-black text-blue-600">{monthlyInvoices} Invoices</span>
+              </div>
+              <input
+                type="range"
+                min="10"
+                max="1000"
+                step="10"
+                value={monthlyInvoices}
+                onChange={(e) => setMonthlyInvoices(Number(e.target.value))}
+                className="w-full h-2.5 bg-blue-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              />
+            </div>
+          </div>
+
+          {/* Results Card */}
+          <div className={`p-6 rounded-2xl border text-center flex flex-col justify-between h-full ${isDark ? 'bg-blue-950/40 border-blue-500/20' : 'bg-blue-50/80 border-blue-100'}`}>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-blue-600 mb-1">Estimated Monthly Impact</p>
+              <div className="text-4xl font-black text-slate-900 dark:text-white tracking-tight my-2">
+                ₹{rupeeSavings.toLocaleString('en-IN')} <span className="text-sm font-semibold text-slate-500">/ mo</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-bold text-xs">
+                ⚡ ~{hoursSaved} Hours Saved Every Month
+              </div>
+            </div>
+
+            <button
+              onClick={onStart}
+              className="mt-6 w-full py-3.5 px-6 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md hover:shadow-lg transition-all"
+            >
+              Unlock Time Savings — Start Free 14-Day Trial
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Landing() {
   const { user } = useAuth();
   const { language, setLanguage } = useLanguage();
@@ -177,6 +315,8 @@ export default function Landing() {
 
       {/* ═══ HERO ═══════════════════════════════════════════════════════ */}
       <section className={`relative min-h-screen flex items-center pt-16 overflow-hidden transition-colors duration-300 ${isDark ? 'bg-[#05080f]' : 'bg-slate-50'}`}>
+        <ThreeDBackground isDark={isDark} />
+
         {/* Animated background */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <div className={`absolute top-0 left-0 w-[800px] h-[800px] rounded-full blur-[120px] animate-pulse transition-colors duration-300 ${isDark ? 'bg-blue-700/10' : 'bg-blue-200/40'}`} style={{ animationDuration: '6s' }} />
@@ -663,6 +803,9 @@ export default function Landing() {
           </div>
         </FadeUp>
       </section>
+
+      {/* ═══ ROI CALCULATOR ═════════════════════════════════════════════ */}
+      <ROICalculator isDark={isDark} onStart={go} />
 
       {/* ═══ HOW IT WORKS ══════════════════════════════════════════════ */}
       <section id="solutions" className={`py-24 px-6 transition-colors duration-300 border-b ${isDark ? 'bg-[#05080f] border-white/5' : 'bg-slate-50 border-gray-200'}`}>

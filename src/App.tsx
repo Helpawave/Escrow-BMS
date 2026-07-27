@@ -18,6 +18,7 @@ import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import Auth from '@/pages/Auth';
 import Dashboard from '@/pages/Dashboard';
 import Landing from '@/pages/Landing';
+import { CommandPalette } from '@/components/CommandPalette';
 
 // Lazy-loaded secondary pages & sub-modules
 const Pricing = React.lazy(() => import('@/pages/Pricing'));
@@ -384,6 +385,7 @@ export default function App() {
                         </Routes>
                       </Suspense>
                       <Toaster position="top-right" richColors />
+                      <CommandPalette />
                     </SubscriptionProvider>
                   </LanguageProvider>
                 </AdminAuthProvider>

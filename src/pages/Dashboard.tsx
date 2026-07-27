@@ -25,6 +25,10 @@ import {
   Dot
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { PageTransition } from '@/components/PageTransition';
+import { AnimatedCounter } from '@/components/AnimatedCounter';
+import { LivePulseBadge } from '@/components/LivePulseBadge';
+import { Command } from 'lucide-react';
 
 interface DashboardStats {
   totalSales: number;
@@ -295,11 +299,14 @@ export default function Dashboard() {
 
   return (
     <AppLayout>
-      <div className="space-y-8 animate-fade-in pb-12">
+      <PageTransition className="space-y-8 pb-12">
         {/* Welcome Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <p className="text-xs text-brand-600 dark:text-brand-400 font-bold uppercase tracking-widest mb-1">{greeting()} 👋</p>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-xs text-brand-600 dark:text-brand-400 font-bold uppercase tracking-widest">{greeting()} 👋</p>
+              <LivePulseBadge label="Escrow Vault Online" status="online" />
+            </div>
             <h2 className="text-3xl font-heading font-black text-slate-900 dark:text-white tracking-tight">
               {profile?.full_name ? `${t('welcomeBack')}, ${profile.full_name.split(' ')[0]}!` : t('welcomeSub')}
             </h2>
@@ -314,7 +321,19 @@ export default function Dashboard() {
               <span>Workspace Administrator</span>
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const event = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true });
+                document.dispatchEvent(event);
+              }}
+              className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider px-4 shadow-xs transition-all flex items-center gap-2"
+              title="Open Spotlight Search (Ctrl + K)"
+            >
+              <Command className="w-4 h-4 text-slate-500" />
+              <span>Search</span>
+              <kbd className="hidden sm:inline-block text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 rounded font-mono font-bold">Ctrl K</kbd>
+            </button>
             {showBilling && (
               <button
                 onClick={() => navigate('/billing/create-invoice')}
@@ -355,7 +374,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-3xl font-black font-heading text-slate-900 dark:text-white tracking-tight">
-                    {loadingStats ? '...' : formatCurrency(stats.totalSales)}
+                    {loadingStats ? '...' : <AnimatedCounter value={stats.totalSales} prefix="₹" decimals={0} />}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
                     <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
@@ -376,7 +395,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-3xl font-black font-heading text-slate-900 dark:text-white tracking-tight">
-                    {loadingStats ? '...' : formatCurrency(stats.ledgerBalance)}
+                    {loadingStats ? '...' : <AnimatedCounter value={stats.ledgerBalance} prefix="₹" decimals={0} />}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     <span>Account Balance summary</span>
@@ -396,7 +415,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-3xl font-black font-heading text-slate-900 dark:text-white tracking-tight">
-                    {loadingStats ? '...' : stats.employeeCount}
+                    {loadingStats ? '...' : <AnimatedCounter value={stats.employeeCount} decimals={0} />}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
                     <Clock className="w-3.5 h-3.5 text-amber-500" />
@@ -417,7 +436,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-3xl font-black font-heading text-slate-900 dark:text-white tracking-tight">
-                    {loadingStats ? '...' : stats.leadsCount}
+                    {loadingStats ? '...' : <AnimatedCounter value={stats.leadsCount} decimals={0} />}
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     <span>{stats.pendingTasksCount} Pending Tasks</span>
@@ -576,7 +595,7 @@ export default function Dashboard() {
           </div>
           <ModuleGrid />
         </div>
-      </div>
+      </PageTransition>
     </AppLayout>
   );
 }
