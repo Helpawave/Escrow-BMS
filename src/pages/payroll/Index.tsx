@@ -1,10 +1,16 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Users, DollarSign, Calendar, AlertTriangle, ArrowRight, ShieldCheck, Plus, Play, Lock, ChevronRight, Activity, Wallet, Shield } from "lucide-react";
+import { Users, DollarSign, Calendar, AlertTriangle, ArrowRight, ShieldCheck, Plus, Play, Lock, Activity, Wallet, Shield, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { PayrollCostSummary } from "@/components/PayrollCostSummary";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
 
 const recentPayrollRuns = [
   { id: "PR-2026-03", period: "March 2026", status: "DRAFT" as const, employees: 1240, total: "₹4,82,50,000" },
@@ -19,8 +25,44 @@ const recentActivity = [
   { action: "Salary Revised", detail: "Ankit Patel - 15% increment effective April", time: "2 days ago", icon: DollarSign, color: "text-indigo-500", bg: "bg-indigo-500/10" },
 ];
 
+const TARGET_AMOUNT = 48200000; // ₹4.82 Cr
+
 const Dashboard = () => {
   const navigate = useNavigate();
+
+  // Escrow Vault State
+  const [vaultBalance, setVaultBalance] = useState<number>(25000000); // Default ₹2.50 Cr
+  const [fundDialogOpen, setFundDialogOpen] = useState<boolean>(false);
+  const [fundAmountInput, setFundAmountInput] = useState<string>("2.32");
+  const [selectedBank, setSelectedBank] = useState<string>("icici");
+  const [funding, setFunding] = useState<boolean>(false);
+
+  const fundingPercentage = Math.min(100, Math.round((vaultBalance / TARGET_AMOUNT) * 1000) / 10);
+  const remainingNeeded = Math.max(0, TARGET_AMOUNT - vaultBalance);
+
+  const handleFundVault = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountInCr = parseFloat(fundAmountInput);
+    if (isNaN(amountInCr) || amountInCr <= 0) {
+      toast.error("Please enter a valid deposit amount in Crores (Cr)");
+      return;
+    }
+
+    setFunding(true);
+    setTimeout(() => {
+      const addedAmount = Math.round(amountInCr * 10000000);
+      const newBalance = vaultBalance + addedAmount;
+      setVaultBalance(newBalance);
+      setFunding(false);
+      setFundDialogOpen(false);
+
+      const formattedAdded = (addedAmount / 10000000).toFixed(2);
+      const formattedNew = (newBalance / 10000000).toFixed(2);
+      toast.success(`₹${formattedAdded} Cr deposited into Escrow Vault!`, {
+        description: `Current Vault Balance is now ₹${formattedNew} Cr (${Math.min(100, Math.round((newBalance / TARGET_AMOUNT) * 100))}% Funded).`
+      });
+    }, 600);
+  };
 
   return (
     <AppLayout title="Dashboard">
@@ -38,7 +80,7 @@ const Dashboard = () => {
               <Button onClick={() => navigate("/payroll")} variant="secondary" className="gap-2 font-semibold shadow-md active:scale-95 transition-transform">
                 <Play className="h-4 w-4" /> Run Payroll
               </Button>
-              <Button variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2 active:scale-95 transition-transform backdrop-blur-sm">
+              <Button onClick={() => setFundDialogOpen(true)} variant="outline" className="bg-white/10 border-white/20 text-white hover:bg-white/20 hover:text-white gap-2 active:scale-95 transition-transform backdrop-blur-sm">
                 <Plus className="h-4 w-4" /> Fund Escrow
               </Button>
             </div>
@@ -63,7 +105,7 @@ const Dashboard = () => {
 
             <PayrollCostSummary />
 
-            {/* NEW Escrow Vault Feature */}
+            {/* Escrow Vault Feature */}
             <div className="rounded-xl border bg-card p-6 shadow-sm hover:shadow-md transition-all duration-300 animate-slide-up group">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -75,7 +117,7 @@ const Dashboard = () => {
                     <p className="text-xs text-muted-foreground">Secure holding for upcoming payroll</p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button onClick={() => setFundDialogOpen(true)} variant="outline" size="sm" className="gap-2">
                   <Wallet className="h-4 w-4" /> Manage Vault
                 </Button>
               </div>
@@ -84,7 +126,9 @@ const Dashboard = () => {
                 <div className="flex justify-between items-end mb-4">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">Current Vault Balance</p>
-                    <h3 className="text-3xl font-bold font-mono tracking-tight text-foreground">₹2.50 Cr</h3>
+                    <h3 className="text-3xl font-bold font-mono tracking-tight text-foreground">
+                      ₹{(vaultBalance / 10000000).toFixed(2)} Cr
+                    </h3>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium text-muted-foreground mb-1">Target</p>
@@ -94,11 +138,18 @@ const Dashboard = () => {
 
                 {/* Custom Progress Bar */}
                 <div className="h-3 w-full bg-muted rounded-full overflow-hidden mb-2">
-                  <div className="h-full bg-emerald-500 rounded-full w-[51.8%] transition-all duration-1000 ease-out" />
+                  <div 
+                    className="h-full bg-emerald-500 rounded-full transition-all duration-1000 ease-out" 
+                    style={{ width: `${Math.min(100, fundingPercentage)}%` }}
+                  />
                 </div>
                 <div className="flex justify-between text-xs font-medium">
-                  <span className="text-emerald-500">51.8% Funded</span>
-                  <span className="text-muted-foreground tracking-tight">Requires ₹2.32 Cr more by Mar 28</span>
+                  <span className="text-emerald-500 font-bold">{fundingPercentage}% Funded</span>
+                  <span className="text-muted-foreground tracking-tight">
+                    {remainingNeeded > 0 
+                      ? `Requires ₹${(remainingNeeded / 10000000).toFixed(2)} Cr more by Mar 28`
+                      : "Vault Fully Funded — Ready for Disbursement!"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -113,7 +164,7 @@ const Dashboard = () => {
               </div>
               <div className="divide-y">
                 {recentPayrollRuns.map((run) => (
-                  <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 hover:bg-muted/30 transition-colors group cursor-pointer">
+                  <div key={run.id} onClick={() => navigate("/payroll")} className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 hover:bg-muted/30 transition-colors group cursor-pointer">
                     <div className="mb-2 sm:mb-0">
                       <p className="text-sm font-medium group-hover:text-primary transition-colors">{run.period}</p>
                       <p className="text-xs text-muted-foreground font-mono mt-0.5" data-mono>{run.id}</p>
@@ -157,11 +208,6 @@ const Dashboard = () => {
                   })}
                 </div>
               </div>
-              <div className="p-4 border-t bg-muted/10">
-                <Button variant="ghost" className="w-full text-xs text-muted-foreground hover:text-foreground">
-                  View All Activity
-                </Button>
-              </div>
             </div>
 
             {/* Upcoming Events Feature */}
@@ -194,6 +240,85 @@ const Dashboard = () => {
 
         </div>
       </div>
+
+      {/* Fund Escrow Vault Dialog */}
+      <Dialog open={fundDialogOpen} onOpenChange={setFundDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold">
+              <Shield className="h-6 w-6 text-emerald-600" />
+              Fund Escrow Vault
+            </DialogTitle>
+            <DialogDescription>
+              Deposit funds into your dedicated Escrow Vault for upcoming payroll disbursements.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleFundVault} className="space-y-4 py-2">
+            <div className="p-4 bg-muted/30 rounded-xl border space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Required Payout Target:</span>
+                <span className="font-mono font-bold text-foreground">₹4.82 Cr</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Current Vault Balance:</span>
+                <span className="font-mono font-bold text-emerald-600">₹{(vaultBalance / 10000000).toFixed(2)} Cr</span>
+              </div>
+              <div className="flex justify-between text-sm border-t pt-2">
+                <span className="font-semibold text-foreground">Required Addition:</span>
+                <span className="font-mono font-bold text-indigo-600">₹{(remainingNeeded / 10000000).toFixed(2)} Cr</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="bank">Source Escrow Account / Gateway</Label>
+              <Select value={selectedBank} onValueChange={setSelectedBank}>
+                <SelectTrigger id="bank">
+                  <SelectValue placeholder="Select Bank" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="icici">ICICI Bank Corporate Escrow (A/C ****8921)</SelectItem>
+                  <SelectItem value="hdfc">HDFC Bank Escrow Vault (A/C ****4102)</SelectItem>
+                  <SelectItem value="axis">Axis Bank Nodal Escrow (A/C ****3390)</SelectItem>
+                  <SelectItem value="upi">Corporate RTGS / NEFT Wire Transfer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="amount">Deposit Amount (in ₹ Crores)</Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-muted-foreground text-sm">₹</span>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  className="pl-7 pr-12 font-mono font-bold"
+                  value={fundAmountInput}
+                  onChange={(e) => setFundAmountInput(e.target.value)}
+                  placeholder="2.32"
+                  required
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-muted-foreground text-xs uppercase">Cr</span>
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setFundDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={funding} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 font-bold">
+                {funding ? "Processing..." : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" /> Deposit to Vault
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
