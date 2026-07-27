@@ -153,6 +153,10 @@ export const Users = () => {
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<Role>("Staff");
 
+  // Edit User State
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
+
   const filtered = useMemo(() => {
     return users.filter(u => {
       const matchesQuery = `${u.name} ${u.email}`.toLowerCase().includes(query.toLowerCase());
@@ -180,7 +184,20 @@ export const Users = () => {
     setNewName("");
     setNewEmail("");
     setNewRole("Staff");
-    toast.success("User invited successfully");
+    toast.success(`Invitation sent to ${newEmail}`);
+  };
+
+  const handleOpenEdit = (user: UserRecord) => {
+    setEditingUser(user);
+    setEditOpen(true);
+  };
+
+  const handleEditSave = () => {
+    if (!editingUser) return;
+    setUsers(prev => prev.map(u => u.id === editingUser.id ? editingUser : u));
+    setEditOpen(false);
+    setEditingUser(null);
+    toast.success("User role & permissions updated successfully");
   };
 
   const toggleSuspend = (id: string) => {
@@ -325,7 +342,7 @@ export const Users = () => {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem onClick={() => toast.message("Edit user coming soon")}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleOpenEdit(u)}>Edit</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => toggleSuspend(u.id)}>
                             {u.status === "Suspended" ? "Activate" : "Suspend"}
                           </DropdownMenuItem>
@@ -346,6 +363,72 @@ export const Users = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit User Profile & Role</DialogTitle>
+          </DialogHeader>
+          {editingUser && (
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-name">Full Name</Label>
+                <Input
+                  id="edit-name"
+                  value={editingUser.name}
+                  onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-email">Email Address</Label>
+                <Input
+                  id="edit-email"
+                  type="email"
+                  value={editingUser.email}
+                  onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-role">Role</Label>
+                <Select
+                  value={editingUser.role}
+                  onValueChange={(val: Role) => setEditingUser({ ...editingUser, role: val })}
+                >
+                  <SelectTrigger id="edit-role">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Admin">Admin</SelectItem>
+                    <SelectItem value="Manager">Manager</SelectItem>
+                    <SelectItem value="Staff">Staff</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-status">Status</Label>
+                <Select
+                  value={editingUser.status}
+                  onValueChange={(val: Status) => setEditingUser({ ...editingUser, status: val })}
+                >
+                  <SelectTrigger id="edit-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Invited">Invited</SelectItem>
+                    <SelectItem value="Suspended">Suspended</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditSave}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };

@@ -927,7 +927,7 @@ const SettingsPage = () => {
       }
 
       // Generate Excel file and trigger download
-      XLSX.writeFile(wb, `escrowbill-data-${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `escrow-bms-data-${new Date().toISOString().split('T')[0]}.xlsx`);
 
       toast({
         title: "Export Complete",

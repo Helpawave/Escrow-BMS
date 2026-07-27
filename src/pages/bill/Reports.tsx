@@ -804,7 +804,7 @@ const ReportsPage = () => {
       // Footer
       doc.setFontSize(9);
       doc.setTextColor(128, 128, 128);
-      doc.text('ESCROWBILL - Invoice Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('ESCROW BMS - Business Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
       
       doc.save(`item-wise-profit-report-${new Date().toISOString().split('T')[0]}.pdf`);
       toast({ title: "Success", description: "Item profit PDF downloaded successfully." });
@@ -1062,7 +1062,7 @@ const ReportsPage = () => {
       // Footer
       doc.setFontSize(9);
       doc.setTextColor(128, 128, 128);
-      doc.text('ESCROWBILL - Invoice Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('ESCROW BMS - Business Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
       doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 10, { align: 'center' });
 
       doc.save(`overview-report-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -1180,7 +1180,7 @@ const ReportsPage = () => {
       // Footer
       doc.setFontSize(9);
       doc.setTextColor(128, 128, 128);
-      doc.text('ESCROWBILL - Invoice Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('ESCROW BMS - Business Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
       doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 10, { align: 'center' });
 
       doc.save(`invoices-report-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -1283,7 +1283,7 @@ const ReportsPage = () => {
       // Footer
       doc.setFontSize(9);
       doc.setTextColor(128, 128, 128);
-      doc.text('ESCROWBILL - Invoice Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('ESCROW BMS - Business Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
       doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 10, { align: 'center' });
 
       doc.save(`financial-report-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -1381,7 +1381,7 @@ const ReportsPage = () => {
       // Footer
       doc.setFontSize(9);
       doc.setTextColor(128, 128, 128);
-      doc.text('ESCROWBILL - Invoice Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
+      doc.text('ESCROW BMS - Business Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
       doc.text(`Page 1 of 1`, pageWidth / 2, pageHeight - 10, { align: 'center' });
 
       doc.save(`clients-report-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -1517,7 +1517,7 @@ const ReportsPage = () => {
         doc.setPage(i);
         doc.setFontSize(9);
         doc.setTextColor(128, 128, 128);
-        doc.text('ESCROWBILL - Expense Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
+        doc.text('ESCROW BMS - Expense Management System', pageWidth / 2, pageHeight - 15, { align: 'center' });
         doc.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
       }
 

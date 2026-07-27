@@ -773,7 +773,7 @@ const ProductsPage = () => {
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `EscrowBill_Stock_Report_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute("download", `EscrowBMS_Stock_Report_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1619,7 +1619,7 @@ const ProductsPage = () => {
             {/* Signature Block (Hidden in standard screen app, shown in print) */}
             <div className="hidden print:flex flex-row items-end justify-between pt-16 pb-6">
               <div className="text-[9px] text-slate-400 font-semibold space-y-1">
-                <p>Disclaimer: This is a system-generated stock valuation ledger from EscrowBill.</p>
+                <p>Disclaimer: This is a system-generated stock valuation ledger from Escrow BMS.</p>
                 <p>Verify all opening quantities before final financial reporting.</p>
               </div>
               <div className="text-center border-t border-slate-350 pt-2 px-8 min-w-[200px]">

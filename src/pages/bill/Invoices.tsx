@@ -84,6 +84,11 @@ const InvoicesPage = () => {
   useEffect(() => {
     localStorage.setItem('invoice_shared_status', JSON.stringify(sharedInvoices));
   }, [sharedInvoices]);
+  const [whatsappConfirmationOpen, setWhatsappConfirmationOpen] = useState(false);
+  const [whatsappMessage, setWhatsappMessage] = useState("");
+  const [whatsappPdfUrl, setWhatsappPdfUrl] = useState("");
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+  const [whatsappProvider, setWhatsappProvider] = useState<string | null>(null);
   const [whatsappResendOpen, setWhatsappResendOpen] = useState(false);
   const [resendInvoiceData, setResendInvoiceData] = useState<Invoice | null>(null);
   const [whatsappPhone, setWhatsappPhone] = useState("");
@@ -574,11 +579,23 @@ const InvoicesPage = () => {
         description: "Invoice sent successfully via WhatsApp Cloud API."
       });
     } catch (error) {
-      console.error('WhatsApp Cloud API failed:', error);
+      console.log('Cloud API not configured, opening WhatsApp Web link directly...', error);
+      const formattedPhone = phone.replace(/[^\d]/g, '');
+      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
+      window.open(waUrl, '_blank');
+
+      setSharedInvoices(prev => {
+        const updated = {
+          ...prev,
+          [invoiceId]: { ...prev[invoiceId], whatsapp: true }
+        };
+        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
+        return updated;
+      });
+
       toast({
-        variant: "destructive",
-        title: "Send Failed ❌",
-        description: "Failed to send WhatsApp message via Cloud API. Please check your credentials."
+        title: "WhatsApp Opened! 📱",
+        description: "Opening WhatsApp to send your pre-formatted invoice."
       });
     }
   };
@@ -597,6 +614,9 @@ const InvoicesPage = () => {
       phone = digitsOnly.startsWith('91') ? digitsOnly : `91${digitsOnly}`;
       setWhatsappPhone(phone);
     }
+
+    setWhatsappMessage("Generating your invoice PDF, please wait...");
+    setWhatsappConfirmationOpen(true);
 
     try {
       // Fetch all required data in parallel using consolidated service
@@ -638,9 +658,8 @@ const InvoicesPage = () => {
       const fileName = `invoice-${freshInvoiceData.invoice_number}.pdf`;
       const driveFile = await googleDriveAPI.uploadPDF(blob, fileName);
 
+      let directPdfUrl = driveFile?.webContentLink || "";
       if (driveFile) {
-        // Upload to Supabase Storage to get a direct public URL for WhatsApp media attachment
-        let directPdfUrl = driveFile.webContentLink;
         try {
           const cleanFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
           const supabaseFileName = `${user?.id}/invoices/${invoice.id}/${cleanFileName}`;
@@ -656,27 +675,24 @@ const InvoicesPage = () => {
             if (data?.publicUrl) {
               directPdfUrl = data.publicUrl;
             }
-          } else {
-            console.error('Failed to upload PDF to Supabase Storage:', uploadError);
           }
         } catch (storageErr) {
           console.error('Error during Supabase Storage upload:', storageErr);
         }
-
-        const message = `Hello ${clientFullData.name},\n\n` +
-          `Your invoice ${freshInvoiceData.invoice_number} is ready!\n` +
-          `Amount: ${currencySymbol}${freshInvoiceData.total_amount.toFixed(2)}\n\n` +
-          `📄 Download PDF: ${driveFile.webContentLink}\n\n` +
-          `*Thanks for business with ${companyDataForUtils.company_name}. We appreciate your trust!*`;
-
-        await performSendWhatsApp(invoice.id, phone, message, directPdfUrl);
-      } else {
-        throw new Error('Upload failed');
       }
+
+      const message = `Hello ${clientFullData.name},\n\n` +
+        `Your invoice ${freshInvoiceData.invoice_number} is ready!\n` +
+        `Amount: ${currencySymbol}${freshInvoiceData.total_amount.toFixed(2)}\n\n` +
+        (directPdfUrl ? `📄 Download PDF: ${directPdfUrl}\n\n` : '') +
+        `*Thanks for business with ${companyDataForUtils.company_name}. We appreciate your trust!*`;
+
+      setWhatsappMessage(message);
+      setWhatsappPdfUrl(directPdfUrl);
     } catch (error) {
       console.error('Error uploading/sending to WhatsApp:', error);
-      const fallbackMessage = `Hello ${invoice.clients?.name}, your invoice ${invoice.invoice_number} is ready. Thank you!`;
-      await performSendWhatsApp(invoice.id, phone, fallbackMessage, "");
+      const fallbackMessage = `Hello ${invoice.clients?.name || 'Customer'},\n\nYour invoice ${invoice.invoice_number} is ready!\nAmount: ${currencySymbol}${invoice.total_amount.toFixed(2)}\n\nThank you for your business!`;
+      setWhatsappMessage(fallbackMessage);
     } finally {
       setUploadingWhatsApp(null);
       uploadingRef.current = false;
@@ -1330,6 +1346,90 @@ const InvoicesPage = () => {
         title="Invoice Deleted"
         message="The invoice has been permanently removed from your records."
       />
+
+      {/* WhatsApp Confirmation & Preview Dialog */}
+      <AlertDialog open={whatsappConfirmationOpen} onOpenChange={setWhatsappConfirmationOpen}>
+        <AlertDialogContent className="max-w-lg rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
+          <AlertDialogHeader className="p-4 md:p-8 pb-4 border-b">
+            <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4">
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-emerald-500">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+              </svg>
+            </div>
+            <AlertDialogTitle className="text-2xl font-black tracking-tight">WhatsApp Preview</AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
+              Review and edit the phone & message below. Clicking <strong>Open WhatsApp</strong> will open WhatsApp with this message pre-filled.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="p-4 bg-slate-50 dark:bg-slate-900 flex flex-col gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs font-bold text-slate-600 dark:text-slate-400">Recipient Phone Number</Label>
+              <Input
+                value={whatsappPhone}
+                onChange={(e) => setWhatsappPhone(e.target.value)}
+                placeholder="e.g. 919876543210"
+                className="bg-white dark:bg-slate-800 font-bold"
+              />
+            </div>
+
+            <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-lg p-3 shadow-sm relative mb-2">
+              <Label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block">Message Content</Label>
+              <div className="relative">
+                <Textarea
+                  value={whatsappMessage}
+                  onChange={(e) => setWhatsappMessage(e.target.value)}
+                  className="min-h-[140px] border border-slate-200 dark:border-slate-700 resize-none p-2 text-sm leading-relaxed text-gray-800 dark:text-gray-200 bg-transparent rounded-lg"
+                  disabled={uploadingWhatsApp !== null}
+                />
+                {uploadingWhatsApp !== null && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-slate-800/60 rounded-lg">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                      <p className="text-xs font-bold text-emerald-600 animate-pulse">Preparing PDF Link...</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
+                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <span className="text-[#34B7F1]">✓✓</span>
+              </div>
+            </div>
+          </div>
+
+          <AlertDialogFooter className="p-4 bg-muted/5 flex flex-row gap-3 items-center justify-end border-t">
+            <AlertDialogCancel className="m-0 h-11 px-6 font-bold rounded-xl border-2 hover:bg-muted/50 transition-all">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={uploadingWhatsApp !== null || sendingWhatsApp}
+              onClick={async (e) => {
+                e.preventDefault();
+                setSendingWhatsApp(true);
+                await performSendWhatsApp(whatsappInvoiceId, whatsappPhone, whatsappMessage, whatsappPdfUrl);
+                setSendingWhatsApp(false);
+                setWhatsappConfirmationOpen(false);
+              }}
+              className="h-11 px-8 font-black rounded-xl shadow-lg shadow-emerald-500/20 bg-[#25D366] hover:bg-[#128C7E] text-white flex items-center gap-2 transition-all disabled:opacity-50"
+            >
+              {sendingWhatsApp ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Opening...
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                  </svg>
+                  Open WhatsApp
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
