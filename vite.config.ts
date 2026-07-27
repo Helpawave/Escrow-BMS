@@ -24,7 +24,7 @@ export default defineConfig({
     modulePreload: false,
     reportCompressedSize: false,
     sourcemap: false,
-    chunkSizeWarningLimit: 2000,
+    chunkSizeWarningLimit: 3000,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -35,21 +35,21 @@ export default defineConfig({
               id.includes('react-router') ||
               id.includes('@radix-ui') ||
               id.includes('cmdk') ||
-              id.includes('framer-motion')
+              id.includes('framer-motion') ||
+              id.includes('recharts') ||
+              id.includes('chart.js') ||
+              id.includes('react-chartjs-2')
             ) {
               return 'vendor-core';
             }
-            if (id.includes('@supabase')) {
-              return 'vendor-supabase';
+            if (id.includes('@supabase') || id.includes('firebase')) {
+              return 'vendor-db';
             }
-            if (id.includes('recharts')) {
-              return 'vendor-charts';
+            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('html2pdf') || id.includes('xlsx')) {
+              return 'vendor-docs';
             }
-            if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('html2pdf')) {
-              return 'vendor-pdf';
-            }
-            if (id.includes('xlsx')) {
-              return 'vendor-xlsx';
+            if (id.includes('lucide-react') || id.includes('date-fns') || id.includes('@tanstack')) {
+              return 'vendor-utils';
             }
           }
         }
