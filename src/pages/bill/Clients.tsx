@@ -17,10 +17,10 @@ import { SuccessModal } from "@/components/SuccessModal";
 import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LayoutGrid, List as ListIcon } from "lucide-react";
-
 import { Client } from "@/types/invoice";
 import { useClients } from "@/hooks/useClients";
 import { useQueryClient } from "@tanstack/react-query";
+import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 
 const ClientsPage = () => {
   const queryClient = useQueryClient();
@@ -187,23 +187,23 @@ const ClientsPage = () => {
           throw new Error("Failed to create client. Please try again.");
         }
 
-        // Unified Client/Party Sync: Auto-create in parties table for Ledger
+        // Unified Client/Party Sync: Auto-create in parties table for Ledger & CRM
         try {
-          await supabase.from('parties').insert([{
-            id: crypto.randomUUID(),
-            user_id: activeUserId,
-            party_name: finalizedData.name,
-            status: 'take',
-            commission_type: 'with',
-            commission_rate: 3.5
-          }]);
+          await syncUserAcrossAllModules({
+            name: finalizedData.name,
+            email: finalizedData.email,
+            phone: formData.phone,
+            companyName: (formData as any).company_name || formData.name,
+            gstin: formData.gstin,
+            address: formData.address
+          });
         } catch (syncErr) {
           console.warn("Auto party sync warning:", syncErr);
         }
 
         setSuccessInfo({
           title: 'Client Registered',
-          message: 'Success! Client is now part of your unified network across Billing & Ledger.'
+          message: 'Success! Client is now synchronized across Escrow Billing, Ledgers, CRM & User Directory.'
         });
       }
 

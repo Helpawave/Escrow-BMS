@@ -37,6 +37,14 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { PageTransition } from '@/components/PageTransition';
 
+// Lazy Loaded Comprehensive Module Reports for Tabs
+const BillReportsPage = React.lazy(() => import('@/pages/bill/Reports'));
+const LedgerPartyReportPage = React.lazy(() => import('@/pages/ledger/PartyReport'));
+const PayrollReportsPage = React.lazy(() => import('@/pages/payroll/Reports'));
+const InventoryReportsPage = React.lazy(() => import('@/pages/inventory/Reports').then(m => ({ default: m.Reports })));
+const CrmAnalyticsPage = React.lazy(() => import('@/pages/crm/Analytics').then(m => ({ default: m.Analytics })));
+const HisabHistoryPage = React.lazy(() => import('@/pages/daily-hisab/user/History').then(m => ({ default: m.History })));
+
 type PeriodFilter = 'month' | '3m' | '6m' | 'fy' | 'ytd' | 'custom';
 
 interface DashboardStats {
@@ -52,6 +60,8 @@ interface DashboardStats {
   ledgerBalance: number;
   inventoryItemCount: number;
   lowStockCount: number;
+  accountCount: number;
+  hisabCount: number;
 }
 
 interface RecentInvoice {
@@ -91,7 +101,14 @@ export default function Dashboard() {
 
   // Wizard Accordion State
   const [wizardOpen, setWizardOpen] = useState(true);
-  const [wizardDismissed, setWizardDismissed] = useState(false);
+  const [wizardDismissed, setWizardDismissed] = useState(() => {
+    return localStorage.getItem('escrow_bms_wizard_dismissed') === 'true';
+  });
+
+  const handleDismissWizard = () => {
+    setWizardDismissed(true);
+    localStorage.setItem('escrow_bms_wizard_dismissed', 'true');
+  };
 
   const [loadingStats, setLoadingStats] = useState(true);
   const [stats, setStats] = useState<DashboardStats>({
@@ -107,6 +124,8 @@ export default function Dashboard() {
     ledgerBalance: 0,
     inventoryItemCount: 0,
     lowStockCount: 0,
+    accountCount: 0,
+    hisabCount: 0,
   });
 
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
@@ -166,7 +185,8 @@ export default function Dashboard() {
           tasksDataRes,
           accountsRes,
           expensesRes,
-          productsRes
+          productsRes,
+          hisabRes
         ] = await Promise.all([
           showBilling ? supabase.from('invoices').select('status, total_amount, issue_date').eq('user_id', user.id) : Promise.resolve({ data: [] as any[] }),
           showBilling ? supabase.from('invoices').select('id, invoice_number, total_amount, status, issue_date, client_id').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5) : Promise.resolve({ data: [] as any[] }),
@@ -175,9 +195,10 @@ export default function Dashboard() {
           showCRM ? supabase.from('leads').select('*', { count: 'exact', head: true }).eq('user_id', user.id) : Promise.resolve({ count: 0 }),
           showCRM ? supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('status', 'done') : Promise.resolve({ count: 0 }),
           showCRM ? supabase.from('tasks').select('id, title, status, priority, due_date').eq('user_id', user.id).neq('status', 'done').order('created_at', { ascending: false }).limit(5) : Promise.resolve({ data: [] as any[] }),
-          showLedger ? supabase.from('accounts').select('balance').eq('user_id', user.id) : Promise.resolve({ data: [] as any[] }),
-          supabase.from('expenses').select('amount, created_at').eq('user_id', user.id),
-          showInventory ? supabase.from('products').select('stock_quantity, min_stock_alert').eq('user_id', user.id) : Promise.resolve({ data: [] as any[] })
+          showLedger ? supabase.from('accounts').select('id, balance').eq('user_id', user.id) : Promise.resolve({ data: [] as any[] }),
+          Promise.resolve(supabase.from('expenses').select('amount, created_at').eq('user_id', user.id)).catch(() => ({ data: [] as any[] })),
+          showInventory ? Promise.resolve(supabase.from('products').select('*').eq('user_id', user.id)).catch(() => ({ data: [] as any[] })) : Promise.resolve({ data: [] as any[] }),
+          showHisab ? Promise.resolve(supabase.from('calculation_entries').select('*', { count: 'exact', head: true }).eq('user_id', user.id)).catch(() => ({ count: 0 })) : Promise.resolve({ count: 0 })
         ]);
 
         let totalSales = 0;
@@ -251,6 +272,8 @@ export default function Dashboard() {
 
         const accountsData = accountsRes.data || [];
         const ledgerBalance = accountsData.reduce((sum: number, acc: any) => sum + Number(acc.balance || 0), 0);
+        const accountCount = accountsData.length;
+        const hisabCount = (hisabRes as any)?.count || 0;
 
         const prods = productsRes.data || [];
         const inventoryItemCount = prods.length;
@@ -277,7 +300,9 @@ export default function Dashboard() {
           pendingTasksCount: pendTasksCountRes.count || 0,
           ledgerBalance,
           inventoryItemCount,
-          lowStockCount
+          lowStockCount,
+          accountCount,
+          hisabCount,
         });
 
       } catch (error) {
@@ -300,12 +325,48 @@ export default function Dashboard() {
 
   // Onboarding wizard steps based on active modules
   const wizardSteps = [
-    { title: 'Seed your chart of accounts', completed: true, show: showLedger },
-    { title: 'Set up GST & raise first invoice', completed: stats.invoiceCount > 0, show: showBilling },
-    { title: 'Add active employees', completed: stats.employeeCount > 0, show: showPayroll },
-    { title: 'Catalog inventory items', completed: stats.inventoryItemCount > 0, show: showInventory },
-    { title: 'Add your sales leads', completed: stats.leadsCount > 0, show: showCRM },
-    { title: 'Record daily calculation', completed: false, show: showHisab },
+    { 
+      title: 'Seed your chart of accounts', 
+      completed: (stats.accountCount || 0) > 0, 
+      actionPath: '/ledger',
+      actionLabel: 'Ledger',
+      show: showLedger 
+    },
+    { 
+      title: 'Set up GST & raise first invoice', 
+      completed: stats.invoiceCount > 0, 
+      actionPath: '/billing/create-invoice',
+      actionLabel: 'New Invoice',
+      show: showBilling 
+    },
+    { 
+      title: 'Add active employees', 
+      completed: stats.employeeCount > 0, 
+      actionPath: '/payroll/employees',
+      actionLabel: 'Employees',
+      show: showPayroll 
+    },
+    { 
+      title: 'Catalog inventory items', 
+      completed: stats.inventoryItemCount > 0, 
+      actionPath: '/inventory/products',
+      actionLabel: 'Products',
+      show: showInventory 
+    },
+    { 
+      title: 'Add your sales leads', 
+      completed: stats.leadsCount > 0, 
+      actionPath: '/crm/leads',
+      actionLabel: 'Leads',
+      show: showCRM 
+    },
+    { 
+      title: 'Record daily calculation', 
+      completed: (stats.hisabCount || 0) > 0, 
+      actionPath: '/calculation',
+      actionLabel: 'Daily Hisab',
+      show: showHisab 
+    },
   ].filter(s => s.show);
 
   const completedWizardCount = wizardSteps.filter(s => s.completed).length;
@@ -330,43 +391,38 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-widest">
-                {profile?.company_name || 'Escrow Workspace'}
+                Analytics & Key Metrics
+              </span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                Live Data
               </span>
             </div>
-            <h2 className="text-2xl font-black font-heading text-slate-900 dark:text-white tracking-tight">
-              Dashboard
-            </h2>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
+              Executive Dashboard
+            </h1>
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
               {getPeriodSubtitle()}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Date Filter Pills */}
-            <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/80">
-              {[
-                { key: 'month', label: 'This month' },
-                { key: '3m', label: 'Last 3M' },
-                { key: '6m', label: 'Last 6M' },
-                { key: 'fy', label: 'This FY' },
-                { key: 'ytd', label: 'YTD' },
-                { key: 'custom', label: 'Custom' },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => setSelectedPeriod(item.key as PeriodFilter)}
-                  className={cn(
-                    "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer",
-                    selectedPeriod === item.key
-                      ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-slate-700/50"
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
+          <div className="flex items-center gap-2.5">
+            {/* Period Quick Filter Select */}
+            <div className="relative">
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value as PeriodFilter)}
+                className="h-9 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 pr-8 shadow-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer appearance-none"
+              >
+                <option value="month">This Month</option>
+                <option value="3m">Last 3 Months</option>
+                <option value="6m">Last 6 Months</option>
+                <option value="fy">Financial Year (FY)</option>
+                <option value="ytd">Year To Date (YTD)</option>
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
 
+            {/* Quick Action Buttons */}
             {showBilling && (
               <button
                 onClick={() => navigate('/billing/create-invoice')}
@@ -391,8 +447,8 @@ export default function Dashboard() {
               </button>
 
               <button
-                onClick={() => setWizardDismissed(true)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+                onClick={handleDismissWizard}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
                 title="Dismiss wizard"
               >
                 <X className="w-4 h-4" />
@@ -402,22 +458,36 @@ export default function Dashboard() {
             {wizardOpen && (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80">
                 {wizardSteps.map((step, idx) => (
-                  <div 
+                  <button 
                     key={idx} 
-                    className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors cursor-pointer"
-                  >
-                    {step.completed ? (
-                      <CheckCircle2 className="w-4 h-4 text-indigo-600 fill-indigo-100 dark:fill-indigo-950 flex-shrink-0" />
-                    ) : (
-                      <Circle className="w-4 h-4 text-slate-300 dark:text-slate-700 flex-shrink-0" />
+                    onClick={() => navigate(step.actionPath)}
+                    className={cn(
+                      "flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer text-left w-full group",
+                      step.completed 
+                        ? "bg-slate-50/80 dark:bg-slate-800/30 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800/60" 
+                        : "bg-white dark:bg-slate-900 border-indigo-100 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 shadow-xs"
                     )}
-                    <span className={cn(
-                      "text-xs font-semibold truncate",
-                      step.completed ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-700 dark:text-slate-300"
-                    )}>
-                      {step.title}
-                    </span>
-                  </div>
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                      {step.completed ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-500 fill-emerald-100 dark:fill-emerald-950/60 flex-shrink-0" />
+                      ) : (
+                        <Circle className="w-4 h-4 text-indigo-500 dark:text-indigo-400 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      )}
+                      <span className={cn(
+                        "text-xs font-semibold truncate",
+                        step.completed ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 font-bold"
+                      )}>
+                        {step.title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {step.actionLabel}
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -655,308 +725,42 @@ export default function Dashboard() {
           </>
         )}
 
-        {/* Dynamic Module Report Tabs (Billing, Ledger, Payroll, Inventory, CRM, Hisab) */}
+        {/* Dynamic Full Comprehensive Module Reports embedded directly inside tabs */}
         {activeTab === 'billing' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">Billing & Sales Report Summary</h3>
-                <p className="text-xs text-slate-400">Overview of invoices, payment statuses, and sales breakdown for {selectedPeriod.toUpperCase()}</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigate('/billing/create-invoice')} className="px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors">
-                  + Create Invoice
-                </button>
-                <button onClick={() => navigate('/billing/invoices')} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  View All Invoices
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Total Sales Invoiced</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.totalSales)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">{stats.invoiceCount} Invoices Issued</p>
-              </div>
-
-              <div className="p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-xl border border-amber-100 dark:border-amber-900/40">
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Unpaid Outstanding</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.unpaidAmount)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Pending Client Collection</p>
-              </div>
-
-              <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Paid Revenue Realized</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.totalSales - stats.unpaidAmount)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Cleared Payments</p>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button onClick={() => navigate('/billing/reports')} className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
-                Open Comprehensive Billing Reports →
-              </button>
-            </div>
-          </div>
+          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Billing Reports Suite...</div>}>
+            <BillReportsPage />
+          </React.Suspense>
         )}
 
         {activeTab === 'ledger' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">Account Ledger & Financial Books</h3>
-                <p className="text-xs text-slate-400">Party ledgers, debit/credit entries, balance sheet & P&L statements</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigate('/ledger')} className="px-3.5 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-colors">
-                  Open Party Ledger
-                </button>
-                <button onClick={() => navigate('/ledger/transfer')} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  New Transfer Entry
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-blue-50/50 dark:bg-blue-950/30 rounded-xl border border-blue-100 dark:border-blue-900/40">
-                <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Cash & Bank Accounts</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.ledgerBalance)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Total Account Balance</p>
-              </div>
-
-              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Net Profit & Loss</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.totalSales - stats.totalExpenses)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Operating Profitability</p>
-              </div>
-
-              <div className="p-4 bg-purple-50/50 dark:bg-purple-950/30 rounded-xl border border-purple-100 dark:border-purple-900/40">
-                <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">Party Balances</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.unpaidAmount)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Outstanding Party Dues</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <button onClick={() => navigate('/ledger/reports/balance-sheet')} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200">
-                📄 Balance Sheet Report
-              </button>
-              <button onClick={() => navigate('/ledger/reports/profit-loss')} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200">
-                📈 Profit & Loss Report
-              </button>
-              <button onClick={() => navigate('/ledger/reports/transactions')} className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-200">
-                📋 Transaction Audit History
-              </button>
-            </div>
-          </div>
+          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Ledger Reports Suite...</div>}>
+            <LedgerPartyReportPage />
+          </React.Suspense>
         )}
 
         {activeTab === 'payroll' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">Escrow Payroll & HR Summary</h3>
-                <p className="text-xs text-slate-400">Employee salary slips, attendance, PF/ESI compliance and leaves</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigate('/payroll/employees')} className="px-3.5 py-2 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-colors">
-                  Staff Directory
-                </button>
-                <button onClick={() => navigate('/payroll/payslips')} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  Generate Payslips
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-violet-50/50 dark:bg-violet-950/30 rounded-xl border border-violet-100 dark:border-violet-900/40">
-                <p className="text-xs font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wider">Active Employees</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{stats.employeeCount}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Full-time & Contract Staff</p>
-              </div>
-
-              <div className="p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-xl border border-amber-100 dark:border-amber-900/40">
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Pending Leaves</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{stats.pendingLeaves}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Awaiting Manager Approval</p>
-              </div>
-
-              <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Payroll Status</p>
-                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">Verified</p>
-                <p className="text-[11px] text-slate-400 mt-1">Escrow Vault Funded</p>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button onClick={() => navigate('/payroll/reports')} className="text-xs font-bold text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1">
-                Open Comprehensive Payroll Reports →
-              </button>
-            </div>
-          </div>
+          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Payroll Reports Suite...</div>}>
+            <PayrollReportsPage />
+          </React.Suspense>
         )}
 
         {activeTab === 'inventory' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">Inventory & Stock Control</h3>
-                <p className="text-xs text-slate-400">Stock SKUs, barcode scanner, low stock warnings, purchase orders</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigate('/inventory/scan')} className="px-3.5 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-colors">
-                  Barcode Scanner
-                </button>
-                <button onClick={() => navigate('/inventory/products')} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  Catalog Products
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-rose-50/50 dark:bg-rose-950/30 rounded-xl border border-rose-100 dark:border-rose-900/40">
-                <p className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Total Products SKUs</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{stats.inventoryItemCount}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Cataloged Stock Items</p>
-              </div>
-
-              <div className="p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-xl border border-amber-100 dark:border-amber-900/40">
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Low Stock Warnings</p>
-                <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">{stats.lowStockCount}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Requires Re-order</p>
-              </div>
-
-              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Live Barcode Sync</p>
-                <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">Active</p>
-                <p className="text-[11px] text-slate-400 mt-1">Ready for Billing Scan</p>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button onClick={() => navigate('/inventory/reports')} className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1">
-                Open Stock Reports & Valuation →
-              </button>
-            </div>
-          </div>
+          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Stock Reports Suite...</div>}>
+            <InventoryReportsPage />
+          </React.Suspense>
         )}
 
         {activeTab === 'crm' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">CRM Sales Pipeline & Task Board</h3>
-                <p className="text-xs text-slate-400">Leads management, action task board and conversion analytics</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigate('/crm/tasks')} className="px-3.5 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 transition-colors">
-                  Open Task Board
-                </button>
-                <button onClick={() => navigate('/crm/leads')} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  Leads Directory
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-purple-50/50 dark:bg-purple-950/30 rounded-xl border border-purple-100 dark:border-purple-900/40">
-                <p className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">Total Sales Leads</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{stats.leadsCount}</p>
-                <p className="text-[11px] text-slate-400 mt-1">In Sales Funnel</p>
-              </div>
-
-              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-                <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Pending Action Tasks</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{stats.pendingTasksCount}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Requires Follow-up</p>
-              </div>
-
-              <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Conversion Rate</p>
-                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">High</p>
-                <p className="text-[11px] text-slate-400 mt-1">Active Client Pipeline</p>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button onClick={() => navigate('/crm/analytics')} className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1">
-                Open CRM Analytics & Pipeline Reports →
-              </button>
-            </div>
-          </div>
+          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading CRM Analytics Suite...</div>}>
+            <CrmAnalyticsPage />
+          </React.Suspense>
         )}
 
         {activeTab === 'hisab' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-xs space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">Daily Calculation & Cash Log</h3>
-                <p className="text-xs text-slate-400">Daily income & expense tracking, cash closing balance</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => navigate('/calculation')} className="px-3.5 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold hover:bg-amber-700 transition-colors">
-                  Daily Calculation
-                </button>
-                <button onClick={() => navigate('/calculation/history')} className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-                  Calculation History
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="p-4 bg-amber-50/50 dark:bg-amber-950/30 rounded-xl border border-amber-100 dark:border-amber-900/40">
-                <p className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Net Cash Movement</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.netCash)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">In vs Out Balance</p>
-              </div>
-
-              <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Income Logged</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.totalSales)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Total Collections</p>
-              </div>
-
-              <div className="p-4 bg-rose-50/50 dark:bg-rose-950/30 rounded-xl border border-rose-100 dark:border-rose-900/40">
-                <p className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider">Expenses Out</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{formatCurrency(stats.totalExpenses)}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Daily Expenses</p>
-              </div>
-            </div>
-          </div>
+          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Daily Hisab History...</div>}>
+            <HisabHistoryPage />
+          </React.Suspense>
         )}
-
-        {/* Your Subscribed Business Modules Navigation Grid */}
-        <div className="pt-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-heading font-black text-slate-900 dark:text-white">Your Business Applications</h3>
-              <p className="text-xs text-slate-400 font-medium">Launch your enabled modules</p>
-            </div>
-            {activeModules.length < 6 && (
-              <a href="/pricing" className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline">
-                + Unlock More Modules
-              </a>
-            )}
-          </div>
-          <ModuleGrid />
-        </div>
-
-        {/* Bottom Keyboard Hotkey & Help Hint Bar */}
-        <div className="pt-6 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-          <div className="flex items-center gap-1.5">
-            <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded font-mono text-[10px] text-slate-700 dark:text-slate-300">Ctrl K</kbd>
-            <span>Spotlight Search</span>
-          </div>
-
-          <button 
-            onClick={() => navigate('/settings')}
-            className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            <span>Help</span>
-          </button>
-        </div>
 
       </PageTransition>
     </AppLayout>

@@ -38,6 +38,8 @@ const BillingModule = React.lazy(() => import('@/pages/modules').then(m => ({ de
 const HisabModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.HisabModule })));
 const InventoryModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.InventoryModule })));
 const CrmModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.CrmModule })));
+const UsersPage = React.lazy(() => import('@/pages/users/UsersPage'));
+const MembersPage = React.lazy(() => import('@/pages/users/MembersPage'));
 
 function PageFallback() {
   return (
@@ -273,6 +275,24 @@ export default function App() {
                             element={
                               <AuthGuard>
                                 <Settings />
+                              </AuthGuard>
+                            }
+                          />
+
+                          <Route
+                            path="/users"
+                            element={
+                              <AuthGuard>
+                                <UsersPage />
+                              </AuthGuard>
+                            }
+                          />
+
+                          <Route
+                            path="/members"
+                            element={
+                              <AuthGuard>
+                                <MembersPage />
                               </AuthGuard>
                             }
                           />

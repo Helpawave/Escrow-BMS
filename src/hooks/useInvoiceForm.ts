@@ -208,14 +208,19 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   }, [toast]);
 
+  const isUUID = (str?: string) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
   const fetchBillableExpenses = useCallback(async (clientId: string) => {
-    if (!clientId) return;
+    if (!clientId || !isUUID(clientId) || !user?.id) {
+      setBillableExpenses([]);
+      return;
+    }
     setFetchingExpenses(true);
     try {
       const { data, error } = await supabase
         .from('expenses')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .eq('client_id', clientId)
         .eq('is_billable', true);
 

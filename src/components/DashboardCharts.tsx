@@ -14,11 +14,11 @@ import {
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { 
-  ChevronDown, 
-  Minus, 
-  X, 
-  LayoutDashboard, 
+import {
+  ChevronDown,
+  Minus,
+  X,
+  LayoutDashboard,
   Calendar,
   Wallet,
   TrendingUp,
@@ -59,9 +59,9 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?:
           {payload.map((entry: TooltipEntry, index: number) => (
             <div key={index} className="flex items-center justify-between gap-8">
               <div className="flex items-center gap-2">
-                <div 
-                  className="w-2 h-2 rounded-full" 
-                  style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}80` }} 
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: entry.color, boxShadow: `0 0 8px ${entry.color}80` }}
                 />
                 <span className="text-[11px] font-bold text-slate-300 capitalize">{entry.name}</span>
               </div>
@@ -75,12 +75,12 @@ const CustomTooltip = ({ active, payload, label }: { active?: boolean, payload?:
   return null;
 };
 
-export const DashboardCharts: React.FC<DashboardChartsProps> = ({ 
-  chartData, 
-  totalRevenue, 
-  totalExpenses, 
+export const DashboardCharts: React.FC<DashboardChartsProps> = ({
+  chartData,
+  totalRevenue,
+  totalExpenses,
   totalPurchaseCost,
-  netProfit 
+  netProfit
 }) => {
   const [activeView, setActiveView] = useState<'all' | 'sales' | 'revenue' | 'expense'>('all');
   const { currencySymbol } = useCurrency();
@@ -97,8 +97,8 @@ export const DashboardCharts: React.FC<DashboardChartsProps> = ({
               onClick={() => setActiveView(view)}
               className={cn(
                 "px-2.5 py-1 rounded-md text-[11px] font-bold capitalize transition-all cursor-pointer",
-                activeView === view 
-                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs" 
+                activeView === view
+                  ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               )}
             >
@@ -112,53 +112,53 @@ export const DashboardCharts: React.FC<DashboardChartsProps> = ({
       <div className="w-full min-w-0 h-[240px]">
         <ResponsiveContainer width="99%" height="100%">
           <LineChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-            <CartesianGrid 
-              strokeDasharray="3 3" 
-              vertical={false} 
-              stroke="rgba(148, 163, 184, 0.15)" 
+            <CartesianGrid
+              strokeDasharray="3 3"
+              vertical={false}
+              stroke="rgba(148, 163, 184, 0.15)"
             />
-            <XAxis 
-              dataKey="name" 
-              axisLine={false} 
-              tickLine={false} 
+            <XAxis
+              dataKey="name"
+              axisLine={false}
+              tickLine={false}
               tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
               dy={5}
             />
-            <YAxis 
-              axisLine={false} 
-              tickLine={false} 
+            <YAxis
+              axisLine={false}
+              tickLine={false}
               tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }}
-              tickFormatter={(value) => `${currencySymbol}${value >= 1000 ? (value/1000).toFixed(0) + 'k' : value}`}
+              tickFormatter={(value) => `${currencySymbol}${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
             />
             <Tooltip content={<CustomTooltip />} />
             {(activeView === 'all' || activeView === 'sales') && (
-              <Line 
-                type="monotone" 
-                dataKey="sales" 
+              <Line
+                type="monotone"
+                dataKey="sales"
                 name="Sales (Invoiced)"
-                stroke="#6366f1" 
+                stroke="#6366f1"
                 strokeWidth={3}
                 dot={{ r: 3, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }}
                 activeDot={{ r: 6, strokeWidth: 2, stroke: '#6366f1', fill: '#fff' }}
               />
             )}
             {(activeView === 'all' || activeView === 'revenue') && (
-              <Line 
-                type="monotone" 
-                dataKey="revenue" 
+              <Line
+                type="monotone"
+                dataKey="revenue"
                 name="Revenue (Paid)"
-                stroke="#10b981" 
+                stroke="#10b981"
                 strokeWidth={3}
                 dot={{ r: 3, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
                 activeDot={{ r: 6, strokeWidth: 2, stroke: '#10b981', fill: '#fff' }}
               />
             )}
             {(activeView === 'all' || activeView === 'expense') && (
-              <Line 
-                type="monotone" 
-                dataKey="expense" 
+              <Line
+                type="monotone"
+                dataKey="expense"
                 name="Expenses"
-                stroke="#f43f5e" 
+                stroke="#f43f5e"
                 strokeWidth={3}
                 dot={{ r: 3, fill: '#f43f5e', strokeWidth: 2, stroke: '#fff' }}
                 activeDot={{ r: 6, strokeWidth: 2, stroke: '#f43f5e', fill: '#fff' }}

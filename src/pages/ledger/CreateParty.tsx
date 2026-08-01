@@ -13,6 +13,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { syncUserAcrossAllModules } from '@/utils/erpPosting';
 
 const CreateParty = () => {
   const navigate = useNavigate();
@@ -91,13 +92,12 @@ const CreateParty = () => {
 
       if (dbError) throw dbError;
       
-      // Unified Client/Party Sync: Auto-create in clients table for Billing & CRM
+      // Unified Client/Party Sync: Auto-create across Billing, CRM & Users Directory
       try {
-        await supabase.from('clients').insert([{
-          id: crypto.randomUUID(),
-          user_id: user.id,
-          name: formData.partyName
-        }]);
+        await syncUserAcrossAllModules({
+          name: formData.partyName,
+          email: ''
+        });
       } catch (syncErr) {
         console.warn("Auto client sync warning:", syncErr);
       }
