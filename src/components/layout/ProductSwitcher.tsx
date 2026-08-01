@@ -51,38 +51,16 @@ export function ProductSwitcher({ align = 'start', showActiveLabel = true }: Pro
           )}
         >
           <div className="flex-1 flex items-center gap-2">
-            {activeModule ? (
-              <>
-                <div className={cn("p-1.5 rounded-lg flex-shrink-0", activeModule.iconBg)}>
-                  <activeModule.icon className="w-4.5 h-4.5" />
-                </div>
-                {showActiveLabel && (
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-bold tracking-tight text-slate-800 dark:text-slate-100 leading-none">
-                      {activeModule.key === 'payroll' ? 'Escoroll' : 'Escrow'} {t(activeModule.key)}
-                    </span>
-                    <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium tracking-wider uppercase mt-0.5">
-                      {t(`${activeModule.key}Subtitle`)}
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex-shrink-0">
-                  <Grid className="w-4.5 h-4.5" />
-                </div>
-                {showActiveLabel && (
-                  <div className="flex flex-col">
-                    <span className="font-bold tracking-tight text-slate-800 dark:text-slate-100 leading-none">
-                      Escrow BMS
-                    </span>
-                    <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium tracking-wider uppercase mt-0.5">
-                      {t('bmsSubtitle')}
-                    </span>
-                  </div>
-                )}
-              </>
+            <img src="/logo.png" alt="Escrow" className="w-6 h-6 object-contain flex-shrink-0" />
+            {showActiveLabel && (
+              <div className="flex flex-col min-w-0">
+                <span className="font-bold tracking-tight text-slate-800 dark:text-slate-100 leading-none">
+                  Escrow {activeModule ? t(activeModule.key) : 'BMS'}
+                </span>
+                <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium tracking-wider uppercase mt-0.5">
+                  {activeModule ? t(`${activeModule.key}Subtitle`) : t('bmsSubtitle')}
+                </span>
+              </div>
             )}
           </div>
           <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />

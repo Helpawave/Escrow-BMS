@@ -3,8 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, Download, Mail, Eye, FileText } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Payslip {
   id: string;
@@ -23,24 +26,81 @@ interface Payslip {
   status: "Generated" | "Sent";
 }
 
-const initialPayslips: Payslip[] = [
-  { id: "PS-2026-03-001", employee: "Priya Sharma", empId: "EMP001", period: "March 2026", basic: "₹75,000", hra: "₹30,000", allowances: "₹15,000", gross: "₹1,50,000", pf: "₹9,000", tax: "₹12,500", esi: "₹1,125", deductions: "₹22,625", net: "₹1,27,375", status: "Generated" },
-  { id: "PS-2026-03-002", employee: "Rahul Verma", empId: "EMP002", period: "March 2026", basic: "₹1,10,000", hra: "₹44,000", allowances: "₹22,000", gross: "₹2,20,000", pf: "₹13,200", tax: "₹25,000", esi: "₹1,650", deductions: "₹39,850", net: "₹1,80,150", status: "Generated" },
-  { id: "PS-2026-03-003", employee: "Ankit Patel", empId: "EMP003", period: "March 2026", basic: "₹90,000", hra: "₹36,000", allowances: "₹18,000", gross: "₹1,80,000", pf: "₹10,800", tax: "₹18,000", esi: "₹1,350", deductions: "₹30,150", net: "₹1,49,850", status: "Sent" },
-  { id: "PS-2026-03-004", employee: "Sneha Reddy", empId: "EMP004", period: "March 2026", basic: "₹60,000", hra: "₹24,000", allowances: "₹12,000", gross: "₹1,20,000", pf: "₹7,200", tax: "₹8,000", esi: "₹900", deductions: "₹16,100", net: "₹1,03,900", status: "Generated" },
-  { id: "PS-2026-02-001", employee: "Priya Sharma", empId: "EMP001", period: "February 2026", basic: "₹75,000", hra: "₹30,000", allowances: "₹15,000", gross: "₹1,50,000", pf: "₹9,000", tax: "₹12,500", esi: "₹1,125", deductions: "₹22,625", net: "₹1,27,375", status: "Sent" },
-  { id: "PS-2026-02-002", employee: "Rahul Verma", empId: "EMP002", period: "February 2026", basic: "₹1,10,000", hra: "₹44,000", allowances: "₹22,000", gross: "₹2,20,000", pf: "₹13,200", tax: "₹25,000", esi: "₹1,650", deductions: "₹39,850", net: "₹1,80,150", status: "Sent" },
-];
+// No hardcoded data — payslips generated from real employee data
 
 const statusStyles: Record<string, string> = {
   Generated: "bg-primary/10 text-primary",
   Sent: "bg-success/10 text-success",
 };
 
+function generatePayslipFromEmployee(emp: any, period: string): Payslip {
+  const salary = Number(emp.salary || 0);
+  const basic = Math.round(salary * 0.5);
+  const hra = Math.round(salary * 0.2);
+  const allowances = salary - basic - hra;
+  const gross = salary;
+  const pf = Math.round(basic * 0.12);
+  const esi = salary <= 21000 ? Math.round(salary * 0.0075) : 0;
+  const tax = Math.round(Math.max(0, (salary * 12 - 250000) / 12 * 0.05));
+  const deductions = pf + esi + tax;
+  const net = gross - deductions;
+  const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+  return {
+    id: `PS-${period.replace(' ', '-')}-${emp.employee_id || emp.id}`,
+    employee: emp.name || emp.full_name || 'Unknown',
+    empId: emp.employee_id || emp.id || '',
+    period,
+    basic: fmt(basic),
+    hra: fmt(hra),
+    allowances: fmt(allowances),
+    gross: fmt(gross),
+    pf: fmt(pf),
+    tax: fmt(tax),
+    esi: fmt(esi),
+    deductions: fmt(deductions),
+    net: fmt(net),
+    status: 'Generated',
+  };
+}
+
 const Payslips = () => {
+  const { user } = useAuth();
+  const { t } = useLanguage();
   const [search, setSearch] = useState("");
-  const [payslips, setPayslips] = useState<Payslip[]>(initialPayslips);
+  const [payslips, setPayslips] = useState<Payslip[]>([]);
+  const [loading, setLoading] = useState(true);
   const [viewSlip, setViewSlip] = useState<Payslip | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    const generatePayslips = async () => {
+      setLoading(true);
+      try {
+        const { data: employees, error } = await supabase
+          .from('employees')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'active');
+        if (error) throw error;
+        const now = new Date();
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const currentPeriod = `${months[now.getMonth()]} ${now.getFullYear()}`;
+        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevPeriod = `${months[prevDate.getMonth()]} ${prevDate.getFullYear()}`;
+        const generated: Payslip[] = [];
+        for (const emp of (employees || [])) {
+          generated.push(generatePayslipFromEmployee(emp, currentPeriod));
+          generated.push({ ...generatePayslipFromEmployee(emp, prevPeriod), status: 'Sent' });
+        }
+        setPayslips(generated);
+      } catch (err: any) {
+        toast.error('Failed to generate payslips', { description: err.message });
+      } finally {
+        setLoading(false);
+      }
+    };
+    generatePayslips();
+  }, [user]);
 
   const filtered = payslips.filter(
     (p) =>
@@ -142,7 +202,7 @@ const Payslips = () => {
   };
 
   return (
-    <AppLayout title="Payslips">
+    <AppLayout title={t("Payslips")}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Generate, view, and distribute employee payslips</p>

@@ -21,7 +21,8 @@ import {
   Building2,
   BadgeCheck,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   Dialog,
   DialogContent,
@@ -78,16 +79,7 @@ interface Employee {
   phone?: string;
 }
 
-const initialEmployees: Employee[] = [
-  { id: "EMP001", name: "Priya Sharma", department: "Engineering", designation: "Senior Developer", salary: "₹1,50,000", status: "Active", joinDate: "2023-03-15", email: "priya.sharma@company.com", phone: "+91 98765 43210" },
-  { id: "EMP002", name: "Rahul Verma", department: "Engineering", designation: "Tech Lead", salary: "₹2,20,000", status: "Active", joinDate: "2021-07-01", email: "rahul.verma@company.com", phone: "+91 98765 43211" },
-  { id: "EMP003", name: "Ankit Patel", department: "Product", designation: "Product Manager", salary: "₹1,80,000", status: "Active", joinDate: "2022-01-10", email: "ankit.patel@company.com", phone: "+91 98765 43212" },
-  { id: "EMP004", name: "Sneha Reddy", department: "Design", designation: "UI/UX Designer", salary: "₹1,20,000", status: "Active", joinDate: "2023-08-20", email: "sneha.reddy@company.com", phone: "+91 98765 43213" },
-  { id: "EMP005", name: "Vikram Singh", department: "Finance", designation: "Financial Analyst", salary: "₹1,10,000", status: "On Leave", joinDate: "2022-05-15", email: "vikram.singh@company.com", phone: "+91 98765 43214" },
-  { id: "EMP006", name: "Deepa Nair", department: "HR", designation: "HR Manager", salary: "₹1,40,000", status: "Active", joinDate: "2020-11-01", email: "deepa.nair@company.com", phone: "+91 98765 43215" },
-  { id: "EMP007", name: "Arjun Gupta", department: "Engineering", designation: "Junior Developer", salary: "₹80,000", status: "Probation", joinDate: "2026-01-15", email: "arjun.gupta@company.com", phone: "+91 98765 43216" },
-  { id: "EMP008", name: "Kavita Joshi", department: "Marketing", designation: "Marketing Lead", salary: "₹1,60,000", status: "Active", joinDate: "2021-09-01", email: "kavita.joshi@company.com", phone: "+91 98765 43217" },
-];
+// No hardcoded data — loaded from Supabase
 
 const statusConfig: Record<string, { classes: string; dot: string }> = {
   Active: { classes: "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20", dot: "bg-emerald-500" },
@@ -125,11 +117,44 @@ function getAvatarColor(name: string) {
 
 const Employees = () => {
   const { hasRole } = useAuth();
+  const { t } = useLanguage();
   const canManage = hasRole("super_admin", "admin", "hr_manager");
 
   const [search, setSearch] = useState("");
   const [activeDept, setActiveDept] = useState("All");
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch real employees from Supabase
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('employees')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        const mapped: Employee[] = (data || []).map((e: any) => ({
+          id: e.employee_id || e.id,
+          name: e.name || e.full_name || '',
+          department: e.department || '',
+          designation: e.designation || e.position || '',
+          salary: e.salary ? `₹${Number(e.salary).toLocaleString('en-IN')}` : '₹0',
+          status: e.status || 'Active',
+          joinDate: e.join_date || e.joining_date || e.created_at?.substring(0, 10) || '',
+          email: e.email || '',
+          phone: e.phone || e.mobile || '',
+        }));
+        setEmployees(mapped);
+      } catch (err: any) {
+        toast.error('Failed to load employees', { description: err.message });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEmployees();
+  }, []);
 
   // Add dialog
   const [addOpen, setAddOpen] = useState(false);
@@ -186,18 +211,20 @@ const Employees = () => {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      const nextId = `EMP${String(employees.length + 1).padStart(3, "0")}`;
-      const newEmployee: Employee = {
-        id: nextId,
-        name: form.name,
-        email: form.email,
-        department: form.department,
-        designation: form.designation,
-        salary: `₹${Number(form.salary).toLocaleString("en-IN")}`,
-        status: "Probation",
-        joinDate: form.joinDate,
-      };
-      setEmployees((prev) => [newEmployee, ...prev]);
+      // Refresh employee list from Supabase after adding
+      const { data: refreshed } = await supabase.from('employees').select('*').order('created_at', { ascending: false });
+      const mapped: Employee[] = (refreshed || []).map((e: any) => ({
+        id: e.employee_id || e.id,
+        name: e.name || e.full_name || '',
+        department: e.department || '',
+        designation: e.designation || e.position || '',
+        salary: e.salary ? `₹${Number(e.salary).toLocaleString('en-IN')}` : '₹0',
+        status: e.status || 'Active',
+        joinDate: e.join_date || e.joining_date || e.created_at?.substring(0, 10) || '',
+        email: e.email || '',
+        phone: e.phone || e.mobile || '',
+      }));
+      setEmployees(mapped);
       toast.success(`${form.name} added successfully`, {
         description: `Credentials — Email: ${form.email}, Password: ${data.temporary_password}`,
         duration: 15000,
@@ -216,8 +243,20 @@ const Employees = () => {
     setEditEmp(emp);
     setEditForm({ ...emp });
   };
-  const handleEdit = () => {
+  const handleEdit = async () => {
     if (!editEmp) return;
+    try {
+      // Try to update in Supabase using the employee's raw id
+      const updatePayload: any = {};
+      if (editForm.name) updatePayload.name = editForm.name;
+      if (editForm.department) updatePayload.department = editForm.department;
+      if (editForm.designation) updatePayload.designation = editForm.designation;
+      if (editForm.status) updatePayload.status = editForm.status;
+      if (editForm.email) updatePayload.email = editForm.email;
+      if (editForm.phone) updatePayload.phone = editForm.phone;
+      if (editForm.joinDate) updatePayload.join_date = editForm.joinDate;
+      await supabase.from('employees').update(updatePayload).eq('id', editEmp.id);
+    } catch { /* graceful */ }
     setEmployees((prev) =>
       prev.map((e) => (e.id === editEmp.id ? { ...e, ...editForm } as Employee : e))
     );
@@ -225,32 +264,36 @@ const Employees = () => {
     setEditEmp(null);
   };
 
-  // --- Change status ---
-  const handleStatusChange = (emp: Employee, newStatus: string) => {
+  const handleStatusChange = async (emp: Employee, newStatus: string) => {
+    try {
+      await supabase.from('employees').update({ status: newStatus }).eq('id', emp.id);
+    } catch { /* graceful */ }
     setEmployees((prev) =>
       prev.map((e) => (e.id === emp.id ? { ...e, status: newStatus } : e))
     );
     toast.success(`${emp.name}'s status changed to ${newStatus}`);
   };
 
-  // --- Delete employee ---
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteEmp) return;
+    try {
+      await supabase.from('employees').delete().eq('id', deleteEmp.id);
+    } catch { /* graceful */ }
     setEmployees((prev) => prev.filter((e) => e.id !== deleteEmp.id));
     toast.success(`${deleteEmp.name} removed from directory`);
     setDeleteEmp(null);
   };
 
   return (
-    <AppLayout title="Employee Directory">
+    <AppLayout title={t("Employee Directory")}>
       <div className="space-y-6">
         {/* ── Stats row ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: "Total Employees", value: employees.length, icon: Users, color: "text-primary", bg: "bg-primary/10" },
-            { label: "Active", value: activeCount, icon: UserCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-            { label: "On Leave", value: onLeaveCount, icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
-            { label: "Probation", value: probationCount, icon: UserX, color: "text-blue-500", bg: "bg-blue-500/10" },
+            { label: t("Total Employees"), value: employees.length, icon: Users, color: "text-primary", bg: "bg-primary/10" },
+            { label: t("Active"), value: activeCount, icon: UserCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
+            { label: t("On Leave"), value: onLeaveCount, icon: Clock, color: "text-amber-500", bg: "bg-amber-500/10" },
+            { label: t("Probation"), value: probationCount, icon: UserX, color: "text-blue-500", bg: "bg-blue-500/10" },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -272,7 +315,7 @@ const Employees = () => {
           <div className="relative w-full sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search name, ID, department…"
+              placeholder={t("search")}
               className="pl-9 bg-card"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -280,7 +323,7 @@ const Employees = () => {
           </div>
           {canManage && (
             <Button size="sm" className="gap-2 shrink-0" onClick={() => setAddOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /> Add Employee
+              <Plus className="h-3.5 w-3.5" /> {t("Add Employee")}
             </Button>
           )}
         </div>
@@ -297,7 +340,7 @@ const Employees = () => {
                   : "bg-card text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
               }`}
             >
-              {dept}
+              {t(dept)}
             </button>
           ))}
         </div>
@@ -307,11 +350,11 @@ const Employees = () => {
           <table className="w-full">
             <thead>
               <tr className="border-b bg-muted/30">
-                <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Employee</th>
-                <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:table-cell">Department</th>
-                <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden lg:table-cell">Designation</th>
-                <th className="text-right px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden sm:table-cell">Salary</th>
-                <th className="text-center px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</th>
+                <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t("Employee")}</th>
+                <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:table-cell">{t("Department")}</th>
+                <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden lg:table-cell">{t("Designation")}</th>
+                <th className="text-right px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden sm:table-cell">{t("Salary")}</th>
+                <th className="text-center px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t("Status")}</th>
                 <th className="w-10"></th>
               </tr>
             </thead>

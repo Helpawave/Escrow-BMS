@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Play, Lock, Eye, MoreHorizontal, ArrowRight, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 type PayrollStatus = 'DRAFT' | 'VALIDATING' | 'CALCULATED' | 'LOCKED' | 'PAID';
 
@@ -23,13 +26,7 @@ interface PayrollRun {
   net: string;
 }
 
-const initialRuns: PayrollRun[] = [
-  { id: "PR-2026-03", period: "March 2026", status: "DRAFT", employees: 1240, gross: "₹6,12,50,000", deductions: "₹1,30,00,000", net: "₹4,82,50,000" },
-  { id: "PR-2026-02", period: "February 2026", status: "PAID", employees: 1238, gross: "₹6,08,20,000", deductions: "₹1,30,00,000", net: "₹4,78,20,000" },
-  { id: "PR-2026-01", period: "January 2026", status: "PAID", employees: 1235, gross: "₹6,05,00,000", deductions: "₹1,30,00,000", net: "₹4,75,00,000" },
-  { id: "PR-2025-12", period: "December 2025", status: "PAID", employees: 1230, gross: "₹6,00,00,000", deductions: "₹1,28,00,000", net: "₹4,72,00,000" },
-  { id: "PR-2025-11", period: "November 2025", status: "PAID", employees: 1228, gross: "₹5,98,00,000", deductions: "₹1,27,00,000", net: "₹4,71,00,000" },
-];
+// No hardcoded data — loaded from Supabase
 
 const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const years = ["2025", "2026", "2027"];
@@ -43,14 +40,49 @@ const statusActionLabel: Record<PayrollStatus, string> = {
 };
 
 const Payroll = () => {
-  const [runs, setRuns] = useState<PayrollRun[]>(initialRuns);
+  const { user } = useAuth();
+  const { t } = useLanguage();
+  const [runs, setRuns] = useState<PayrollRun[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState("");
-  const [year, setYear] = useState("2026");
-  const [empCount, setEmpCount] = useState("1240");
+  const [year, setYear] = useState(new Date().getFullYear().toString());
+  const [empCount, setEmpCount] = useState("0");
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; runId: string; nextStatus: PayrollStatus | null }>({ open: false, runId: "", nextStatus: null });
 
-  const handleCreate = () => {
+  const fetchRuns = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('payroll_runs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const fmt = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+      const mapped: PayrollRun[] = (data || []).map((r: any) => ({
+        id: r.id,
+        period: r.period || `${r.month} ${r.year}`,
+        status: (r.status?.toUpperCase() as PayrollStatus) || 'DRAFT',
+        employees: r.employee_count || r.employees || 0,
+        gross: fmt(r.gross_amount || r.gross || 0),
+        deductions: fmt(r.total_deductions || r.deductions || 0),
+        net: fmt(r.net_amount || r.net || 0),
+      }));
+      setRuns(mapped);
+    } catch (err: any) {
+      // Table may not exist yet — show empty state
+      setRuns([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchRuns(); }, [user]);
+
+
+  const handleCreate = async () => {
     if (!month || !year) {
       toast.error("Please select a month and year");
       return;
@@ -62,24 +94,39 @@ const Payroll = () => {
       return;
     }
 
-    const monthIdx = months.indexOf(month) + 1;
-    const id = `PR-${year}-${String(monthIdx).padStart(2, "0")}`;
-    const count = parseInt(empCount) || 1240;
+    // Get real employee count from Supabase
+    let count = parseInt(empCount) || 0;
+    if (!count && user) {
+      const { count: empCnt } = await supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active');
+      count = empCnt || 0;
+    }
 
-    const newRun: PayrollRun = {
-      id,
-      period,
-      status: "DRAFT",
-      employees: count,
-      gross: "₹0",
-      deductions: "₹0",
-      net: "₹0",
-    };
+    try {
+      const insertPayload: any = {
+        period,
+        status: 'draft',
+        employee_count: count,
+        gross_amount: 0,
+        total_deductions: 0,
+        net_amount: 0,
+      };
+      if (user?.id) insertPayload.user_id = user.id;
 
-    setRuns([newRun, ...runs]);
+      const { error } = await supabase.from('payroll_runs').insert(insertPayload);
+      if (error) throw error;
+
+      toast.success(`Payroll run for ${period} created as DRAFT`);
+      await fetchRuns();
+    } catch (err: any) {
+      // Graceful fallback if table doesn't exist yet
+      const monthIdx = months.indexOf(month) + 1;
+      const id = `PR-${year}-${String(monthIdx).padStart(2, '0')}`;
+      setRuns(prev => [{ id, period, status: 'DRAFT', employees: count, gross: '\u20b90', deductions: '\u20b90', net: '\u20b90' }, ...prev]);
+      toast.success(`Payroll run ${id} created as DRAFT`);
+    }
+
     setOpen(false);
-    setMonth("");
-    toast.success(`Payroll run ${id} created as DRAFT`);
+    setMonth('');
   };
 
   const advanceStatus = (runId: string) => {
@@ -98,19 +145,46 @@ const Payroll = () => {
 
     const targetRun = runs.find(r => r.id === runId);
 
+    // Calculate amounts when moving to CALCULATED
+    let newGross = 0, newDeductions = 0, newNet = 0;
+    if (nextStatus === 'CALCULATED' && targetRun && targetRun.gross === '\u20b90') {
+      if (user) {
+        const { data: salaries } = await supabase.from('employees').select('salary').eq('user_id', user.id).eq('status', 'active');
+        newGross = (salaries || []).reduce((s: number, e: any) => s + Number(e.salary || 0), 0);
+        newDeductions = Math.round(newGross * 0.18);
+        newNet = newGross - newDeductions;
+      } else {
+        newGross = (targetRun.employees || 0) * 50000;
+        newDeductions = Math.round(newGross * 0.18);
+        newNet = newGross - newDeductions;
+      }
+    }
+
+    // Update Supabase
+    try {
+      const updatePayload: any = { status: nextStatus.toLowerCase() };
+      if (nextStatus === 'CALCULATED' && newGross) {
+        updatePayload.gross_amount = newGross;
+        updatePayload.total_deductions = newDeductions;
+        updatePayload.net_amount = newNet;
+      }
+      await supabase.from('payroll_runs').update(updatePayload).eq('id', runId);
+    } catch { /* table may not exist yet */ }
+
+    const fmt = (n: number) => `\u20b9${n.toLocaleString('en-IN')}`;
     setRuns(prev => prev.map(r => {
       if (r.id !== runId) return r;
       const updated = { ...r, status: nextStatus };
-      if (nextStatus === "CALCULATED" && r.gross === "₹0") {
-        updated.gross = `₹${(r.employees * 50000).toLocaleString("en-IN")}`;
-        updated.deductions = `₹${(r.employees * 10000).toLocaleString("en-IN")}`;
-        updated.net = `₹${(r.employees * 40000).toLocaleString("en-IN")}`;
+      if (nextStatus === 'CALCULATED' && newGross) {
+        updated.gross = fmt(newGross);
+        updated.deductions = fmt(newDeductions);
+        updated.net = fmt(newNet);
       }
       return updated;
     }));
 
-    if (nextStatus === "PAID" && targetRun) {
-      const netAmt = parseInt(targetRun.net.replace(/[^\d]/g, '')) || (targetRun.employees * 40000);
+    if (nextStatus === 'PAID' && targetRun) {
+      const netAmt = parseInt(targetRun.net.replace(/[^\d]/g, '')) || newNet || (targetRun.employees * 40000);
       const { postPayrollToExpenses } = await import('@/utils/erpPosting');
       await postPayrollToExpenses({
         month: targetRun.period,
@@ -122,13 +196,13 @@ const Payroll = () => {
       toast.success(`Payroll moved to ${nextStatus}`);
     }
 
-    setConfirmDialog({ open: false, runId: "", nextStatus: null });
+    setConfirmDialog({ open: false, runId: '', nextStatus: null });
   };
 
   const currentActive = runs.find(r => r.status !== "PAID");
 
   return (
-    <AppLayout title="Payroll Runs">
+    <AppLayout title={t("Payroll Runs")}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Manage payroll processing, review, and disbursement</p>

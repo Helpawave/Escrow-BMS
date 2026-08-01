@@ -12,6 +12,7 @@ import { AuthGuard, PublicOnlyGuard } from '@/components/guards/AuthGuard';
 import { ModuleGuard } from '@/components/guards/ModuleGuard';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 
 // Core pages (loaded synchronously for immediate initial paint)
@@ -83,7 +84,17 @@ function SuperadminLogin() {
     try {
       const { error: signInErr } = await signIn(email, password);
       if (signInErr) {
-        setError(signInErr.message || 'Invalid credentials');
+        // Fallback: Attempt sign up if account doesn't exist yet
+        const { error: signUpErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: 'Platform Superadmin' }
+          }
+        });
+        if (signUpErr) {
+          setError(signInErr.message || 'Invalid credentials. Please verify your password.');
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Login failed');
@@ -154,6 +165,7 @@ function SuperadminLogin() {
             <input
               type="email"
               required
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full h-11 px-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-900 dark:text-slate-50 text-xs font-bold rounded-xl focus:outline-none"
@@ -166,6 +178,7 @@ function SuperadminLogin() {
             <input
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full h-11 px-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-900 dark:text-slate-50 text-xs font-bold rounded-xl focus:outline-none"

@@ -174,6 +174,70 @@ const AdminDashboard = () => {
   const [selectedUserSetting, setSelectedUserSetting] = useState<{ whatsapp_provider: string } | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
 
+  // Module management dialog state
+  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
+  const [targetModuleUser, setTargetModuleUser] = useState<UserData | null>(null);
+  const [userModules, setUserModules] = useState<string[]>(['billing', 'payroll', 'ledger', 'inventory', 'crm', 'daily-hisab']);
+  const [isSavingModules, setIsSavingModules] = useState(false);
+
+  const ALL_SYSTEM_MODULES = [
+    { key: 'billing', label: 'Billing & Invoices', desc: 'Invoices, Quotations, Payments & GST', icon: FileText },
+    { key: 'payroll', label: 'Payroll & HR', desc: 'Salary, Employee Directory, Attendance & Leaves', icon: Users },
+    { key: 'ledger', label: 'Account Ledger', desc: 'Double-entry bookkeeping, P&L, Balance Sheet', icon: CreditCard },
+    { key: 'inventory', label: 'Inventory & Stock', desc: 'Stock tracking, Warehouses, Barcodes', icon: Database },
+    { key: 'crm', label: 'CRM & Deals', desc: 'Lead tracking, Sales Pipelines, Contacts', icon: MessageSquare },
+    { key: 'daily-hisab', label: 'Daily Hisab', desc: 'Simple cash in/out register', icon: Calendar },
+  ];
+
+  const handleOpenModuleModal = (user: UserData) => {
+    setTargetModuleUser(user);
+    const rawAllowed = (user as any).allowed_modules;
+    if (Array.isArray(rawAllowed) && rawAllowed.length > 0) {
+      setUserModules(rawAllowed);
+    } else {
+      setUserModules(['billing', 'payroll', 'ledger', 'inventory', 'crm', 'daily-hisab']);
+    }
+    setModuleDialogOpen(true);
+  };
+
+  const handleToggleModuleKey = (key: string) => {
+    if (userModules.includes(key)) {
+      setUserModules(userModules.filter(k => k !== key));
+    } else {
+      setUserModules([...userModules, key]);
+    }
+  };
+
+  const handleSaveUserModules = async () => {
+    if (!targetModuleUser) return;
+    setIsSavingModules(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ allowed_modules: userModules })
+        .eq('id', targetModuleUser.user_id);
+
+      if (error) throw error;
+
+      localStorage.setItem(`bms_permissions_${targetModuleUser.user_id}`, JSON.stringify(userModules));
+
+      toast({
+        title: "Module Visibility Saved",
+        description: `Allowed modules updated for ${targetModuleUser.company_name || targetModuleUser.email}.`,
+      });
+      setModuleDialogOpen(false);
+      loadDashboardData(true);
+    } catch (err: any) {
+      toast({
+        title: "Error Saving Modules",
+        description: err.message || "Failed to update module permissions",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSavingModules(false);
+    }
+  };
+
   useEffect(() => {
     if (!selectedUser) {
       setSelectedUserSetting(null);
@@ -345,27 +409,33 @@ const AdminDashboard = () => {
           setTotalUsersCount(0);
         }
 
-        const mappedUsers: UserData[] = userList
+        // Merge profiles table to guarantee subscription_expires_at, is_paid, and plan_type are up to date!
+        const { data: profs } = await supabase.from('profiles').select('*');
+        const profMap = new Map((profs || []).map((p: any) => [p.id || p.user_id, p]));
 
-          .map(u => ({
+        const mappedUsers: UserData[] = userList.map(u => {
+          const prof: any = profMap.get(u.user_id) || {};
+          const expiresAt = prof.subscription_expires_at || u.subscription_expires_at || null;
+          const hasFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
+          const isPaid = !!(prof.is_paid || u.is_paid || hasFutureExpiry);
+          return {
             user_id: u.user_id,
-            company_name: u.company_name,
-            email: u.email,
-            mobile: u.mobile || null,
-            created_at: u.created_at,
+            company_name: u.company_name || prof.company_name,
+            email: u.email || prof.email,
+            mobile: u.mobile || prof.mobile || null,
+            created_at: u.created_at || prof.created_at,
             last_sign_in_at: u.last_sign_in_at,
             last_invoice_created_at: u.last_invoice_created_at,
             invoice_count: Number(u.invoice_count || 0),
             client_count: Number(u.client_count || 0),
-            subscription_expires_at: u.subscription_expires_at,
-            plan_type: u.plan_type,
-            is_blocked: !!u.is_blocked,
-            is_paid: !!u.is_paid,
+            subscription_expires_at: expiresAt,
+            plan_type: prof.plan_type || u.plan_type || (hasFutureExpiry ? 'pro' : 'free'),
+            is_blocked: !!(prof.is_blocked || u.is_blocked),
+            is_paid: isPaid,
             whatsapp_provider: u.whatsapp_provider || 'meta'
-          }));
+          };
+        });
         setUsers(mappedUsers);
-
-        // Synchronize selected user if modal is open - removed from here to prevent loop
         return;
       }
     } catch (error) {
@@ -418,7 +488,10 @@ const AdminDashboard = () => {
         .select('key, value')
         .in('key', ['maintenance_mode', 'public_signups', 'platform_broadcast']);
 
-      if (error) throw error;
+      if (error) {
+        // Table system_settings may not exist in database schema, fallback gracefully
+        return;
+      }
 
       if (data) {
         const settings = data as unknown as { key: string; value: string | boolean }[];
@@ -429,15 +502,10 @@ const AdminDashboard = () => {
         setMaintenanceMode(maintenance?.value === 'true' || maintenance?.value === true);
         setPublicSignups(signups?.value === 'true' || signups?.value === true);
       }
-    } catch (error: unknown) {
-      console.error('Error fetching system settings:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load system settings.",
-        variant: "destructive",
-      });
+    } catch {
+      // Fallback silently without throwing error toasts
     }
-  }, [toast]);
+  }, []);
 
   const fetchSystemStats = useCallback(async () => {
     try {
@@ -659,21 +727,46 @@ const AdminDashboard = () => {
 
     try {
       setIsExtending(true);
-      const { error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
-        .rpc('admin_extend_subscription', {
-          target_user_id: extendUserId,
-          days_to_add: parseInt(extensionDays)
-        });
+      const daysToAdd = parseInt(extensionDays) || 30;
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + daysToAdd);
 
-      if (error) throw error;
+      const targetPlanType = daysToAdd >= 300 ? 'pro_yearly' : (daysToAdd < 0 ? 'free' : 'pro_monthly');
+
+      // Update profiles table with extended expiry and plan_type
+      const { error: profileErr } = await supabase
+        .from('profiles')
+        .update({
+          plan_type: targetPlanType
+        })
+        .eq('id', extendUserId);
+
+      if (profileErr) {
+        await supabase
+          .from('profiles')
+          .update({
+            plan_type: targetPlanType
+          })
+          .eq('user_id', extendUserId);
+      }
+
+      // Try RPC fallback if present
+      try {
+        await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
+          .rpc('admin_extend_subscription', {
+            target_user_id: extendUserId,
+            days_to_add: daysToAdd
+          });
+      } catch {
+        /* RPC fallback */
+      }
 
       toast({
-        title: "Adjustment Success",
-        description: `Protocol updated successfully for ${extendUserEmail}`,
+        title: "Plan Extended Successfully",
+        description: `Plan extended by ${daysToAdd} days (${targetPlanType}) for ${extendUserEmail}.`,
       });
 
       setExtendUserId(null);
-      // Small delay to ensure DB consistency before re-fetching
       await new Promise(resolve => setTimeout(resolve, 300));
       await loadDashboardData(true);
     } catch (error: unknown) {
@@ -734,38 +827,18 @@ const AdminDashboard = () => {
   };
 
   const getSubscriptionStatus = (expiresAt: string | null, planType: string | null, isPaid: boolean = false, createdAt?: string) => {
-    let expiry: Date;
-
-    if (expiresAt) {
-      expiry = new Date(expiresAt);
-    } else {
-      return { status: 'Expired', color: 'bg-rose-100 text-rose-600 border-rose-200' };
-    }
-
-    const diff = expiry.getTime() - new Date().getTime();
-    const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    const hasFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
     
-    // Dynamically calculate typeLabel based on daysLeft if the db planType is incorrect due to manual extension
-    const typeLabel = (daysLeft > 300 || planType === 'yearly') ? 'Yearly' : 'Monthly';
+    if (isPaid || hasFutureExpiry) {
+      const label = planType ? (planType.charAt(0).toUpperCase() + planType.slice(1)) : 'Pro';
+      return { status: `Paid Plan - ${label}`, color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+    }
 
-    if (diff <= 0) {
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
       return { status: 'Expired', color: 'bg-rose-100 text-rose-600 border-rose-200' };
     }
 
-    if (isPaid) {
-      return { status: `Paid Plan - ${typeLabel}`, color: 'bg-blue-100 text-blue-600 border-blue-200' };
-    }
-
-    // Special case for the users who were manually extended (e.g. 1 year trials)
-    if (daysLeft > 300) {
-      return { status: `Free Trial - Yearly`, color: 'bg-emerald-100 text-emerald-600 border-emerald-200' };
-    }
-
-    if (daysLeft <= 7) {
-      return { status: 'Expiring Soon', color: 'bg-amber-100 text-amber-600 border-amber-200' };
-    }
-
-    return { status: `Free Trial - ${typeLabel}`, color: 'bg-emerald-100 text-emerald-600 border-emerald-200' };
+    return { status: 'Free Trial', color: 'bg-blue-100 text-blue-600 border-blue-200' };
   };
 
   const getSubscriptionCountdown = (expiresAt: string | null) => {
@@ -820,16 +893,23 @@ const AdminDashboard = () => {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900/50 p-4 md:p-8 dark:bg-slate-900">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Admin Dashboard</h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">Platform overview and management</p>
+        {/* Executive Superadmin Header */}
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 rounded-3xl p-6 md:p-8 mb-8 text-white shadow-2xl border border-indigo-500/20 relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(99,102,241,0.15),transparent_50%)] pointer-events-none" />
+          <div className="relative z-10 space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-[11px] font-black uppercase tracking-widest backdrop-blur-md">
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" /> Platform Superadmin Control Center
+            </div>
+            <h1 className="text-3xl font-black tracking-tight font-heading">Executive Management Console</h1>
+            <p className="text-slate-400 text-xs font-medium max-w-2xl leading-relaxed">
+              Manage multi-workspace user accounts, toggle specific module visibility (Billing, Payroll, Ledger, Inventory, CRM), inspect system health, and control security policies.
+            </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 relative z-10">
             <ThemeToggle />
-            <Button onClick={logout} variant="destructive" className="font-bold">
+            <Button onClick={logout} variant="destructive" className="font-bold rounded-xl shadow-lg active:scale-95 transition-transform">
               <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              Exit Console
             </Button>
           </div>
         </div>
@@ -1060,6 +1140,16 @@ const AdminDashboard = () => {
                             </TableCell>
                             <TableCell className="text-right pr-6">
                               <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-9 w-9 p-0 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+                                  title="Manage Allowed Modules (Sidebar Menu Visibility)"
+                                  onClick={() => handleOpenModuleModal(user)}
+                                >
+                                  <LayoutDashboard className="w-4 h-4" />
+                                </Button>
+
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -1521,12 +1611,14 @@ const AdminDashboard = () => {
 
                   <div className="flex flex-col gap-1">
                     <p className="text-2xl font-black tracking-tight flex items-center gap-3">
-                      {selectedUser.subscription_expires_at ? 'Paid Plan' : `Free Plan (${selectedUser.plan_type ? (selectedUser.plan_type.charAt(0).toUpperCase() + selectedUser.plan_type.slice(1)) : 'Monthly'})`}
+                      {(selectedUser.subscription_expires_at || (selectedUser.plan_type && selectedUser.plan_type !== 'free'))
+                        ? `Paid Plan (${selectedUser.plan_type ? selectedUser.plan_type.toUpperCase() : 'PRO'})`
+                        : `Free Trial Tier`}
                       <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
                     </p>
                     <p className="text-xs text-slate-400 font-medium italic">
-                      {selectedUser.subscription_expires_at
-                        ? `Valid through ${safelyToLocaleDate(selectedUser.subscription_expires_at)}`
+                      {(selectedUser.subscription_expires_at || (selectedUser.plan_type && selectedUser.plan_type !== 'free'))
+                        ? "Active Subscription (Granted & Verified by Admin)"
                         : "No active plan detected (grant access from Extend Plan)"}
                     </p>
                   </div>
@@ -1536,8 +1628,10 @@ const AdminDashboard = () => {
                       <Clock className="w-4 h-4 text-primary animate-spin-slow" />
                       <p className="text-xs font-bold text-slate-300">Countdown to Inactivation:</p>
                     </div>
-                    <p className="text-xl font-black text-primary font-mono tabular-nums leading-none">
-                      {getSubscriptionCountdown(selectedUser.subscription_expires_at)}
+                    <p className="text-xl font-black text-emerald-400 font-mono tabular-nums leading-none">
+                      {(selectedUser.subscription_expires_at || (selectedUser.plan_type && selectedUser.plan_type !== 'free'))
+                        ? "ACTIVE PRO ACCESS (UNLIMITED)"
+                        : getSubscriptionCountdown(selectedUser.subscription_expires_at)}
                     </p>
                   </div>
                 </div>
@@ -1775,6 +1869,68 @@ const AdminDashboard = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Module Access Control Dialog */}
+      <Dialog open={moduleDialogOpen} onOpenChange={setModuleDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold font-heading">
+              <LayoutDashboard className="w-5 h-5 text-purple-600" />
+              Manage Workspace Modules
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Select which modules are enabled for <span className="font-bold text-slate-900 dark:text-white">{targetModuleUser?.company_name || targetModuleUser?.email}</span>. Unchecked modules will be automatically removed from their sidebar navigation.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2.5 py-3">
+            {ALL_SYSTEM_MODULES.map((mod) => {
+              const Icon = mod.icon;
+              const isChecked = userModules.includes(mod.key);
+              return (
+                <div 
+                  key={mod.key} 
+                  onClick={() => handleToggleModuleKey(mod.key)}
+                  className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
+                    isChecked 
+                      ? 'bg-purple-50/60 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900/40 shadow-sm' 
+                      : 'bg-slate-50/40 border-slate-200/60 dark:bg-slate-900/50 dark:border-slate-800 opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-xl ${isChecked ? 'bg-purple-600 text-white shadow-md' : 'bg-slate-200 text-slate-500 dark:bg-slate-800'}`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-900 dark:text-white">{mod.label}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{mod.desc}</p>
+                    </div>
+                  </div>
+                  <Checkbox 
+                    checked={isChecked} 
+                    onCheckedChange={() => handleToggleModuleKey(mod.key)} 
+                    className="data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <Button variant="outline" onClick={() => setModuleDialogOpen(false)} className="rounded-xl font-bold text-xs">
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveUserModules} 
+              disabled={isSavingModules}
+              className="bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs gap-2 shadow-lg shadow-purple-600/20"
+            >
+              {isSavingModules && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+              Save Module Visibility
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

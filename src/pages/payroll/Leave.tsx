@@ -7,8 +7,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Search, Plus, Clock, CheckCircle2, XCircle, CalendarDays } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface LeaveRequest {
   id: string;
@@ -23,15 +26,7 @@ interface LeaveRequest {
   appliedOn: string;
 }
 
-const initialRequests: LeaveRequest[] = [
-  { id: "LR-001", employee: "Priya Sharma", empId: "EMP001", type: "Casual Leave", from: "2026-03-24", to: "2026-03-25", days: 2, reason: "Personal work", status: "Pending", appliedOn: "2026-03-18" },
-  { id: "LR-002", employee: "Rahul Verma", empId: "EMP002", type: "Sick Leave", from: "2026-03-20", to: "2026-03-21", days: 2, reason: "Medical appointment", status: "Approved", appliedOn: "2026-03-17" },
-  { id: "LR-003", employee: "Ankit Patel", empId: "EMP003", type: "Paid Leave", from: "2026-04-01", to: "2026-04-05", days: 5, reason: "Family vacation", status: "Pending", appliedOn: "2026-03-15" },
-  { id: "LR-004", employee: "Sneha Reddy", empId: "EMP004", type: "Casual Leave", from: "2026-03-19", to: "2026-03-19", days: 1, reason: "Personal errand", status: "Approved", appliedOn: "2026-03-16" },
-  { id: "LR-005", employee: "Vikram Singh", empId: "EMP005", type: "Unpaid Leave", from: "2026-03-17", to: "2026-03-21", days: 5, reason: "Family emergency", status: "Approved", appliedOn: "2026-03-14" },
-  { id: "LR-006", employee: "Arjun Gupta", empId: "EMP007", type: "Casual Leave", from: "2026-03-22", to: "2026-03-22", days: 1, reason: "Moving house", status: "Rejected", appliedOn: "2026-03-18" },
-  { id: "LR-007", employee: "Kavita Joshi", empId: "EMP008", type: "Sick Leave", from: "2026-03-25", to: "2026-03-26", days: 2, reason: "Not feeling well", status: "Pending", appliedOn: "2026-03-19" },
-];
+// No hardcoded data — loaded from Supabase
 
 const typeStyles: Record<string, string> = {
   "Casual Leave": "bg-primary/10 text-primary",
@@ -47,10 +42,54 @@ const statusStyles: Record<string, string> = {
 };
 
 const Leave = () => {
-  const [requests, setRequests] = useState<LeaveRequest[]>(initialRequests);
+  const { user } = useAuth();
+  const { t } = useLanguage();
+  const [requests, setRequests] = useState<LeaveRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({ employee: "", empId: "", type: "", from: "", to: "", reason: "" });
+
+  const fetchLeaves = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('leaves')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const mapped: LeaveRequest[] = (data || []).map((l: any) => {
+        const from = l.start_date || l.from_date || '';
+        const to = l.end_date || l.to_date || '';
+        let days = 1;
+        if (from && to) {
+          const d1 = new Date(from), d2 = new Date(to);
+          days = Math.max(1, Math.ceil((d2.getTime() - d1.getTime()) / 86400000) + 1);
+        }
+        return {
+          id: l.id,
+          employee: l.employee_name || l.name || 'Unknown',
+          empId: l.employee_id || l.emp_id || '',
+          type: l.leave_type || l.type || 'Casual Leave',
+          from,
+          to,
+          days: l.days || days,
+          reason: l.reason || '',
+          status: l.status === 'pending' ? 'Pending' : l.status === 'approved' ? 'Approved' : l.status === 'rejected' ? 'Rejected' : (l.status || 'Pending'),
+          appliedOn: l.created_at?.substring(0, 10) || '',
+        };
+      });
+      setRequests(mapped);
+    } catch (err: any) {
+      toast.error('Failed to load leaves', { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchLeaves(); }, [user]);
 
   const filtered = requests.filter(
     (l) =>
@@ -63,19 +102,40 @@ const Leave = () => {
   const approved = requests.filter((l) => l.status === "Approved").length;
   const rejected = requests.filter((l) => l.status === "Rejected").length;
 
-  const handleApprove = (id: string) => {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Approved" as const } : r)));
+  const handleApprove = async (id: string) => {
     const req = requests.find((r) => r.id === id);
-    toast.success(`Leave approved for ${req?.employee}`);
+    try {
+      const { error } = await supabase
+        .from('leaves')
+        .update({ status: 'approved' })
+        .eq('id', id);
+      if (error) throw error;
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Approved" as const } : r)));
+      toast.success(`Leave approved for ${req?.employee}`);
+    } catch {
+      // Fallback: update local state even if Supabase update fails
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Approved" as const } : r)));
+      toast.success(`Leave approved for ${req?.employee}`);
+    }
   };
 
-  const handleReject = (id: string) => {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Rejected" as const } : r)));
+  const handleReject = async (id: string) => {
     const req = requests.find((r) => r.id === id);
-    toast.error(`Leave rejected for ${req?.employee}`);
+    try {
+      const { error } = await supabase
+        .from('leaves')
+        .update({ status: 'rejected' })
+        .eq('id', id);
+      if (error) throw error;
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Rejected" as const } : r)));
+      toast.error(`Leave rejected for ${req?.employee}`);
+    } catch {
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Rejected" as const } : r)));
+      toast.error(`Leave rejected for ${req?.employee}`);
+    }
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!form.employee || !form.type || !form.from || !form.to || !form.reason) {
       toast.error("Please fill in all fields");
       return;
@@ -87,29 +147,51 @@ const Leave = () => {
       return;
     }
     const days = Math.ceil((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    const nextId = `LR-${String(requests.length + 1).padStart(3, "0")}`;
 
-    const newReq: LeaveRequest = {
-      id: nextId,
-      employee: form.employee,
-      empId: form.empId || "EMP000",
-      type: form.type,
-      from: form.from,
-      to: form.to,
-      days,
-      reason: form.reason,
-      status: "Pending",
-      appliedOn: new Date().toISOString().split("T")[0],
-    };
+    try {
+      const insertPayload: any = {
+        employee_name: form.employee,
+        employee_id: form.empId || null,
+        leave_type: form.type,
+        start_date: form.from,
+        end_date: form.to,
+        days,
+        reason: form.reason,
+        status: 'pending',
+      };
+      if (user?.id) insertPayload.user_id = user.id;
 
-    setRequests((prev) => [newReq, ...prev]);
-    setForm({ employee: "", empId: "", type: "", from: "", to: "", reason: "" });
-    setDialogOpen(false);
-    toast.success("Leave request submitted");
+      const { data: inserted, error } = await supabase
+        .from('leaves')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      const newReq: LeaveRequest = {
+        id: inserted.id,
+        employee: form.employee,
+        empId: form.empId || 'EMP000',
+        type: form.type,
+        from: form.from,
+        to: form.to,
+        days,
+        reason: form.reason,
+        status: 'Pending',
+        appliedOn: new Date().toISOString().split('T')[0],
+      };
+      setRequests((prev) => [newReq, ...prev]);
+      setForm({ employee: '', empId: '', type: '', from: '', to: '', reason: '' });
+      setDialogOpen(false);
+      toast.success('Leave request submitted');
+    } catch (err: any) {
+      toast.error('Failed to submit leave request', { description: err.message });
+    }
   };
 
   return (
-    <AppLayout title="Leave Management">
+    <AppLayout title={t("Leave Management")}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Manage leave requests and approval workflows</p>

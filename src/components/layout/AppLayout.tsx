@@ -18,6 +18,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { t } = useLanguage();
   const { user, profile, refreshProfile, isSubscribed, loading: authLoading } = useAuth();
@@ -45,6 +46,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (activeModule) {
       localStorage.setItem('last_active_app', activeModule.key);
     }
+    // Close mobile drawer on route change
+    setMobileOpen(false);
   }, [location.pathname]);
 
   const isActiveSubRoute = (route: string) => {
@@ -154,18 +157,20 @@ export function AppLayout({ children }: AppLayoutProps) {
   const shouldBlockWorkspace = isSubscribed === false && !authLoading && !isProfileIncomplete;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
-      {/* Sidebar */}
+    <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 w-full max-w-full">
+      {/* Sidebar with Desktop Collapse + Mobile Drawer */}
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
       />
 
       {/* Main content */}
-      <div className={cn("flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300", shouldBlockWorkspace && "blur-[1.5px] pointer-events-none grayscale-[0.2]")}>
-        <Topbar onMenuToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto">
+      <div className={cn("flex-1 flex flex-col min-w-0 w-full overflow-hidden transition-all duration-300", shouldBlockWorkspace && "blur-[1.5px] pointer-events-none grayscale-[0.2]")}>
+        <Topbar onMenuToggle={() => setMobileOpen(!mobileOpen)} />
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 w-full max-w-full overflow-x-hidden">
+          <div className="max-w-7xl mx-auto w-full">
             {renderModuleSubNav()}
             {children}
           </div>

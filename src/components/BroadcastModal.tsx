@@ -67,8 +67,8 @@ const BroadcastModal = () => {
           }
         }
       }
-    } catch (err) {
-      console.error('Error fetching broadcast:', err);
+    } catch {
+      // Table system_settings may not exist in DB schema
     }
   }, [user]);
 

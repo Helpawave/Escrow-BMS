@@ -47,14 +47,20 @@ import {
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, isSuperAdmin, signOut } = useAuth();
   const { hasModule } = useSubscription();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+
+  const initials = profile?.full_name
+    ? profile.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+    : 'U';
 
   // Find active module by matching route path
   const activeModule = MODULES.find(
@@ -107,10 +113,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     return location.pathname === route || location.pathname.startsWith(route + '/');
   };
 
-  const initials = profile?.full_name
-    ? profile.full_name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
-    : 'U';
-
   // Dynamic Theme Styling for active link
   const activeThemeClass = activeModule
     ? activeModule.key === 'payroll' ? 'bg-violet-50 dark:bg-violet-550/10 text-violet-700 dark:text-violet-400'
@@ -131,30 +133,35 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     : 'text-indigo-600 dark:text-indigo-400';
 
   return (
-    <aside
-      className={cn(
-        'h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 z-50',
-        collapsed ? 'w-[72px]' : 'w-[260px]'
+    <>
+      {/* Mobile Backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden transition-opacity"
+          onClick={onMobileClose}
+        />
       )}
-    >
+
+      <aside
+        className={cn(
+          'h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col transition-all duration-300 z-50',
+          'fixed inset-y-0 left-0 md:static md:translate-x-0',
+          mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0',
+          collapsed ? 'w-[72px]' : 'w-[260px]'
+        )}
+      >
       {/* Product Logo / Branding */}
       <div className={cn(
         'h-16 flex items-center border-b border-slate-200 dark:border-slate-800 overflow-hidden',
         collapsed ? 'px-4 justify-center' : 'px-5 gap-3'
       )}>
         <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
-          {activeModule ? (
-            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", activeModule.iconBg)}>
-              <activeModule.icon className="w-5 h-5" />
-            </div>
-          ) : (
-            <img src="/logo.png" alt="Escrow BMS" className="w-8 h-8 object-contain" />
-          )}
+          <img src="/logo.png" alt="Escrow BMS" className="w-8 h-8 object-contain" />
         </div>
         {!collapsed && (
           <div>
             <span className="font-heading font-black text-slate-900 dark:text-white text-lg leading-none">
-              {activeModule ? (activeModule.key === 'payroll' ? 'Escoroll' : 'Escrow') : 'Escrow'}
+              Escrow
             </span>
             <span className="block text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 tracking-wider uppercase">
               {activeModule ? t(activeModule.key) : 'BMS Suite'}
@@ -243,5 +250,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
       </div>
     </aside>
+  </>
   );
 }

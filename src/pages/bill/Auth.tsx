@@ -224,15 +224,19 @@ const AuthPage = () => {
 
   useEffect(() => {
     const fetchSignupSetting = async () => {
-      const { data } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'public_signups')
-        .maybeSingle();
-      
-      const setting = data as unknown as { value: string | boolean } | null;
-      if (setting) {
-        setIsPublicSignupEnabled(setting.value === 'true' || setting.value === true);
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'public_signups')
+          .maybeSingle();
+        
+        const setting = data as unknown as { value: string | boolean } | null;
+        if (setting) {
+          setIsPublicSignupEnabled(setting.value === 'true' || setting.value === true);
+        }
+      } catch {
+        // Fallback default to public signup enabled
       }
     };
     fetchSignupSetting();

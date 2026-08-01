@@ -43,7 +43,7 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
   );
 
   const displayTitle = activeModule
-    ? `${activeModule.key === 'payroll' ? 'Escoroll' : 'Escrow'} ${t(activeModule.key)}`
+    ? `Escrow ${t(activeModule.key)}`
     : t(pathKey);
 
   const isInsideModule = !!activeModule;

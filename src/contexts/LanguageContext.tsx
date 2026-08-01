@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export type Language = 'en' | 'hi' | 'gu';
 
@@ -148,7 +148,7 @@ const fullTranslations: Record<Language, Record<string, string>> = {
     crmSubtitle: 'CRM App',
     bmsSubtitle: 'BMS Suite',
 
-    // Sub-menus
+    // Sub-menus & Common UI Phrases
     employees: 'Employees',
     payrollSalary: 'Salary & Run',
     attendance: 'Attendance',
@@ -182,7 +182,41 @@ const fullTranslations: Record<Language, Record<string, string>> = {
     contacts: 'Contacts',
     taskBoard: 'Task Board',
     analytics: 'Analytics',
-    teamMembers: 'Team Members'
+    teamMembers: 'Team Members',
+
+    // UI Labels & Headers
+    'Employee Directory': 'Employee Directory',
+    'Add Employee': 'Add Employee',
+    'Total Employees': 'Total Employees',
+    'On Leave': 'On Leave',
+    'Probation': 'Probation',
+    'Leave Management': 'Leave Management',
+    'Payroll Runs': 'Payroll Runs',
+    'Status': 'Status',
+    'Department': 'Department',
+    'Designation': 'Designation',
+    'Salary': 'Salary',
+    'Actions': 'Actions',
+    'View Profile': 'View Profile',
+    'Edit Employee': 'Edit Employee',
+    'Remove Employee': 'Remove Employee',
+    'Pending': 'Pending',
+    'Approved': 'Approved',
+    'Rejected': 'Rejected',
+    'Check In': 'Check In',
+    'Check Out': 'Check Out',
+    'Present': 'Present',
+    'Absent': 'Absent',
+    'Late': 'Late',
+    'Half Day': 'Half Day',
+    'Activity Timeline': 'Activity Timeline',
+    'Upcoming Events': 'Upcoming Events',
+    'Reports & Analytics': 'Reports & Analytics',
+    'Save Changes': 'Save Changes',
+    'Cancel': 'Cancel',
+    'Full Name': 'Full Name',
+    'Company Name': 'Company Name',
+    'Phone Number': 'Phone Number'
   },
   hi: {
     // Nav & Sidebar Links
@@ -561,15 +595,81 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return (localStorage.getItem('bms_lang') as Language) || 'en';
   });
 
+  useEffect(() => {
+    document.documentElement.setAttribute('lang', language);
+    window.dispatchEvent(new Event('languagechange'));
+
+    if (language === 'en') return;
+
+    const dict = (fullTranslations[language] || {}) as Record<string, string>;
+
+    const translateTextNode = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
+        const trimmed = node.nodeValue.trim();
+        // Skip brand names, logos, email addresses, and codes
+        if (
+          trimmed === 'Escrow' ||
+          trimmed === 'Escoroll' ||
+          trimmed === 'BMS' ||
+          trimmed === 'Escrow BMS' ||
+          trimmed.includes('@')
+        ) {
+          return;
+        }
+        if (trimmed && dict[trimmed]) {
+          node.nodeValue = node.nodeValue.replace(trimmed, dict[trimmed]);
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const elem = node as HTMLElement;
+        const tag = elem.tagName?.toUpperCase();
+        if (
+          tag === 'SCRIPT' ||
+          tag === 'STYLE' ||
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          elem.isContentEditable ||
+          elem.hasAttribute('data-no-translate')
+        ) return;
+        elem.childNodes.forEach(translateTextNode);
+      }
+    };
+
+    const translateAll = () => {
+      if (document.body) {
+        translateTextNode(document.body);
+      }
+    };
+
+    // Run immediate translation and throttle mutation updates
+    translateAll();
+    let timeoutId: any = null;
+    const observer = new MutationObserver(() => {
+      if (!timeoutId) {
+        timeoutId = setTimeout(() => {
+          translateAll();
+          timeoutId = null;
+        }, 100);
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+    return () => {
+      observer.disconnect();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [language]);
+
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
     localStorage.setItem('bms_lang', lang);
   };
 
   const t = (key: string): string => {
+    if (!key) return '';
     const dict = (fullTranslations[language] || fullTranslations['en']) as Record<string, string>;
     const defaultDict = fullTranslations['en'] as Record<string, string>;
-    return dict[key] || defaultDict[key] || key;
+    return dict[key] || dict[key.trim()] || defaultDict[key] || defaultDict[key.trim()] || key;
   };
 
   return (

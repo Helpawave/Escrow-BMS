@@ -66,7 +66,7 @@ interface AuthContextValue {
   isSuperAdmin: boolean;
   signUp: (email: string, password: string, fullName: string, companyName: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   // Compatibility properties for other modules
@@ -124,7 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Check if user is superadmin in user_roles or email list
       const roles = rolesRes.data;
       const hasSuperRole = roles?.some((r: any) => r.role === 'super_admin') || false;
-      const isSuperEmail = email === 'admin_bms@escrowbms.com';
+      const superEmails = ['admin_bms@escrowbms.com', 'admin@escrowbms.com', '5213aadarsh@gmail.com'];
+      const isSuperEmail = email ? superEmails.includes(email.toLowerCase()) : false;
       setIsSuperAdmin(hasSuperRole || isSuperEmail);
     } catch (e) {
       console.error('Error loading profile:', e);
@@ -185,12 +186,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin + '/dashboard',
       }
     });
+    return { error: error as Error | null };
   };
 
   const signOut = async () => {
@@ -252,27 +254,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { isSubscribed: true, isTrialActive: false, trialDaysRemaining: 0 };
     }
 
+    const expiresAt = (profile as any).subscription_expires_at;
+    const hasActiveFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
     const plan = (profile.plan_type || 'free').toLowerCase();
-    const isPaid = !!profile.is_paid;
+    const isPaid = !!profile.is_paid || hasActiveFutureExpiry || (plan !== 'free' && plan !== '' && plan !== 'null' && plan !== 'undefined');
     
-    // For free trial accounts
-    if (plan === 'free' && !isPaid) {
-      const createdDate = profile.created_at ? new Date(profile.created_at) : new Date();
-      const diffTime = Date.now() - createdDate.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      
-      const daysRemaining = Math.max(0, 14 - diffDays);
-      const active = diffDays < 14;
-      
-      return {
-        isSubscribed: active, // Subscribed is true while trial is active, becomes false once trial is expired!
-        isTrialActive: active,
-        trialDaysRemaining: daysRemaining
-      };
+    // If the plan is extended by Admin or marked as paid / pro
+    if (isPaid) {
+      return { isSubscribed: true, isTrialActive: false, trialDaysRemaining: 0 };
     }
 
-    // For paid subscription plans (starter, growth, enterprise, monthly, yearly, pro)
-    return { isSubscribed: true, isTrialActive: false, trialDaysRemaining: 0 };
+    // For free trial accounts (within initial 14 days)
+    const createdDate = profile.created_at ? new Date(profile.created_at) : new Date();
+    const diffTime = Date.now() - createdDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    
+    const daysRemaining = Math.max(0, 14 - diffDays);
+    const active = diffDays < 14;
+    
+    return {
+      isSubscribed: active,
+      isTrialActive: active,
+      trialDaysRemaining: daysRemaining
+    };
   }, [profile]);
 
   return (

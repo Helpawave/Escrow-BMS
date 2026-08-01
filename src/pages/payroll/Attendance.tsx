@@ -8,6 +8,8 @@ import { Search, Clock, Users, CheckCircle2, AlertCircle, Calendar, LogIn, LogOu
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface AttendanceRecord {
   empId: string;
@@ -21,16 +23,7 @@ interface AttendanceRecord {
   overtime: string;
 }
 
-const initialData: AttendanceRecord[] = [
-  { empId: "EMP001", name: "Priya Sharma", dept: "Engineering", date: "2026-03-22", checkIn: "09:02", checkOut: "18:15", hours: "9h 13m", status: "Present", overtime: "1h 13m" },
-  { empId: "EMP002", name: "Rahul Verma", dept: "Engineering", date: "2026-03-22", checkIn: "08:45", checkOut: "18:30", hours: "9h 45m", status: "Present", overtime: "1h 45m" },
-  { empId: "EMP003", name: "Ankit Patel", dept: "Product", date: "2026-03-22", checkIn: "09:30", checkOut: "17:00", hours: "7h 30m", status: "Half Day", overtime: "—" },
-  { empId: "EMP004", name: "Sneha Reddy", dept: "Design", date: "2026-03-22", checkIn: "—", checkOut: "—", hours: "—", status: "Absent", overtime: "—" },
-  { empId: "EMP005", name: "Vikram Singh", dept: "Finance", date: "2026-03-22", checkIn: "—", checkOut: "—", hours: "—", status: "On Leave", overtime: "—" },
-  { empId: "EMP006", name: "Deepa Nair", dept: "HR", date: "2026-03-22", checkIn: "09:00", checkOut: "18:00", hours: "9h 00m", status: "Present", overtime: "1h 00m" },
-  { empId: "EMP007", name: "Arjun Gupta", dept: "Engineering", date: "2026-03-22", checkIn: "10:15", checkOut: "—", hours: "—", status: "Late", overtime: "—" },
-  { empId: "EMP008", name: "Kavita Joshi", dept: "Marketing", date: "2026-03-22", checkIn: "08:55", checkOut: "18:10", hours: "9h 15m", status: "Present", overtime: "1h 15m" },
-];
+// No hardcoded data — loaded from Supabase
 
 const statusStyles: Record<string, string> = {
   Present: "bg-success/10 text-success",
@@ -54,10 +47,47 @@ function LiveClock() {
 }
 
 const Attendance = () => {
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
+  const { t } = useLanguage();
   const canCheckInOut = hasRole("hr_manager", "manager", "employee");
   const [search, setSearch] = useState("");
-  const [data, setData] = useState<AttendanceRecord[]>(initialData);
+  const [data, setData] = useState<AttendanceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch attendance from Supabase
+  useEffect(() => {
+    if (!user) return;
+    const fetchAttendance = async () => {
+      setLoading(true);
+      try {
+        const today = new Date().toISOString().substring(0, 10);
+        const { data: rows, error } = await supabase
+          .from('attendance')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('date', { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        const mapped: AttendanceRecord[] = (rows || []).map((r: any) => ({
+          empId: r.employee_id || r.emp_id || '',
+          name: r.employee_name || r.name || 'Unknown',
+          dept: r.department || r.dept || '',
+          date: r.date || today,
+          checkIn: r.check_in || r.checkin || '—',
+          checkOut: r.check_out || r.checkout || '—',
+          hours: r.hours_worked || r.hours || '—',
+          status: r.status || 'Present',
+          overtime: r.overtime || '—',
+        }));
+        setData(mapped);
+      } catch (err: any) {
+        toast.error('Failed to load attendance', { description: err.message });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAttendance();
+  }, [user]);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [selectedEmp, setSelectedEmp] = useState("");
 
@@ -73,35 +103,69 @@ const Attendance = () => {
     return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   };
 
-  const handleCheckIn = () => {
+  const handleCheckIn = async () => {
     if (!selectedEmp) { toast.error("Select your name first"); return; }
     const time = getNow();
     const hourNum = parseInt(time.split(":")[0]);
+    const today = new Date().toISOString().substring(0, 10);
+    const rec = data.find(a => a.empId === selectedEmp);
+    const newStatus = hourNum >= 10 ? "Late" : "Present";
+
+    // Write to Supabase
+    try {
+      const upsertPayload: any = {
+        employee_id: selectedEmp,
+        employee_name: rec?.name || '',
+        department: rec?.dept || '',
+        date: today,
+        check_in: time,
+        status: newStatus,
+      };
+      if (user?.id) upsertPayload.user_id = user.id;
+      await supabase.from('attendance').upsert(upsertPayload, { onConflict: 'user_id,employee_id,date' });
+    } catch { /* table may not exist yet */ }
+
     setData((prev) =>
       prev.map((a) =>
         a.empId === selectedEmp
-          ? { ...a, checkIn: time, status: hourNum >= 10 ? "Late" : "Present" }
+          ? { ...a, checkIn: time, status: newStatus }
           : a
       )
     );
     toast.success(`Checked in at ${time}`, { description: `Welcome, ${selectedRecord?.name}!` });
   };
 
-  const handleCheckOut = () => {
+  const handleCheckOut = async () => {
     if (!selectedEmp || !selectedRecord) return;
     const now = new Date();
     const time = getNow();
+    const today = new Date().toISOString().substring(0, 10);
     const [inH, inM] = selectedRecord.checkIn.split(":").map(Number);
     const totalMins = (now.getHours() * 60 + now.getMinutes()) - (inH * 60 + inM);
     const h = Math.floor(totalMins / 60);
     const m = totalMins % 60;
     const overtime = totalMins > 480 ? `${Math.floor((totalMins - 480) / 60)}h ${(totalMins - 480) % 60}m` : "—";
     const status = totalMins < 240 ? "Half Day" : selectedRecord.status;
+    const hoursStr = `${h}h ${String(m).padStart(2, '0')}m`;
+
+    // Write to Supabase
+    try {
+      const upsertPayload: any = {
+        employee_id: selectedEmp,
+        date: today,
+        check_out: time,
+        hours_worked: hoursStr,
+        overtime,
+        status,
+      };
+      if (user?.id) upsertPayload.user_id = user.id;
+      await supabase.from('attendance').upsert(upsertPayload, { onConflict: 'user_id,employee_id,date' });
+    } catch { /* table may not exist yet */ }
 
     setData((prev) =>
       prev.map((a) =>
         a.empId === selectedEmp
-          ? { ...a, checkOut: time, hours: `${h}h ${String(m).padStart(2, "0")}m`, overtime, status }
+          ? { ...a, checkOut: time, hours: hoursStr, overtime, status }
           : a
       )
     );
@@ -130,7 +194,7 @@ const Attendance = () => {
   const avgM = workingCount > 0 ? Math.round((totalMinutes / workingCount) % 60) : 0;
 
   return (
-    <AppLayout title="Attendance">
+    <AppLayout title={t("Attendance")}>
       <div className="space-y-6">
         {/* Employee Self-Service Check In/Out - only for HR, Manager, Employee */}
         {canCheckInOut && (

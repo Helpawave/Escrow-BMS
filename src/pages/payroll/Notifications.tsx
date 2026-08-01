@@ -1,8 +1,10 @@
 import { AppLayout } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { CheckCheck, Bell, FileText, Users, DollarSign, Calendar, Shield, ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Notification {
   id: string;
@@ -13,18 +15,7 @@ interface Notification {
   type: "payroll" | "leave" | "employee" | "system" | "attendance" | "audit";
 }
 
-const initialNotifications: Notification[] = [
-  { id: "1", title: "Payroll Run Generated", description: "March 2026 payroll has been generated with 1,240 employees. Ready for review.", time: "10 minutes ago", read: false, type: "payroll" },
-  { id: "2", title: "Leave Request Pending", description: "Ankit Patel has requested 5 days paid leave from April 1-5. Awaiting your approval.", time: "1 hour ago", read: false, type: "leave" },
-  { id: "3", title: "New Employee Onboarded", description: "Arjun Gupta has been added to the Engineering department as Junior Developer.", time: "3 hours ago", read: false, type: "employee" },
-  { id: "4", title: "Tax Filing Deadline", description: "TDS filing for Q4 FY2025-26 is due on March 31. 7 employees have pending declarations.", time: "5 hours ago", read: false, type: "system" },
-  { id: "5", title: "Attendance Anomaly", description: "3 employees have not checked in today. Automated reminder sent.", time: "6 hours ago", read: true, type: "attendance" },
-  { id: "6", title: "Payroll Locked", description: "February 2026 payroll has been locked by HR Admin. No further edits allowed.", time: "1 day ago", read: true, type: "payroll" },
-  { id: "7", title: "Password Policy Update", description: "Company password policy has been updated. All users must reset within 7 days.", time: "2 days ago", read: true, type: "system" },
-  { id: "8", title: "Salary Revision Applied", description: "15% increment applied for Ankit Patel effective April 2026.", time: "2 days ago", read: true, type: "employee" },
-  { id: "9", title: "Audit Log Alert", description: "Bulk employee data export performed by admin@escoroll.io.", time: "3 days ago", read: true, type: "audit" },
-  { id: "10", title: "Leave Balance Reset", description: "Annual leave balances have been carried forward for FY2026-27.", time: "5 days ago", read: true, type: "leave" },
-];
+// No hardcoded data — loaded from Supabase
 
 const typeIcons: Record<string, React.ElementType> = {
   payroll: DollarSign,
@@ -45,19 +36,72 @@ const typeStyles: Record<string, string> = {
 };
 
 const Notifications = () => {
-  const [notifications, setNotifications] = useState(initialNotifications);
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchNotifications = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        const validTypes = ['payroll', 'leave', 'employee', 'system', 'attendance', 'audit'];
+        const timeAgo = (dateStr: string) => {
+          const diff = Date.now() - new Date(dateStr).getTime();
+          const mins = Math.floor(diff / 60000);
+          if (mins < 60) return `${mins} minutes ago`;
+          const hrs = Math.floor(mins / 60);
+          if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
+          return `${Math.floor(hrs / 24)} day${Math.floor(hrs / 24) > 1 ? 's' : ''} ago`;
+        };
+        const mapped: Notification[] = (data || []).map((n: any) => ({
+          id: n.id,
+          title: n.title || n.subject || 'Notification',
+          description: n.message || n.body || n.description || '',
+          time: n.created_at ? timeAgo(n.created_at) : 'Recently',
+          read: n.is_read || n.read || false,
+          type: validTypes.includes(n.type) ? n.type : 'system',
+        }));
+        setNotifications(mapped);
+      } catch {
+        // Table may not exist yet — graceful empty state
+        setNotifications([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchNotifications();
+  }, [user]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const displayed = filter === "unread" ? notifications.filter((n) => !n.read) : notifications;
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
+    const unreadIds = notifications.filter(n => !n.read).map(n => n.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      if (unreadIds.length > 0) {
+        await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds);
+      }
+    } catch { /* graceful */ }
   };
 
-  const toggleRead = (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: !n.read } : n)));
+  const toggleRead = async (id: string) => {
+    const notif = notifications.find(n => n.id === id);
+    const newVal = !notif?.read;
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: newVal } : n)));
+    try {
+      await supabase.from('notifications').update({ is_read: newVal }).eq('id', id);
+    } catch { /* graceful */ }
   };
 
   return (

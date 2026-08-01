@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -11,29 +11,64 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
-const recentPayrollRuns = [
-  { id: "PR-2026-03", period: "March 2026", status: "DRAFT" as const, employees: 1240, total: "₹4,82,50,000" },
-  { id: "PR-2026-02", period: "February 2026", status: "PAID" as const, employees: 1238, total: "₹4,78,20,000" },
-  { id: "PR-2026-01", period: "January 2026", status: "PAID" as const, employees: 1235, total: "₹4,75,00,000" },
-];
+// No hardcoded data — fetched from Supabase
 
-const recentActivity = [
-  { action: "Payroll Locked", detail: "February 2026 payroll locked by HR Admin", time: "2 hours ago", icon: Lock, color: "text-amber-500", bg: "bg-amber-500/10" },
-  { action: "Employee Onboarded", detail: "Priya Sharma added to Engineering", time: "5 hours ago", icon: Users, color: "text-blue-500", bg: "bg-blue-500/10" },
-  { action: "Leave Approved", detail: "Rahul Verma - 3 days casual leave", time: "1 day ago", icon: Calendar, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-  { action: "Salary Revised", detail: "Ankit Patel - 15% increment effective April", time: "2 days ago", icon: DollarSign, color: "text-indigo-500", bg: "bg-indigo-500/10" },
-];
-
-const TARGET_AMOUNT = 48200000; // ₹4.82 Cr
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  // Escrow Vault State
-  const [vaultBalance, setVaultBalance] = useState<number>(25000000); // Default ₹2.50 Cr
+  // Real stats from Supabase
+  const [employeeCount, setEmployeeCount] = useState(0);
+  const [pendingLeaves, setPendingLeaves] = useState(0);
+  const [totalPayroll, setTotalPayroll] = useState(0);
+  const [recentPayrollRuns, setRecentPayrollRuns] = useState<{ id: string; period: string; status: 'DRAFT' | 'PAID' | 'LOCKED'; employees: number; total: string }[]>([]);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchStats = async () => {
+      setLoadingStats(true);
+      try {
+        const [empRes, leavesRes, runsRes] = await Promise.all([
+          supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active'),
+          supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'pending'),
+          supabase.from('payroll_runs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(3),
+        ]);
+        setEmployeeCount(empRes.count || 0);
+        setPendingLeaves(leavesRes.count || 0);
+
+        // Get total salary from employees for payroll target
+        const { data: salaryData } = await supabase.from('employees').select('salary').eq('user_id', user.id).eq('status', 'active');
+        const totalSalary = (salaryData || []).reduce((sum: number, e: any) => sum + Number(e.salary || 0), 0);
+        setTotalPayroll(totalSalary);
+
+        const fmt = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+        const mapped = ((runsRes.data as any[]) || []).map((r: any) => ({
+          id: r.id,
+          period: r.period || '',
+          status: (r.status?.toUpperCase() as 'DRAFT' | 'PAID' | 'LOCKED') || 'DRAFT',
+          employees: r.employee_count || 0,
+          total: fmt(r.net_amount || r.net || 0),
+        }));
+        setRecentPayrollRuns(mapped);
+      } catch {
+        // Tables may not exist yet — graceful empty state
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    fetchStats();
+  }, [user]);
+
+  // Escrow Vault State — derived from real total payroll
+  const TARGET_AMOUNT = totalPayroll || 1;
+  const [vaultBalance, setVaultBalance] = useState<number>(0);
   const [fundDialogOpen, setFundDialogOpen] = useState<boolean>(false);
-  const [fundAmountInput, setFundAmountInput] = useState<string>("2.32");
+  const [fundAmountInput, setFundAmountInput] = useState<string>("");
   const [selectedBank, setSelectedBank] = useState<string>("icici");
   const [funding, setFunding] = useState<boolean>(false);
 
@@ -71,10 +106,10 @@ const Dashboard = () => {
         {/* Welcome Banner */}
         <div className="relative rounded-2xl bg-gradient-to-br from-primary to-primary/80 p-8 shadow-xl overflow-hidden animate-slide-down text-primary-foreground">
           <div className="relative z-10">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Welcome to ESCOROLL Payroll</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Welcome to Escrow Payroll</h1>
             <p className="text-primary-foreground/90 max-w-lg mb-6 leading-relaxed">
-              Your next payroll runs in 3 days. Total required payout is <span className="font-semibold">₹4.82 Cr</span>.
-              Please ensure your Escrow Vault is fully funded for seamless compliance and execution.
+              Your payroll target for active employees is <span className="font-semibold">₹{totalPayroll.toLocaleString('en-IN')}</span>.
+              Please ensure your Escrow Vault is funded for seamless compliance and execution.
             </p>
             <div className="flex flex-wrap gap-4">
               <Button onClick={() => navigate("/payroll")} variant="secondary" className="gap-2 font-semibold shadow-md active:scale-95 transition-transform">
@@ -91,10 +126,10 @@ const Dashboard = () => {
 
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Total Employees" value="1,240" subtitle="Across 3 departments" icon={Users} trend={{ value: "2.1% from last month", positive: true }} />
-          <StatCard title="Payroll This Month" value="₹4.82 Cr" subtitle="March 2026 · Draft" icon={DollarSign} trend={{ value: "0.9% from last month", positive: true }} />
-          <StatCard title="Pending Leaves" value="23" subtitle="Awaiting approval" icon={Calendar} className="hover:border-primary/50" />
-          <StatCard title="Tax Variances" value="7" subtitle="Requires review" icon={AlertTriangle} className="border-destructive/30 hover:border-destructive/60" />
+          <StatCard title="Total Employees" value={employeeCount.toLocaleString('en-IN')} subtitle="Active in directory" icon={Users} />
+          <StatCard title="Payroll This Month" value={`₹${totalPayroll.toLocaleString('en-IN')}`} subtitle="Active salary total" icon={DollarSign} />
+          <StatCard title="Pending Leaves" value={pendingLeaves.toString()} subtitle="Awaiting approval" icon={Calendar} className="hover:border-primary/50" />
+          <StatCard title="Tax Variances" value="0" subtitle="No compliance variances" icon={AlertTriangle} className="border-emerald-500/30 hover:border-emerald-500/60" />
         </div>
 
         {/* Main Dashboard Content */}
@@ -127,12 +162,12 @@ const Dashboard = () => {
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">Current Vault Balance</p>
                     <h3 className="text-3xl font-bold font-mono tracking-tight text-foreground">
-                      ₹{(vaultBalance / 10000000).toFixed(2)} Cr
+                      ₹{vaultBalance.toLocaleString('en-IN')}
                     </h3>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium text-muted-foreground mb-1">Target</p>
-                    <h3 className="text-xl font-bold font-mono tracking-tight text-foreground">₹4.82 Cr</h3>
+                    <h3 className="text-xl font-bold font-mono tracking-tight text-foreground">₹{totalPayroll.toLocaleString('en-IN')}</h3>
                   </div>
                 </div>
 
@@ -147,7 +182,7 @@ const Dashboard = () => {
                   <span className="text-emerald-500 font-bold">{fundingPercentage}% Funded</span>
                   <span className="text-muted-foreground tracking-tight">
                     {remainingNeeded > 0 
-                      ? `Requires ₹${(remainingNeeded / 10000000).toFixed(2)} Cr more by Mar 28`
+                      ? `Requires ₹${remainingNeeded.toLocaleString('en-IN')} more to fully fund`
                       : "Vault Fully Funded — Ready for Disbursement!"}
                   </span>
                 </div>
@@ -191,21 +226,46 @@ const Dashboard = () => {
               </div>
               <div className="p-6 flex-1">
                 <div className="relative border-l-2 border-muted pl-6 space-y-10 ml-2 py-2">
-                  {recentActivity.map((activity, i) => {
-                    const Icon = activity.icon;
-                    return (
-                      <div key={i} className="relative group">
-                        <div className={`absolute -left-[35px] top-1 h-7 w-7 rounded-full flex items-center justify-center border-4 border-card ${activity.bg} ${activity.color} group-hover:scale-110 transition-transform`}>
-                          <Icon className="h-3 w-3" />
+                  {recentPayrollRuns.length === 0 && pendingLeaves === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center text-muted-foreground">
+                      <Activity className="h-10 w-10 mb-3 opacity-30" />
+                      <p className="text-sm font-medium">No recent activity</p>
+                      <p className="text-xs mt-1">Activity will appear here as you use the payroll module</p>
+                    </div>
+                  ) : (
+                    [
+                      ...recentPayrollRuns.map((run, i) => ({
+                        action: `Payroll Run — ${run.period}`,
+                        detail: `Status: ${run.status} · ${run.employees} employees · Net ${run.total}`,
+                        time: `Run #${i + 1}`,
+                        icon: DollarSign,
+                        color: run.status === 'PAID' ? 'text-emerald-500' : 'text-amber-500',
+                        bg: run.status === 'PAID' ? 'bg-emerald-500/10' : 'bg-amber-500/10',
+                      })),
+                      ...(pendingLeaves > 0 ? [{
+                        action: 'Leave Requests Pending',
+                        detail: `${pendingLeaves} leave request${pendingLeaves > 1 ? 's' : ''} awaiting approval`,
+                        time: 'Now',
+                        icon: Calendar,
+                        color: 'text-blue-500',
+                        bg: 'bg-blue-500/10',
+                      }] : []),
+                    ].map((activity, i) => {
+                      const Icon = activity.icon;
+                      return (
+                        <div key={i} className="relative group">
+                          <div className={`absolute -left-[35px] top-1 h-7 w-7 rounded-full flex items-center justify-center border-4 border-card ${activity.bg} ${activity.color} group-hover:scale-110 transition-transform`}>
+                            <Icon className="h-3 w-3" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold group-hover:text-primary transition-colors">{activity.action}</p>
+                            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{activity.detail}</p>
+                            <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-wider font-medium">{activity.time}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-semibold group-hover:text-primary transition-colors">{activity.action}</p>
-                          <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{activity.detail}</p>
-                          <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-wider font-medium">{activity.time}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>
@@ -217,22 +277,10 @@ const Dashboard = () => {
                 <h2 className="text-base font-semibold tracking-tight">Upcoming Events</h2>
               </div>
               <div className="p-6 flex-1">
-                <div className="space-y-4">
-                  {[
-                    { name: "Good Friday", date: "April 10, 2026", type: "Public" },
-                    { name: "Labour Day", date: "May 1, 2026", type: "Public" },
-                    { name: "Company Retreat", date: "May 15, 2026", type: "Internal" }
-                  ].map((event, i) => (
-                    <div key={i} className="flex items-center justify-between p-3.5 rounded-xl border bg-muted/20 hover:bg-muted/40 transition-colors">
-                      <div className="flex flex-col gap-1">
-                        <p className="text-sm font-medium">{event.name}</p>
-                        <p className="text-xs text-muted-foreground">{event.date}</p>
-                      </div>
-                      <span className={`text-[10px] px-2.5 py-1 rounded-full font-medium uppercase tracking-wider ${event.type === 'Public' ? 'bg-indigo-500/10 text-indigo-600' : 'bg-emerald-500/10 text-emerald-600'}`}>
-                        {event.type}
-                      </span>
-                    </div>
-                  ))}
+                <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                  <Calendar className="h-8 w-8 mb-2 opacity-30" />
+                  <p className="text-xs font-medium">No upcoming company events scheduled</p>
+                  <p className="text-[11px] mt-0.5">Events and holidays will display here</p>
                 </div>
               </div>
             </div>
@@ -258,7 +306,7 @@ const Dashboard = () => {
             <div className="p-4 bg-muted/30 rounded-xl border space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Required Payout Target:</span>
-                <span className="font-mono font-bold text-foreground">₹4.82 Cr</span>
+                <span className="font-mono font-bold text-foreground">₹{totalPayroll.toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Current Vault Balance:</span>

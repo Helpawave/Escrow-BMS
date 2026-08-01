@@ -657,8 +657,8 @@ export default function Landing() {
       }`}>
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform shadow-sm shadow-blue-300/40">
-              <Zap className="w-4 h-4 text-white" />
+            <div className="w-9 h-9 flex items-center justify-center group-hover:scale-105 transition-transform">
+              <img src="/logo.png" alt="Escrow BMS" className="w-8 h-8 object-contain" />
             </div>
             <span className={`font-black text-lg tracking-tight transition-colors duration-300 ${isDark ? 'text-white' : 'text-gray-900'}`}>
               Escrow<span className="text-blue-700">BMS</span>
@@ -1424,7 +1424,9 @@ export default function Landing() {
           <div className="grid grid-cols-1 md:grid-cols-5 gap-10 mb-12">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2.5 mb-5">
-                <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center"><Zap className="w-4 h-4 text-white" /></div>
+                <div className="w-9 h-9 flex items-center justify-center">
+                  <img src="/logo.png" alt="Escrow BMS" className="w-8 h-8 object-contain" />
+                </div>
                 <span className="font-black text-white text-xl">EscrowBMS</span>
               </div>
               <p className="text-sm text-gray-600 leading-relaxed mb-5 max-w-[260px]">All-in-one business management suite built specifically for Indian SMBs.</p>

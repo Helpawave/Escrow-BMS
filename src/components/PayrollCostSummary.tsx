@@ -2,20 +2,9 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer } from 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const chartData = [
-  { month: "Apr 2022", netPay: 10600000, taxes: 4900000, statutories: 3750, deductions: 0 },
-  { month: "May 2022", netPay: 10800000, taxes: 5500000, statutories: 3750, deductions: 0 },
-  { month: "Jun 2022", netPay: 10800000, taxes: 5500000, statutories: 3750, deductions: 0 },
-  { month: "Jul 2022", netPay: 10800000, taxes: 5400000, statutories: 3750, deductions: 0 },
-  { month: "Aug 2022", netPay: 10800000, taxes: 5400000, statutories: 3750, deductions: 0 },
-  { month: "Sep 2022", netPay: 11600000, taxes: 6100000, statutories: 3750, deductions: 0 },
-  { month: "Oct 2022", netPay: 11672400, taxes: 6166903, statutories: 3750, deductions: 0 },
-  { month: "Nov 2022", netPay: 0, taxes: 0, statutories: 0, deductions: 0 },
-  { month: "Dec 2022", netPay: 0, taxes: 0, statutories: 0, deductions: 0 },
-  { month: "Jan 2023", netPay: 0, taxes: 0, statutories: 0, deductions: 0 },
-  { month: "Feb 2023", netPay: 0, taxes: 0, statutories: 0, deductions: 0 },
-  { month: "Mar 2023", netPay: 0, taxes: 0, statutories: 0, deductions: 0 },
-];
+import { useState, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 const chartConfig = {
   netPay: {
@@ -37,6 +26,44 @@ const chartConfig = {
 };
 
 export function PayrollCostSummary() {
+  const { user } = useAuth();
+  const [chartData, setChartData] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadRealChartData = async () => {
+      const months = ["Apr 2025", "May 2025", "Jun 2025", "Jul 2025", "Aug 2025", "Sep 2025", "Oct 2025", "Nov 2025", "Dec 2025", "Jan 2026", "Feb 2026", "Mar 2026"];
+      
+      let realRuns: any[] = [];
+      if (user) {
+        try {
+          const { data } = await supabase
+            .from('payroll_runs')
+            .select('*')
+            .eq('user_id', user.id);
+          realRuns = data || [];
+        } catch {
+          /* graceful fallback */
+        }
+      }
+
+      const formatted = months.map((m) => {
+        const matchingRun = realRuns.find((r) => r.period === m);
+        const net = matchingRun ? Number(matchingRun.net_amount || matchingRun.net || 0) : 0;
+        const tax = matchingRun ? Math.round(net * 0.1) : 0;
+        return {
+          month: m,
+          netPay: net,
+          taxes: tax,
+          statutories: 0,
+          deductions: 0,
+        };
+      });
+
+      setChartData(formatted);
+    };
+
+    loadRealChartData();
+  }, [user]);
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm hover:shadow-md transition-all duration-300 animate-slide-up group w-full">
       <div className="flex items-center justify-between mb-8">

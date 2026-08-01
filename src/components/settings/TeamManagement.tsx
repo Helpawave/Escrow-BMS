@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { UserPlus, Users, Mail, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 type Role = "admin" | "hr_manager" | "manager" | "employee";
 
@@ -40,17 +42,43 @@ const roleColors: Record<Role, string> = {
   employee: "bg-muted text-muted-foreground border-border",
 };
 
-const initialMembers: TeamMember[] = [
-  { id: "1", name: "Super Admin", email: "admin@escoroll.io", role: "admin", status: "active", addedAt: "2025-01-01" },
-];
+// No hardcoded data — loaded from Supabase profiles
 
 export function TeamManagement() {
-  const [members, setMembers] = useState<TeamMember[]>(initialMembers);
+  const { user } = useAuth();
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<TeamMember | null>(null);
-
   const [form, setForm] = useState({ name: "", email: "", role: "" as string });
+
+  const fetchMembers = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, user_id, full_name, email, role, created_at, is_allowed')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      const mapped: TeamMember[] = (data || []).map((p: any) => ({
+        id: p.id,
+        name: p.full_name || p.email || 'Unknown',
+        email: p.email || '',
+        role: (['admin', 'hr_manager', 'manager', 'employee'].includes(p.role) ? p.role : 'employee') as Role,
+        status: p.is_allowed !== false ? 'active' : 'invited',
+        addedAt: p.created_at?.substring(0, 10) || '',
+      }));
+      setMembers(mapped);
+    } catch (err: any) {
+      toast.error('Failed to load team members', { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchMembers(); }, [user]);
 
   const handleAdd = () => {
     if (!form.name.trim() || !form.email.trim() || !form.role) {

@@ -235,8 +235,9 @@ export default function Auth() {
             ) : (
               // Default General Platform Showcase
               <div className="relative z-10 space-y-6">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 text-white rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md">
-                  ⚡ Escrow Business Management Suite
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white/10 text-white rounded-full text-[11px] font-black uppercase tracking-widest backdrop-blur-md border border-white/10">
+                  <img src="/logo.png" alt="Escrow BMS" className="w-5 h-5 object-contain" />
+                  <span>Escrow Business Management Suite</span>
                 </div>
                 
                 <div className="space-y-2">
@@ -266,16 +267,21 @@ export default function Auth() {
               </div>
             )}
 
-            <div className="relative z-10 flex items-center justify-between border-t border-white/10 pt-6 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              <span className="flex items-center gap-1.5"><Laptop className="w-3.5 h-3.5" /> Uptime: 99.9%</span>
-              <span className="flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" /> 100% Encrypted</span>
-            </div>
+
           </div>
 
           {/* Right Panel: Authentication Form Gated like request callback form */}
           <div className="flex-1 flex flex-col justify-center max-w-md w-full">
             <div className="card p-8 shadow-2xl border border-slate-200/80 dark:border-slate-850 bg-white dark:bg-slate-950 rounded-3xl">
               
+              {/* Logo Badge */}
+              <div className="flex flex-col items-center text-center mb-6">
+                <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/30 flex items-center justify-center shadow-lg p-2 mb-3">
+                  <img src="/logo.png" alt="Escrow BMS" className="w-12 h-12 object-contain" />
+                </div>
+                <h3 className="font-heading font-black text-slate-900 dark:text-white text-lg tracking-tight">Escrow BMS</h3>
+              </div>
+
               {/* Login / Sign Up Tabs */}
               <div className="flex bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl p-1 mb-8">
                 {(['login', 'signup'] as Tab[]).map((t) => (
@@ -377,6 +383,7 @@ export default function Auth() {
                     <input 
                       name="email" 
                       type="email" 
+                      autoComplete="username"
                       value={form.email} 
                       onChange={handleChange} 
                       placeholder="you@company.com" 
