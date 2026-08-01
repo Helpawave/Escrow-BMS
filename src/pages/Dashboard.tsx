@@ -323,53 +323,8 @@ export default function Dashboard() {
     }).format(val);
   };
 
-  // Onboarding wizard steps based on active modules
-  const wizardSteps = [
-    { 
-      title: 'Seed your chart of accounts', 
-      completed: (stats.accountCount || 0) > 0, 
-      actionPath: '/ledger',
-      actionLabel: 'Ledger',
-      show: showLedger 
-    },
-    { 
-      title: 'Set up GST & raise first invoice', 
-      completed: stats.invoiceCount > 0, 
-      actionPath: '/billing/create-invoice',
-      actionLabel: 'New Invoice',
-      show: showBilling 
-    },
-    { 
-      title: 'Add active employees', 
-      completed: stats.employeeCount > 0, 
-      actionPath: '/payroll/employees',
-      actionLabel: 'Employees',
-      show: showPayroll 
-    },
-    { 
-      title: 'Catalog inventory items', 
-      completed: stats.inventoryItemCount > 0, 
-      actionPath: '/inventory/products',
-      actionLabel: 'Products',
-      show: showInventory 
-    },
-    { 
-      title: 'Add your sales leads', 
-      completed: stats.leadsCount > 0, 
-      actionPath: '/crm/leads',
-      actionLabel: 'Leads',
-      show: showCRM 
-    },
-    { 
-      title: 'Record daily calculation', 
-      completed: (stats.hisabCount || 0) > 0, 
-      actionPath: '/calculation',
-      actionLabel: 'Daily Hisab',
-      show: showHisab 
-    },
-  ].filter(s => s.show);
 
-  const completedWizardCount = wizardSteps.filter(s => s.completed).length;
+
 
   // Build dynamic module tabs list
   const availableTabs = [
@@ -389,21 +344,11 @@ export default function Dashboard() {
         {/* Dashboard Title & Date Filter Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-widest">
-                Analytics & Key Metrics
-              </span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                Live Data
-              </span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
-              Executive Dashboard
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+              Dashboard
             </h1>
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
-              {getPeriodSubtitle()}
-            </p>
           </div>
+
 
           <div className="flex items-center gap-2.5">
             {/* Period Quick Filter Select */}
