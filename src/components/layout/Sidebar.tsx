@@ -174,13 +174,6 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       hasChevron: true,
       key: 'users-members'
     },
-    {
-      label: t('settings'),
-      route: '/settings',
-      icon: <Settings className="w-4.5 h-4.5" />,
-      hasChevron: true,
-      key: 'settings'
-    },
   ];
 
   const isActive = (route: string) => {

@@ -40,6 +40,7 @@ const InventoryModule = React.lazy(() => import('@/pages/modules').then(m => ({ 
 const CrmModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.CrmModule })));
 const UsersPage = React.lazy(() => import('@/pages/users/UsersPage'));
 const MembersPage = React.lazy(() => import('@/pages/users/MembersPage'));
+const MyProfilePage = React.lazy(() => import('@/pages/MyProfilePage'));
 
 function PageFallback() {
   return (
@@ -365,6 +366,14 @@ export default function App() {
                           {/* Dynamic Redirects for conflicting absolute paths in modules */}
                           <Route path="/products" element={<DynamicProductsRedirect />} />
                           <Route path="/settings" element={<DynamicSettingsRedirect />} />
+                          <Route
+                            path="/my-profile"
+                            element={
+                              <AuthGuard>
+                                <MyProfilePage />
+                              </AuthGuard>
+                            }
+                          />
                           <Route path="/reports" element={<DynamicReportsRedirect />} />
                           <Route path="/history" element={<DynamicHistoryRedirect />} />
                           <Route path="/admin" element={<SuperadminLogin />} />

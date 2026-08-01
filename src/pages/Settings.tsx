@@ -993,13 +993,6 @@ const SettingsPage = () => {
                 <Palette className="w-4 h-4 shrink-0" />
                 <span>Appearance</span>
               </TabsTrigger>
-              {/* My Profile tab — visible to non-owner department members */}
-              {authProfile?.role !== 'admin' && (
-                <TabsTrigger value="my-profile" className="flex items-center justify-center gap-2 py-2 px-4 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-[11px] font-bold uppercase tracking-widest whitespace-nowrap">
-                  <Users className="w-4 h-4 shrink-0" />
-                  <span>My Profile</span>
-                </TabsTrigger>
-              )}
               {authProfile?.role === 'admin' && (
                 <>
                   <TabsTrigger value="team" className="flex items-center justify-center gap-2 py-2 px-4 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-[11px] font-bold uppercase tracking-widest whitespace-nowrap">
@@ -1019,45 +1012,8 @@ const SettingsPage = () => {
         <div className="space-y-6 max-w-4xl mx-auto">
           <TabsContent value="profile" className="m-0 space-y-6">
 
-            {/* Profile Section */}
-            <Card className="rounded-md border border-border shadow-sm bg-card" id="profile">
-              <div className="p-4 md:p-8 border-b flex items-center gap-3 bg-muted/10">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <User className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black tracking-tight">Profile Information</h3>
-                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest mt-0.5">Manage your personal account details</p>
-                </div>
-              </div>
-
-              <div className="p-4 md:p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email" className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest ml-1">Email Address</Label>
-                    <Input
-                      id="email"
-                      value={user?.email || ''}
-                      disabled
-                      className="bg-muted/50"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Email cannot be changed manually
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="user_id" className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest ml-1">User ID</Label>
-                    <Input
-                      id="user_id"
-                      value={user?.id || ''}
-                      disabled
-                      className="bg-muted/50"
-                    />
-                  </div>
-                </div>
-              </div>
-            </Card>
           </TabsContent>
+
 
           <TabsContent value="membership" className="m-0 space-y-6">
             <Card className="rounded-md border border-border shadow-sm bg-card" id="membership">
@@ -1938,88 +1894,9 @@ const SettingsPage = () => {
               </TabsContent>
             </>
           )}
-          {/* My Profile Tab — for department members (non-admin) */}
-          {authProfile?.role !== 'admin' && (() => {
-            const savedMembers = (() => { try { return JSON.parse(localStorage.getItem('company_department_invited_members_v2') || '[]'); } catch { return []; } })();
-            const myRecord = savedMembers.find((m: any) => m.email?.toLowerCase() === user?.email?.toLowerCase());
-            const myModules: string[] = myRecord?.allowed_modules || [];
-            const allMods = [
-              { key: 'billing', name: 'Billing & Invoices' },
-              { key: 'ledger', name: 'Account Ledger' },
-              { key: 'payroll', name: 'Payroll' },
-              { key: 'crm', name: 'CRM' },
-              { key: 'inventory', name: 'Inventory' },
-              { key: 'hisab', name: 'Daily Calculation' },
-            ];
-            return (
-              <TabsContent value="my-profile" className="m-0 space-y-6">
-                <Card className="rounded-2xl border border-border shadow-sm bg-card overflow-hidden">
-                  {/* Header */}
-                  <div className="bg-gradient-to-br from-purple-700 to-indigo-700 px-8 py-10 flex flex-col items-center text-center gap-4">
-                    <div className="w-20 h-20 rounded-3xl bg-white/20 text-white font-black text-2xl flex items-center justify-center shadow-lg border-2 border-white/30">
-                      {(user?.email || 'U').charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-black text-white">{myRecord?.full_name || user?.email?.split('@')[0] || 'Department Member'}</h2>
-                      <p className="text-purple-200 text-sm mt-0.5">{user?.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="p-6 space-y-6">
-                    {/* Department & Role Info */}
-                    <div className="bg-muted/40 border border-border rounded-2xl p-5 space-y-4">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Department & Role</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">Department</p>
-                          <p className="font-black text-foreground">{myRecord?.department || '—'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">Role</p>
-                          <p className="font-black text-foreground capitalize">{myRecord?.role || 'Department Staff'}</p>
-                        </div>
-                        {myRecord?.invited_at && (
-                          <div>
-                            <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">Joined</p>
-                            <p className="font-bold text-foreground">{myRecord.invited_at?.substring(0, 10)}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Module Access Rights — read only */}
-                    <div className="bg-muted/40 border border-border rounded-2xl p-5">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-3">My Granted Module Access Rights</h4>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {allMods.map((mod) => {
-                          const hasAccess = myModules.includes(mod.key);
-                          return (
-                            <div
-                              key={mod.key}
-                              className={cn(
-                                'p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 border',
-                                hasAccess
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                                  : 'bg-muted text-muted-foreground border-border opacity-60'
-                              )}
-                            >
-                              <Check className={cn('w-3.5 h-3.5 flex-shrink-0', hasAccess ? 'text-emerald-500' : 'opacity-30')} />
-                              {mod.name}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-3">
-                        * Module access is managed by your Business Owner. Contact them to request changes.
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-              </TabsContent>
-            );
-          })()}
         </div>
       </Tabs>
+
 
       <AlertDialog open={isConfirmTemplateModalOpen} onOpenChange={setIsConfirmTemplateModalOpen}>
         <AlertDialogContent className="rounded-2xl border-border/50">

@@ -871,7 +871,7 @@ export default function MembersPage() {
                   <input
                     type="number"
                     placeholder="e.g. 600000 (6 Lakhs)"
-                    value={(editForm as any).salary ? String((editForm as any).salary).replace(/[^\d]/g, '') : '600000'}
+                    value={(editForm as any).salary !== undefined && (editForm as any).salary !== null ? String((editForm as any).salary).replace(/[^\d]/g, '') : ''}
                     onChange={(e) => setEditForm({ ...editForm, salary: e.target.value } as any)}
                     className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white"
                   />
