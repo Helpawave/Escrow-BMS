@@ -7,6 +7,7 @@ import { ModuleGrid } from '@/components/modules/ModuleGrid';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { DashboardCharts } from '@/components/DashboardCharts';
+import { CustomDatePicker } from '@/components/ui/CustomDatePicker';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -402,31 +403,17 @@ export default function Dashboard() {
 
         {/* Custom Date Range Picker Toolbar */}
         {selectedPeriod === 'custom' && (
-          <div className="p-4 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-800 rounded-2xl shadow-sm flex flex-wrap items-center gap-4 animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
-              <Calendar className="w-4 h-4 text-indigo-600" />
-              <span>Select Custom Range:</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-[11px] font-bold text-slate-500">From:</label>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-[11px] font-bold text-slate-500">To:</label>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                className="h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
+          <div className="p-4 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-800 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 max-w-lg">
+            <CustomDatePicker
+              label="From (Start Date)"
+              value={customStartDate}
+              onChange={(val) => setCustomStartDate(val)}
+            />
+            <CustomDatePicker
+              label="To (End Date)"
+              value={customEndDate}
+              onChange={(val) => setCustomEndDate(val)}
+            />
           </div>
         )}
 
