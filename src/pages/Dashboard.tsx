@@ -108,6 +108,28 @@ export default function Dashboard() {
     return new Date().toISOString().substring(0, 10);
   });
 
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalSales: 0,
+    unpaidAmount: 0,
+    invoiceCount: 0,
+    totalExpenses: 0,
+    netCash: 0,
+    employeeCount: 0,
+    pendingLeaves: 0,
+    leadsCount: 0,
+    pendingTasksCount: 0,
+    ledgerBalance: 0,
+    inventoryItemCount: 0,
+    lowStockCount: 0,
+    accountCount: 0,
+    hisabCount: 0,
+  });
+
+  const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
+  const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
+
   // Calculate Date Subtitle String based on selected period filter
   const getPeriodSubtitle = () => {
     const today = new Date();
