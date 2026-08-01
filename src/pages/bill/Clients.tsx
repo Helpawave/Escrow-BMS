@@ -187,9 +187,23 @@ const ClientsPage = () => {
           throw new Error("Failed to create client. Please try again.");
         }
 
+        // Unified Client/Party Sync: Auto-create in parties table for Ledger
+        try {
+          await supabase.from('parties').insert([{
+            id: crypto.randomUUID(),
+            user_id: activeUserId,
+            party_name: finalizedData.name,
+            status: 'take',
+            commission_type: 'with',
+            commission_rate: 3.5
+          }]);
+        } catch (syncErr) {
+          console.warn("Auto party sync warning:", syncErr);
+        }
+
         setSuccessInfo({
           title: 'Client Registered',
-          message: 'Success! Your new client discovery is now part of your network.'
+          message: 'Success! Client is now part of your unified network across Billing & Ledger.'
         });
       }
 

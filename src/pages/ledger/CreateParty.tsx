@@ -91,6 +91,17 @@ const CreateParty = () => {
 
       if (dbError) throw dbError;
       
+      // Unified Client/Party Sync: Auto-create in clients table for Billing & CRM
+      try {
+        await supabase.from('clients').insert([{
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          name: formData.partyName
+        }]);
+      } catch (syncErr) {
+        console.warn("Auto client sync warning:", syncErr);
+      }
+      
       setSuccess(true);
       setFormData({
         srNo: '',

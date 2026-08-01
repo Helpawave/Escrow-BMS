@@ -50,7 +50,7 @@ export const MODULES: ModuleDefinition[] = [
     name: 'Payroll',
     description: 'Employee salary, attendance, leave & payslip management',
     icon: Users,
-    route: '/payroll',
+    route: '/payroll/employees',
     color: 'from-violet-500 to-purple-600',
     iconBg: 'bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400',
   },
@@ -69,7 +69,7 @@ export const MODULES: ModuleDefinition[] = [
     name: 'Billing & Invoice',
     description: 'GST invoices, e-invoicing, purchase bills, expenses & payments',
     icon: FileText,
-    route: '/billing',
+    route: '/billing/invoices',
     color: 'from-emerald-500 to-teal-600',
     iconBg: 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400',
     badge: 'Popular',
@@ -79,7 +79,7 @@ export const MODULES: ModuleDefinition[] = [
     name: 'Daily Calculation',
     description: 'Simple daily income & expense tracking with history',
     icon: Calculator,
-    route: '/calculation',
+    route: '/calculation/history',
     color: 'from-amber-500 to-orange-600',
     iconBg: 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400',
   },
@@ -88,7 +88,7 @@ export const MODULES: ModuleDefinition[] = [
     name: 'Inventory',
     description: 'Product catalog, stock tracking, barcode scanning & reports',
     icon: Package,
-    route: '/inventory',
+    route: '/inventory/products',
     color: 'from-rose-500 to-pink-600',
     iconBg: 'bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400',
   },
@@ -96,8 +96,8 @@ export const MODULES: ModuleDefinition[] = [
     key: 'crm',
     name: 'CRM',
     description: 'Lead pipeline, contacts, task board, analytics & team management',
-    icon: LayoutDashboard,
-    route: '/crm',
+    icon: KanbanSquare,
+    route: '/crm/tasks',
     color: 'from-indigo-500 to-blue-700',
     iconBg: 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400',
   },
@@ -115,7 +115,6 @@ export interface MenuItemDefinition {
 
 export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
   payroll: [
-    { labelKey: 'dashboard', route: '/payroll', icon: LayoutDashboard },
     { labelKey: 'employees', route: '/payroll/employees', icon: Users },
     { labelKey: 'payrollSalary', route: '/payroll/payroll', icon: DollarSign },
     { labelKey: 'attendance', route: '/payroll/attendance', icon: Clock },
@@ -124,8 +123,7 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'reports', route: '/payroll/reports', icon: TrendingUp },
   ],
   ledger: [
-    { labelKey: 'dashboard', route: '/ledger', icon: LayoutDashboard },
-    { labelKey: 'ledgerParty', route: '/ledger/ledger', icon: Users },
+    { labelKey: 'ledgerParty', route: '/ledger', icon: Users },
     { labelKey: 'transferEntry', route: '/ledger/transfer', icon: ArrowLeftRight },
     { labelKey: 'createParty', route: '/ledger/create/party', icon: PlusCircle },
     { labelKey: 'balanceSheet', route: '/ledger/reports/balance-sheet', icon: FileText },
@@ -134,7 +132,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'transactionsReport', route: '/ledger/reports/transactions', icon: History },
   ],
   billing: [
-    { labelKey: 'dashboard', route: '/billing', icon: LayoutDashboard },
     { labelKey: 'salesInvoices', route: '/billing/invoices', icon: Receipt },
     { labelKey: 'createInvoice', route: '/billing/create-invoice', icon: FilePlus },
     { labelKey: 'purchaseInvoices', route: '/billing/purchase-invoices', icon: ShoppingBag },
@@ -147,11 +144,9 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'reports', route: '/billing/reports', icon: TrendingUp },
   ],
   hisab: [
-    { labelKey: 'dashboard', route: '/calculation', icon: LayoutDashboard },
     { labelKey: 'hisabHistory', route: '/calculation/history', icon: History },
   ],
   inventory: [
-    { labelKey: 'dashboard', route: '/inventory', icon: LayoutDashboard },
     { labelKey: 'productsStock', route: '/inventory/products', icon: Package },
     { labelKey: 'scanBarcode', route: '/inventory/scan', icon: QrCode },
     { labelKey: 'stockHistory', route: '/inventory/history', icon: History },
@@ -159,11 +154,9 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'usersStaff', route: '/inventory/users', icon: Users },
   ],
   crm: [
-    { labelKey: 'dashboard', route: '/crm', icon: LayoutDashboard },
+    { labelKey: 'taskBoard', route: '/crm/tasks', icon: KanbanSquare },
     { labelKey: 'leads', route: '/crm/leads', icon: Users },
     { labelKey: 'contacts', route: '/crm/contacts', icon: Contact },
-    { labelKey: 'taskBoard', route: '/crm/tasks', icon: KanbanSquare },
     { labelKey: 'analytics', route: '/crm/analytics', icon: BarChart3 },
-    { labelKey: 'teamMembers', route: '/crm/team', icon: UserCog },
   ],
 };

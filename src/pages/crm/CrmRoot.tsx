@@ -27,9 +27,9 @@ export default function CrmRoot() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Extract view from path e.g. /crm/leads -> 'leads'
+  // Extract view from path e.g. /crm/tasks -> 'tasks'
   const segments = location.pathname.split('/').filter(Boolean);
-  const currentView = segments[1] || 'dashboard';
+  const currentView = segments[1] || 'tasks';
   const [globalSearch, setGlobalSearch] = useState<string>('');
 
   // Clear search query when switching views
@@ -38,21 +38,19 @@ export default function CrmRoot() {
   }, [currentView]);
 
   const handleViewChange = (view: string) => {
-    if (view === 'dashboard') {
-      navigate('/crm');
+    if (view === 'tasks') {
+      navigate('/crm/tasks');
     } else {
       navigate(`/crm/${view}`);
     }
   };
 
   const menuItems = [
-    { name: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, view: 'dashboard' },
+    { name: 'Task Board', icon: <KanbanSquare className="w-4 h-4" />, view: 'tasks' },
     { name: 'Leads', icon: <Users className="w-4 h-4" />, view: 'leads' },
     { name: 'Contacts', icon: <Contact className="w-4 h-4" />, view: 'contacts' },
-    { name: 'Task Board', icon: <KanbanSquare className="w-4 h-4" />, view: 'tasks' },
+    { name: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, view: 'dashboard' },
     { name: 'Analytics', icon: <BarChart3 className="w-4 h-4" />, view: 'analytics' },
-    { name: 'Team Members', icon: <UserCog className="w-4 h-4" />, view: 'team' },
-    { name: 'Settings', icon: <SettingsIcon className="w-4 h-4" />, view: 'settings' }
   ];
 
   const filteredMenuItems = menuItems.filter((item) => {
@@ -65,44 +63,23 @@ export default function CrmRoot() {
     if (item.view === 'analytics') {
       return userPermissions?.viewAnalytics ?? true;
     }
-    if (item.view === 'team') {
-      return (userRole === 'owner' || userRole === 'Sales Director' || userRole === 'CRM Manager' || profile?.role === 'admin');
-    }
     return true;
   });
 
   const renderView = () => {
-    // Permission Guards
-    if ((currentView === 'leads' || currentView === 'contacts') && !userPermissions?.viewLeads) {
-      return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
-    }
-    if (currentView === 'tasks' && !userPermissions?.viewTasks) {
-      return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
-    }
-    if (currentView === 'analytics' && !userPermissions?.viewAnalytics) {
-      return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
-    }
-    if (currentView === 'team' && !(userRole === 'owner' || userRole === 'Sales Director' || userRole === 'CRM Manager' || profile?.role === 'admin')) {
-      return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
-    }
-
     switch (currentView) {
-      case 'dashboard':
-        return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
+      case 'tasks':
+        return <Tasks globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} />;
       case 'leads':
         return <Leads globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} />;
       case 'contacts':
         return <Contacts globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} />;
-      case 'tasks':
-        return <Tasks globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} />;
+      case 'dashboard':
+        return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
       case 'analytics':
         return <Analytics />;
-      case 'team':
-        return <Team />;
-      case 'settings':
-        return <Settings />;
       default:
-        return <Dashboard onNavigate={(v) => handleViewChange(v)} globalSearch={globalSearch} />;
+        return <Tasks globalSearch={globalSearch} setGlobalSearch={setGlobalSearch} />;
     }
   };
 

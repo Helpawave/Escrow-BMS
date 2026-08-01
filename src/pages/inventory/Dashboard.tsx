@@ -72,7 +72,7 @@ export const Dashboard = () => {
           Dashboard{profile?.company_name ? ` - ${profile.company_name}` : ''}
         </h1>
         <p className="text-muted-foreground mt-2">
-          Welcome back! Here's an overview of your inventory.
+          Here's an overview of your inventory.
         </p>
       </div>
 

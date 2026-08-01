@@ -192,7 +192,7 @@ const Dashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="space-y-2">
             <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              Welcome, <span className="text-blue-600 dark:text-blue-400">{companyName}</span>
+              <span className="text-blue-600 dark:text-blue-400">{companyName}</span> Ledger
             </h1>
             <p className="text-slate-500 dark:text-slate-400 text-lg">Here's an overview of your escrow accounts today.</p>
           </div>

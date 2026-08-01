@@ -106,7 +106,7 @@ const Dashboard = () => {
         {/* Welcome Banner */}
         <div className="relative rounded-2xl bg-gradient-to-br from-primary to-primary/80 p-8 shadow-xl overflow-hidden animate-slide-down text-primary-foreground">
           <div className="relative z-10">
-            <h1 className="text-3xl font-bold tracking-tight mb-2">Welcome to Escrow Payroll</h1>
+            <h1 className="text-3xl font-bold tracking-tight mb-2">Escrow Payroll Dashboard</h1>
             <p className="text-primary-foreground/90 max-w-lg mb-6 leading-relaxed">
               Your payroll target for active employees is <span className="font-semibold">₹{totalPayroll.toLocaleString('en-IN')}</span>.
               Please ensure your Escrow Vault is funded for seamless compliance and execution.

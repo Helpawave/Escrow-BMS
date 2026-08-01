@@ -32,7 +32,7 @@ export function PayrollModule() {
   return (
     <Suspense fallback={<ModuleLoader />}>
       <Routes>
-        <Route path="/" element={<PayrollIndex />} />
+        <Route path="/" element={<Navigate to="/payroll/employees" replace />} />
         <Route path="/intro" element={<PayrollIntro />} />
         <Route path="/employees" element={<PayrollEmployees />} />
         <Route path="/payroll" element={<PayrollSalary />} />
@@ -42,7 +42,7 @@ export function PayrollModule() {
         <Route path="/reports" element={<PayrollReports />} />
         <Route path="/notifications" element={<PayrollNotifications />} />
         <Route path="/settings" element={<Navigate to="/settings" replace />} />
-        <Route path="*" element={<Navigate to="" replace />} />
+        <Route path="*" element={<Navigate to="employees" replace />} />
       </Routes>
     </Suspense>
   );
@@ -66,7 +66,7 @@ export function LedgerModule() {
     <AppLayout>
       <Suspense fallback={<ModuleLoader />}>
         <Routes>
-          <Route path="/" element={<LedgerDashboard />} />
+          <Route path="/" element={<LedgerView />} />
           <Route path="/ledger" element={<LedgerView />} />
           <Route path="/transfer" element={<LedgerTransfer />} />
           <Route path="/create/party" element={<LedgerCreateParty />} />
@@ -107,7 +107,7 @@ export function BillingModule() {
     <AppLayout>
       <Suspense fallback={<ModuleLoader />}>
         <Routes>
-          <Route path="/" element={<BillDashboard />} />
+          <Route path="/" element={<Navigate to="/billing/invoices" replace />} />
           <Route path="/invoices" element={<BillInvoices />} />
           <Route path="/invoices/:invoiceId/edit" element={<BillCreateInvoice />} />
           <Route path="/create-invoice" element={<BillCreateInvoice />} />
@@ -124,7 +124,7 @@ export function BillingModule() {
           <Route path="/admin" element={<BillAdminLogin />} />
           <Route path="/admin/dashboard" element={<BillAdminDashboard />} />
           <Route path="/setup-business" element={<BillBusinessSetup />} />
-          <Route path="*" element={<Navigate to="" replace />} />
+          <Route path="*" element={<Navigate to="invoices" replace />} />
         </Routes>
       </Suspense>
     </AppLayout>
@@ -145,12 +145,12 @@ export function HisabModule() {
       <AppLayout>
         <Suspense fallback={<ModuleLoader />}>
           <Routes>
-            <Route path="/" element={<HisabDashboard />} />
+            <Route path="/" element={<Navigate to="/calculation/history" replace />} />
             <Route path="/history" element={<HisabHistory />} />
             <Route path="/profile" element={<HisabProfile />} />
             <Route path="/admin" element={<HisabAdminLogin />} />
             <Route path="/admin/dashboard" element={<HisabAdminDashboard />} />
-            <Route path="*" element={<Navigate to="" replace />} />
+            <Route path="*" element={<Navigate to="history" replace />} />
           </Routes>
         </Suspense>
       </AppLayout>
@@ -175,7 +175,7 @@ export function InventoryModule() {
         <AppLayout>
           <Suspense fallback={<ModuleLoader />}>
             <Routes>
-              <Route path="/" element={<InventoryDashboard />} />
+              <Route path="/" element={<Navigate to="/inventory/products" replace />} />
               <Route path="/products" element={<InventoryProducts />} />
               <Route path="/product/:id" element={<InventoryDetails />} />
               <Route path="/product/edit/:id" element={<InventoryEdit />} />
