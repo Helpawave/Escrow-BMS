@@ -379,65 +379,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Onboarding Wizard Accordion */}
-        {!wizardDismissed && wizardSteps.length > 0 && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setWizardOpen(!wizardOpen)}
-                className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-200 hover:text-indigo-600 transition-colors"
-              >
-                {wizardOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                <span>Getting started — {completedWizardCount} of {wizardSteps.length} completed</span>
-              </button>
 
-              <button
-                onClick={handleDismissWizard}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
-                title="Dismiss wizard"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {wizardOpen && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-                {wizardSteps.map((step, idx) => (
-                  <button 
-                    key={idx} 
-                    onClick={() => navigate(step.actionPath)}
-                    className={cn(
-                      "flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer text-left w-full group",
-                      step.completed 
-                        ? "bg-slate-50/80 dark:bg-slate-800/30 border-slate-200/80 dark:border-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800/60" 
-                        : "bg-white dark:bg-slate-900 border-indigo-100 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 shadow-xs"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                      {step.completed ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-500 fill-emerald-100 dark:fill-emerald-950/60 flex-shrink-0" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-indigo-500 dark:text-indigo-400 flex-shrink-0 group-hover:scale-110 transition-transform" />
-                      )}
-                      <span className={cn(
-                        "text-xs font-semibold truncate",
-                        step.completed ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 font-bold"
-                      )}>
-                        {step.title}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {step.actionLabel}
-                      </span>
-                      <ArrowRight className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Dynamic Active Module Tabs & View Full Reports Link */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2 gap-4">
