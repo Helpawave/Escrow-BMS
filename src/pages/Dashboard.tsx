@@ -32,7 +32,8 @@ import {
   ArrowLeftRight,
   KanbanSquare,
   ShieldCheck,
-  CreditCard
+  CreditCard,
+  Calendar
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PageTransition } from '@/components/PageTransition';
@@ -98,59 +99,53 @@ export default function Dashboard() {
   // Period & Tab Filter State
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>('ytd');
   const [activeTab, setActiveTab] = useState<string>('overview');
-
-  // Wizard Accordion State
-  const [wizardOpen, setWizardOpen] = useState(true);
-  const [wizardDismissed, setWizardDismissed] = useState(() => {
-    return localStorage.getItem('escrow_bms_wizard_dismissed') === 'true';
+  const [customStartDate, setCustomStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().substring(0, 10);
   });
-
-  const handleDismissWizard = () => {
-    setWizardDismissed(true);
-    localStorage.setItem('escrow_bms_wizard_dismissed', 'true');
-  };
-
-  const [loadingStats, setLoadingStats] = useState(true);
-  const [stats, setStats] = useState<DashboardStats>({
-    totalSales: 0,
-    unpaidAmount: 0,
-    invoiceCount: 0,
-    totalExpenses: 0,
-    netCash: 0,
-    employeeCount: 0,
-    pendingLeaves: 0,
-    leadsCount: 0,
-    pendingTasksCount: 0,
-    ledgerBalance: 0,
-    inventoryItemCount: 0,
-    lowStockCount: 0,
-    accountCount: 0,
-    hisabCount: 0,
+  const [customEndDate, setCustomEndDate] = useState<string>(() => {
+    return new Date().toISOString().substring(0, 10);
   });
-
-  const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
-  const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
 
   // Calculate Date Subtitle String based on selected period filter
   const getPeriodSubtitle = () => {
     const today = new Date();
-    const formattedToday = `29 Jul ${today.getFullYear()}`;
+    const formatD = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    
     switch (selectedPeriod) {
-      case 'month':
-        return `This month • 01 Jul ${today.getFullYear()} → ${formattedToday}`;
-      case '3m':
-        return `Last 3M • 01 May ${today.getFullYear()} → ${formattedToday}`;
-      case '6m':
-        return `Last 6M • 01 Feb ${today.getFullYear()} → ${formattedToday}`;
-      case 'fy':
-        return `This FY • 01 Apr ${today.getFullYear()} → 31 Mar ${today.getFullYear() + 1}`;
-      case 'ytd':
-        return `YTD • 01 Jan ${today.getFullYear()} → ${formattedToday}`;
-      case 'custom':
-        return `Custom Period`;
+      case 'month': {
+        const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        return `This Month • ${formatD(firstOfMonth)} → ${formatD(today)}`;
+      }
+      case '3m': {
+        const d3m = new Date();
+        d3m.setMonth(d3m.getMonth() - 3);
+        return `Last 3 Months • ${formatD(d3m)} → ${formatD(today)}`;
+      }
+      case '6m': {
+        const d6m = new Date();
+        d6m.setMonth(d6m.getMonth() - 6);
+        return `Last 6 Months • ${formatD(d6m)} → ${formatD(today)}`;
+      }
+      case 'fy': {
+        const fyStartYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+        const fyStart = new Date(fyStartYear, 3, 1);
+        const fyEnd = new Date(fyStartYear + 1, 2, 31);
+        return `Financial Year • ${formatD(fyStart)} → ${formatD(fyEnd)}`;
+      }
+      case 'ytd': {
+        const startOfYear = new Date(today.getFullYear(), 0, 1);
+        return `Year To Date • ${formatD(startOfYear)} → ${formatD(today)}`;
+      }
+      case 'custom': {
+        if (!customStartDate || !customEndDate) return 'Custom Date Range';
+        const s = new Date(customStartDate);
+        const e = new Date(customEndDate);
+        return `Custom Range • ${formatD(s)} → ${formatD(e)}`;
+      }
       default:
-        return `YTD • 01 Jan ${today.getFullYear()} → ${formattedToday}`;
+        return `Period Overview`;
     }
   };
 
@@ -347,24 +342,28 @@ export default function Dashboard() {
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white">
               Dashboard
             </h1>
+            <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>{getPeriodSubtitle()}</span>
+            </p>
           </div>
 
-
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Period Quick Filter Select */}
             <div className="relative">
               <select
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value as PeriodFilter)}
-                className="h-9 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3 pr-8 shadow-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer appearance-none"
+                className="h-9 text-xs font-bold bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-800 rounded-xl px-3.5 pr-8 shadow-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer appearance-none"
               >
-                <option value="month">This Month</option>
-                <option value="3m">Last 3 Months</option>
-                <option value="6m">Last 6 Months</option>
-                <option value="fy">Financial Year (FY)</option>
-                <option value="ytd">Year To Date (YTD)</option>
+                <option value="month">📅 This Month</option>
+                <option value="3m">📊 Last 3 Months</option>
+                <option value="6m">📈 Last 6 Months</option>
+                <option value="fy">💼 Financial Year (FY)</option>
+                <option value="ytd">🏆 Year To Date (YTD)</option>
+                <option value="custom">⚙️ Custom Date Range...</option>
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-indigo-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
 
             {/* Quick Action Buttons */}
@@ -378,6 +377,36 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* Custom Date Range Picker Toolbar */}
+        {selectedPeriod === 'custom' && (
+          <div className="p-4 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-slate-800 rounded-2xl shadow-sm flex flex-wrap items-center gap-4 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-200">
+              <Calendar className="w-4 h-4 text-indigo-600" />
+              <span>Select Custom Range:</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-bold text-slate-500">From:</label>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-bold text-slate-500">To:</label>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+        )}
 
 
 
