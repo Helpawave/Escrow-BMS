@@ -883,7 +883,7 @@ export default function Landing() {
                         </div>
                       ))}
                     </div>
-                    <div className="flex mt-1.5">{['J', 'F', 'M', 'A', 'M', 'J'].map(m => <span key={m} className={`text-[8px] flex-1 text-center transition-colors duration-300 ${isDark ? 'text-gray-700' : 'text-gray-450'}`}>{m}</span>)}</div>
+                    <div className="flex mt-1.5">{['J', 'F', 'M', 'A', 'M', 'J'].map((m, i) => <span key={`${m}-${i}`} className={`text-[8px] flex-1 text-center transition-colors duration-300 ${isDark ? 'text-gray-700' : 'text-gray-450'}`}>{m}</span>)}</div>
                   </div>
 
                   {/* Transactions */}
