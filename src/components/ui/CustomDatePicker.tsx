@@ -128,7 +128,7 @@ export const CustomDatePicker = ({
       </div>
 
       {isOpen && (
-        <div className={`absolute left-0 right-0 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-[160] animate-in fade-in duration-200 ${
+        <div className={`absolute left-0 sm:left-auto sm:right-0 w-[295px] max-w-[calc(100vw-32px)] p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-[200] animate-in fade-in duration-200 ${
           align === 'top' 
             ? 'bottom-full mb-2 slide-in-from-bottom-2' 
             : 'top-full mt-2 slide-in-from-top-2'

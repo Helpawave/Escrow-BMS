@@ -219,10 +219,53 @@ export default function Dashboard() {
           showHisab ? Promise.resolve(supabase.from('calculation_entries').select('*', { count: 'exact', head: true }).eq('user_id', user.id)).catch(() => ({ count: 0 })) : Promise.resolve({ count: 0 })
         ]);
 
+        const { start: dateStart, end: dateEnd } = (() => {
+          const today = new Date();
+          let start: Date;
+          let end: Date = new Date();
+
+          switch (selectedPeriod) {
+            case 'month':
+              start = new Date(today.getFullYear(), today.getMonth(), 1);
+              break;
+            case '3m':
+              start = new Date();
+              start.setMonth(start.getMonth() - 3);
+              start.setDate(1);
+              break;
+            case '6m':
+              start = new Date();
+              start.setMonth(start.getMonth() - 6);
+              start.setDate(1);
+              break;
+            case 'fy': {
+              const fyStartYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+              start = new Date(fyStartYear, 3, 1);
+              end = new Date(fyStartYear + 1, 2, 31, 23, 59, 59);
+              break;
+            }
+            case 'ytd':
+              start = new Date(today.getFullYear(), 0, 1);
+              break;
+            case 'custom':
+              start = customStartDate ? new Date(customStartDate) : new Date(2020, 0, 1);
+              end = customEndDate ? new Date(`${customEndDate}T23:59:59`) : new Date();
+              break;
+            default:
+              start = new Date(today.getFullYear(), 0, 1);
+          }
+          return { start, end };
+        })();
+
         let totalSales = 0;
         let unpaidAmount = 0;
         let invoiceCount = 0;
-        const invoicesData = invoicesRes.data || [];
+        const rawInvoices = invoicesRes.data || [];
+        const invoicesData = rawInvoices.filter((inv: any) => {
+          if (!inv.issue_date) return true;
+          const invDate = new Date(inv.issue_date);
+          return invDate >= dateStart && invDate <= dateEnd;
+        });
 
         if (showBilling && invoicesData.length > 0) {
           totalSales = invoicesData.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
@@ -274,7 +317,13 @@ export default function Dashboard() {
         }
 
         let totalExpenses = 0;
-        const exps = expensesRes.data || [];
+        const rawExps = expensesRes.data || [];
+        const exps = rawExps.filter((exp: any) => {
+          if (!exp.created_at) return true;
+          const expDate = new Date(exp.created_at);
+          return expDate >= dateStart && expDate <= dateEnd;
+        });
+
         exps.forEach((exp: any) => {
           const amt = Number(exp.amount || 0);
           totalExpenses += amt;
@@ -331,7 +380,7 @@ export default function Dashboard() {
     };
 
     fetchDashboardData();
-  }, [user, showBilling, showLedger, showPayroll, showCRM, showInventory, showHisab]);
+  }, [user, showBilling, showLedger, showPayroll, showCRM, showInventory, showHisab, selectedPeriod, customStartDate, customEndDate]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
