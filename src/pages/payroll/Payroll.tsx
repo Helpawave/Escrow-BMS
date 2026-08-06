@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AppLayout } from "@/components/AppLayout";
+
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -202,8 +202,7 @@ const Payroll = () => {
   const currentActive = runs.find(r => r.status !== "PAID");
 
   return (
-    <AppLayout title={t("Payroll Runs")}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Manage payroll processing, review, and disbursement</p>
           <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
@@ -292,7 +291,6 @@ const Payroll = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
       {/* New Payroll Run Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
@@ -347,7 +345,7 @@ const Payroll = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </div>
   );
 };
 

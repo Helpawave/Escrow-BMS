@@ -6,106 +6,98 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
 
-    --card: 0 0% 99%;
-    --card-foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
+    --popover-foreground: 222 47% 11%;
 
-    --primary: 221.2 83.2% 53.3%;
+    --primary: 238 76% 58%; /* Disciplined Indigo Accent #5644E6 */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 5% 93%;
-    --secondary-foreground: 240 5% 26%;
+    --secondary: 210 16% 93%;
+    --secondary-foreground: 222 47% 16%;
 
-    --muted: 240 5% 93%;
-    --muted-foreground: 240 5% 45%;
+    --muted: 210 16% 93%;
+    --muted-foreground: 215 16% 47%;
 
-    --accent: 142.1 70.6% 45.3%;
+    --accent: 142 71% 45%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 350 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 240 5% 87%;
-    --input: 240 5% 87%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 214 15% 90%;
+    --input: 214 15% 90%;
+    --ring: 238 76% 58%;
 
-    --radius: 0.5rem;
+    --radius: 0.5rem; /* Standardized 8px base radius */
 
-    --sidebar-background: 240 5% 97%;
-    --sidebar-foreground: 240 5% 40%;
-    --sidebar-primary: 221.2 83.2% 53.3%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 215 16% 35%;
+    --sidebar-primary: 238 76% 58%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 5% 91%;
-    --sidebar-accent-foreground: 240 10% 3.9%;
-    --sidebar-border: 240 5% 90%;
-    --sidebar-ring: 221.2 83.2% 53.3%;
+    --sidebar-accent: 210 16% 95%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 15% 90%;
+    --sidebar-ring: 238 76% 58%;
 
-    --success: 142.1 70.6% 45.3%;
+    --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 0%;
-    --info: 221.2 83.2% 53.3%;
+    --info: 238 76% 58%;
 
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.06);
-
-    --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
   }
 
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
+    --background: 224 71% 4%; /* Professional Deep Slate #090D16 */
+    --foreground: 210 20% 98%;
 
-    --card: 240 10% 6%;
-    --card-foreground: 0 0% 98%;
+    --card: 222 47% 7%;
+    --card-foreground: 210 20% 98%;
 
-    --popover: 240 10% 6%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 222 47% 7%;
+    --popover-foreground: 210 20% 98%;
 
-    --primary: 221.2 83.2% 53.3%;
+    --primary: 238 76% 62%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 5% 12%;
-    --secondary-foreground: 0 0% 85%;
+    --secondary: 217 33% 14%;
+    --secondary-foreground: 210 20% 92%;
 
-    --muted: 240 5% 15%;
-    --muted-foreground: 240 5% 55%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 60%;
 
-    --accent: 142.1 70.6% 45.3%;
+    --accent: 142 71% 45%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 350 84% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 240 5% 17%;
-    --input: 240 5% 17%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 217 20% 16%;
+    --input: 217 20% 16%;
+    --ring: 238 76% 62%;
 
-    --sidebar-background: 240 10% 5%;
-    --sidebar-foreground: 240 5% 65%;
-    --sidebar-primary: 221.2 83.2% 53.3%;
+    --sidebar-background: 224 71% 4%;
+    --sidebar-foreground: 215 20% 65%;
+    --sidebar-primary: 238 76% 62%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 5% 12%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 5% 14%;
-    --sidebar-ring: 221.2 83.2% 53.3%;
+    --sidebar-accent: 217 33% 12%;
+    --sidebar-accent-foreground: 210 20% 98%;
+    --sidebar-border: 217 20% 14%;
+    --sidebar-ring: 238 76% 62%;
 
-    --success: 142.1 70.6% 45.3%;
+    --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 0%;
-    --info: 221.2 83.2% 53.3%;
-
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    --info: 238 76% 62%;
   }
 
   * {
@@ -115,22 +107,26 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
   .font-mono,
   [data-mono] {
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 }
 
 @layer utilities {
+  /* High-efficiency custom scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted)) transparent;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
+    width: 5px;
+    height: 5px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
@@ -138,11 +134,16 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted));
+    background-color: hsl(var(--muted-foreground) / 0.3);
     border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
   }
 }
 
+/* Operational Status Flash */
 @keyframes status-flash {
   0% {
     background-color: hsl(var(--success) / 0.2);
@@ -156,57 +157,19 @@
   animation: status-flash 1s ease-out;
 }
 
-/* Custom card & button helper classes */
-.card {
-  @apply bg-card text-card-foreground border border-border/60 rounded-2xl shadow-sm overflow-hidden;
+/* Business Panel & Button Tokens */
+.card-panel {
+  @apply bg-card text-card-foreground border border-border/80 rounded-xl shadow-sm overflow-hidden transition-colors;
 }
 
 .btn-primary {
-  @apply inline-flex items-center justify-center px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-xl transition-all duration-200 active:scale-95 shadow-sm hover:shadow-md hover:bg-primary/95;
+  @apply inline-flex items-center justify-center px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-lg transition-colors cursor-pointer active:scale-[0.98] shadow-sm hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none;
 }
 
 .btn-secondary {
-  @apply inline-flex items-center justify-center px-4 py-2 bg-secondary text-secondary-foreground font-semibold rounded-xl transition-all duration-200 hover:bg-secondary/80 active:scale-95;
+  @apply inline-flex items-center justify-center px-4 py-2 bg-secondary text-secondary-foreground font-semibold rounded-lg transition-colors cursor-pointer hover:bg-secondary/80 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
 }
 
-/* 3D Keyframe Animations */
-@keyframes spin3D {
-  0% {
-    transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg);
-  }
-  100% {
-    transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg);
-  }
-}
-
-@keyframes gridPerspective {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 0 60px;
-  }
-}
-
-@keyframes float3D {
-  0%, 100% {
-    transform: translateY(0px) rotateX(10deg) rotateY(-10deg);
-  }
-  50% {
-    transform: translateY(-25px) rotateX(20deg) rotateY(10deg);
-  }
-}
-
-.animate-3d-spin {
-  animation: spin3D 20s linear infinite;
-  transform-style: preserve-3d;
-}
-
-.animate-3d-grid {
-  animation: gridPerspective 4s linear infinite;
-}
-
-.animate-3d-float {
-  animation: float3D 6s ease-in-out infinite;
-  transform-style: preserve-3d;
+.btn-outline {
+  @apply inline-flex items-center justify-center px-4 py-2 border border-border bg-background text-foreground font-semibold rounded-lg transition-colors cursor-pointer hover:bg-muted/50 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
 }

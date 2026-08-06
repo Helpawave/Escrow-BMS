@@ -45,9 +45,8 @@ export default function MyProfilePage() {
   const joinedOn = myRecord?.invited_at?.substring(0, 10) || profile?.created_at?.substring?.(0, 10) || null;
 
   return (
-    <AppLayout>
-      <div className="max-w-2xl mx-auto space-y-6">
-        {/* Page title */}
+    <div className="max-w-2xl mx-auto space-y-6">
+      {/* Page title */}
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-foreground uppercase">My Profile</h1>
           <p className="text-muted-foreground mt-1 text-sm font-medium">Your personal department profile &amp; module access information</p>
@@ -154,6 +153,5 @@ export default function MyProfilePage() {
           </div>
         </div>
       </div>
-    </AppLayout>
   );
 }

@@ -1,4 +1,3 @@
-import { AppLayout } from "@/components/AppLayout";
 import { StatCard } from "@/components/StatCard";
 import { BarChart3, TrendingUp, FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,8 +14,7 @@ const departmentCosts = [
 
 const Reports = () => {
   return (
-    <AppLayout title="Reports & Analytics">
-      <div className="space-y-8">
+    <div className="space-y-8">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">Financial insights and compliance reports</p>
           <Button variant="outline" size="sm" className="gap-2"><Download className="h-3.5 w-3.5" />Export All</Button>
@@ -60,8 +58,7 @@ const Reports = () => {
             </tbody>
           </table>
         </div>
-      </div>
-    </AppLayout>
+    </div>
   );
 };
 

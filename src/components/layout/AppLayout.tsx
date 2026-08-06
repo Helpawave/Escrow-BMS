@@ -1,18 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, useNavigate, Link, Outlet } from 'react-router-dom';
 import { MODULES, MODULE_MENUS } from '@/lib/constants';
+import { hasRoleModuleAccess, getDefaultRouteForRole, ROLE_LABELS } from '@/lib/permissions';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { ShieldAlert, Sparkles, Building2, User, Phone, DollarSign, Loader2 } from 'lucide-react';
+import { ShieldAlert, Sparkles, Building2, User, Phone, DollarSign, Loader2, CreditCard, Wallet, ChevronDown } from 'lucide-react';
 import { SubscriptionModal } from '@/components/SubscriptionModal';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface AppLayoutProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   title?: string;
 }
 
@@ -20,6 +28,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { t } = useLanguage();
   const { user, profile, refreshProfile, isSubscribed, loading: authLoading } = useAuth();
 
@@ -39,16 +48,30 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [profile]);
 
+  const mainRef = React.useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const activeModule = MODULES.find(
       (m) => location.pathname === m.route || location.pathname.startsWith(m.route + '/')
     );
     if (activeModule) {
       localStorage.setItem('last_active_app', activeModule.key);
+      if (profile?.role) {
+        const isAllowed = hasRoleModuleAccess(profile.role, activeModule.key);
+        if (!isAllowed) {
+          toast.error(`Access restricted for ${ROLE_LABELS[profile.role] || profile.role} role.`);
+          navigate(getDefaultRouteForRole(profile.role), { replace: true });
+        }
+      }
     }
     // Close mobile drawer on route change
     setMobileOpen(false);
-  }, [location.pathname]);
+
+    // Smooth scroll main container to top on page change
+    if (mainRef.current) {
+      mainRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [location.pathname, profile?.role, navigate]);
 
   const isActiveSubRoute = (route: string) => {
     if (route === '/payroll' || route === '/ledger' || route === '/billing' || route === '/calculation' || route === '/inventory' || route === '/crm') {
@@ -58,43 +81,80 @@ export function AppLayout({ children }: AppLayoutProps) {
   };
 
   const renderModuleSubNav = () => {
-    const activeModule = MODULES.find(
-      (m) => location.pathname === m.route || location.pathname.startsWith(m.route + '/')
-    );
+    let activeKey: string | null = null;
+    if (location.pathname.startsWith('/ledger')) activeKey = 'ledger';
+    else if (location.pathname.startsWith('/billing')) activeKey = 'billing';
+    else if (location.pathname.startsWith('/inventory')) activeKey = 'inventory';
+    else if (location.pathname.startsWith('/crm')) activeKey = 'crm';
+    else if (location.pathname.startsWith('/calculation')) activeKey = 'hisab';
+    else if (location.pathname.startsWith('/payroll')) activeKey = 'payroll';
+    else if (location.pathname.startsWith('/members')) activeKey = 'members';
 
-    if (!activeModule || activeModule.key === 'crm') {
-      return null;
-    }
+    if (!activeKey) return null;
 
-    const subMenu = MODULE_MENUS[activeModule.key] || [];
+    const subMenu = MODULE_MENUS[activeKey as keyof typeof MODULE_MENUS] || [];
     if (subMenu.length === 0) return null;
 
-    const activeTextClass = 
-      activeModule.key === 'payroll' ? 'text-violet-650 bg-white dark:bg-slate-800 shadow-sm' :
-      activeModule.key === 'ledger' ? 'text-blue-650 bg-white dark:bg-slate-800 shadow-sm' :
-      activeModule.key === 'billing' ? 'text-emerald-650 bg-white dark:bg-slate-800 shadow-sm' :
-      activeModule.key === 'hisab' ? 'text-amber-650 bg-white dark:bg-slate-800 shadow-sm' :
-      activeModule.key === 'inventory' ? 'text-rose-650 bg-white dark:bg-slate-800 shadow-sm' :
-      'text-indigo-650 bg-white dark:bg-slate-800 shadow-sm';
+    const activeTextClass = 'text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs font-bold';
 
     return (
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3 mb-6 gap-4 animate-fade-in">
-        <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
+      <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800/60 pb-2 mb-4 gap-3 overflow-x-auto scrollbar-thin">
+        <div className="flex flex-wrap items-center gap-1 bg-slate-100/80 dark:bg-slate-900/80 p-1 rounded-lg border border-slate-200/70 dark:border-slate-800/70">
           {subMenu.map((item) => {
-            const active = isActiveSubRoute(item.route);
+            if (activeKey === 'billing' && (item.route === '/billing/payments' || item.route === '/billing/expenses')) {
+              if (item.route === '/billing/expenses') return null;
+
+              const isPaymentsOrExpensesActive = location.pathname.startsWith('/billing/payments') || location.pathname.startsWith('/billing/expenses');
+
+              return (
+                <DropdownMenu key="billing-payments-expenses-dropdown">
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        "relative flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer whitespace-nowrap",
+                        isPaymentsOrExpensesActive
+                          ? activeTextClass
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/40 dark:hover:bg-slate-800/40"
+                      )}
+                    >
+                      <CreditCard className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
+                      <span>Payments & Expenses</span>
+                      <ChevronDown className="w-3 h-3 text-slate-400 ml-0.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-44 p-1">
+                    <DropdownMenuItem asChild>
+                      <Link to="/billing/payments" className="flex items-center gap-2 cursor-pointer text-xs font-medium py-2">
+                        <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Payments Log</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/billing/expenses" className="flex items-center gap-2 cursor-pointer text-xs font-medium py-2">
+                        <Wallet className="w-3.5 h-3.5 text-amber-500" />
+                        <span>Business Expenses</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              );
+            }
+
+            const active = location.pathname === item.route || (item.route.length > 5 && location.pathname.startsWith(item.route + '/'));
+            const displayLabel = t(item.labelKey) !== item.labelKey ? t(item.labelKey) : item.labelKey;
             return (
               <Link
                 key={item.route}
                 to={item.route}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 cursor-pointer",
+                  "relative flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer whitespace-nowrap",
                   active
                     ? activeTextClass
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-250"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/40 dark:hover:bg-slate-800/40"
                 )}
               >
-                <item.icon className="w-4 h-4" />
-                {t(item.labelKey)}
+                <item.icon className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
+                <span>{displayLabel}</span>
               </Link>
             );
           })}
@@ -113,7 +173,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
     setSaving(true);
     try {
-      // 1. Update profiles table
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
@@ -125,7 +184,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       if (profileError) throw profileError;
 
-      // 2. Upsert user_settings table
       const { error: settingsError } = await supabase
         .from('user_settings')
         .upsert({
@@ -134,20 +192,19 @@ export function AppLayout({ children }: AppLayoutProps) {
         }, { onConflict: 'user_id' });
 
       if (settingsError) {
-        console.warn('Could not save user_settings (maybe table not created yet):', settingsError.message);
+        console.warn('Could not save user_settings:', settingsError.message);
       }
 
       toast.success('Business profile completed successfully!');
       await refreshProfile();
     } catch (err: any) {
       console.error('Error completing profile:', err);
-      toast.error(err.message || 'Failed to save profile. Please make sure database tables are updated.');
+      toast.error(err.message || 'Failed to save profile.');
     } finally {
       setSaving(false);
     }
   };
 
-  // Determine if profile details are missing (after loading completes)
   const isProfileIncomplete = user && !authLoading && profile && (
     !profile?.full_name?.trim() || 
     !profile?.company_name?.trim() || 
@@ -169,10 +226,17 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content */}
       <div className={cn("flex-1 flex flex-col min-w-0 w-full overflow-hidden transition-all duration-300", shouldBlockWorkspace && "blur-[1.5px] pointer-events-none grayscale-[0.2]")}>
         <Topbar onMenuToggle={() => setMobileOpen(!mobileOpen)} />
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 w-full max-w-full overflow-x-hidden">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-3 sm:p-6 w-full max-w-full overflow-x-hidden scroll-smooth">
           <div className="max-w-7xl mx-auto w-full">
             {renderModuleSubNav()}
-            {children}
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+            >
+              {children || <Outlet />}
+            </motion.div>
           </div>
         </main>
       </div>

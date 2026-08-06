@@ -1,4 +1,4 @@
-import { AppLayout } from "@/components/AppLayout";
+
 import { StatCard } from "@/components/StatCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -191,8 +191,7 @@ const Leave = () => {
   };
 
   return (
-    <AppLayout title={t("Leave Management")}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Manage leave requests and approval workflows</p>
           <Button size="sm" className="gap-2" onClick={() => setDialogOpen(true)}><Plus className="h-3.5 w-3.5" />New Leave Request</Button>
@@ -257,7 +256,6 @@ const Leave = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">
@@ -305,7 +303,7 @@ const Leave = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </div>
   );
 };
 

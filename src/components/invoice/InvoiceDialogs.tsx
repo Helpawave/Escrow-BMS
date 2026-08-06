@@ -502,9 +502,9 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                 variant="hero"
                 onClick={() => {
                   setProductSelectionOpen(false);
-                  setNewProductDialogOpen(true);
+                  navigate('/inventory/products/new');
                 }}
-                className="h-12 px-8 font-black rounded-xl shadow-lg shadow-primary/20"
+                className="h-12 px-8 font-black rounded-xl shadow-lg shadow-primary/20 cursor-pointer"
               >
                 <Plus className="w-5 h-5 mr-2" />
                 New Product

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AppLayout } from "@/components/AppLayout";
+
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Users, DollarSign, Calendar, AlertTriangle, ArrowRight, ShieldCheck, Plus, Play, Lock, Activity, Wallet, Shield, CheckCircle2 } from "lucide-react";
@@ -100,8 +100,7 @@ const Dashboard = () => {
   };
 
   return (
-    <AppLayout title="Dashboard">
-      <div className="space-y-8 pb-10">
+    <div className="space-y-8 pb-10">
 
         {/* Welcome Banner */}
         <div className="relative rounded-2xl bg-gradient-to-br from-primary to-primary/80 p-8 shadow-xl overflow-hidden animate-slide-down text-primary-foreground">
@@ -287,7 +286,6 @@ const Dashboard = () => {
           </div>
 
         </div>
-      </div>
 
       {/* Fund Escrow Vault Dialog */}
       <Dialog open={fundDialogOpen} onOpenChange={setFundDialogOpen}>
@@ -367,7 +365,7 @@ const Dashboard = () => {
           </form>
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </div>
   );
 };
 

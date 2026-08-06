@@ -94,45 +94,25 @@ export default function CrmRoot() {
   };
 
   return (
-    <AppLayout>
-      <div className="space-y-6 animate-fade-in">
-        {/* Horizontal Navigation Tab Bar */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2 gap-4">
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
-            {filteredMenuItems.map((item) => (
-              <button
-                key={item.view}
-                onClick={() => handleViewChange(item.view)}
-                className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200 cursor-pointer ${
-                  currentView === item.view
-                    ? 'bg-white dark:bg-slate-800 text-brand-600 dark:text-white shadow-sm'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-850 dark:hover:text-slate-200'
-                }`}
-              >
-                {item.icon}
-                {item.name}
-              </button>
-            ))}
+    <div className="space-y-6 animate-fade-in">
+      {/* Contextual Search Header */}
+      {['dashboard', 'leads', 'contacts', 'tasks'].includes(currentView) && (
+        <div className="flex justify-end mb-4">
+          <div className="relative w-full sm:w-[280px]">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder={getSearchPlaceholder()}
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-xs text-slate-700 dark:text-slate-300 outline-none focus:border-indigo-500 transition-all shadow-xs"
+            />
           </div>
-
-          {/* Contextual Search */}
-          {['dashboard', 'leads', 'contacts', 'tasks'].includes(currentView) && (
-            <div className="relative w-full sm:w-[240px]">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder={getSearchPlaceholder()}
-                value={globalSearch}
-                onChange={(e) => setGlobalSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-xl text-xs text-slate-700 dark:text-slate-300 outline-none focus:border-brand-500 transition-all shadow-sm"
-              />
-            </div>
-          )}
         </div>
+      )}
 
-        {/* View Content */}
-        <div className="min-h-[60vh]">{renderView()}</div>
-      </div>
-    </AppLayout>
+      {/* View Content */}
+      <div className="min-h-[60vh]">{renderView()}</div>
+    </div>
   );
 }

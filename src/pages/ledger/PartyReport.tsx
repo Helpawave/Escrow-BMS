@@ -14,6 +14,7 @@ import {
   XCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
 
 interface Party {
@@ -32,6 +33,7 @@ const ITEMS_PER_PAGE = 10;
 
 const PartyReport = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [parties, setParties] = useState<Party[]>(() => {
     try {
       const cached = localStorage.getItem('cached_parties_report');
@@ -190,10 +192,11 @@ const PartyReport = () => {
   };
 
   useEffect(() => {
+    if (!user) return;
     fetchParties();
 
     const partiesChannel = supabase.channel('party-report-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'parties' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parties', filter: `user_id=eq.${user.id}` }, () => {
         fetchParties();
       })
       .subscribe();
@@ -201,22 +204,26 @@ const PartyReport = () => {
     return () => {
       supabase.removeChannel(partiesChannel);
     };
-  }, []);
+  }, [user]);
 
   const fetchParties = async () => {
+    if (!user) { setLoading(false); return; }
     try {
-      const { data, error } = await supabase.from('parties').select('*').order('party_name', { ascending: true });
+      const { data, error } = await supabase
+        .from('parties')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('party_name', { ascending: true });
       if (error) throw error;
       const cleanData = data || [];
       setParties(cleanData);
       try {
         localStorage.setItem('cached_parties_report', JSON.stringify(cleanData));
       } catch (e) {
-        console.error('Error caching parties report:', e);
+        // localStorage quota exceeded — non-fatal
       }
     } catch (err) { 
-      console.error(err); 
-      alert("Error fetching parties (Report): " + JSON.stringify(err));
+      console.warn('Error fetching parties (Report):', err);
     } finally { 
       setLoading(false); 
     }

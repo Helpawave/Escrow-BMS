@@ -82,8 +82,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useToast } from "@/hooks/use-toast";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { TeamManagement } from "@/components/settings/TeamManagement";
-import { RolesPermissions } from "@/components/settings/RolesPermissions";
+
 import { safelyToLocaleDate } from "@/utils/dateUtils";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
 import { ResponsiveInvoiceWrapper } from "@/components/ResponsiveInvoiceWrapper";
@@ -298,7 +297,7 @@ const SettingsPage = () => {
   const [confirmTemplateCheck, setConfirmTemplateCheck] = useState(false);
   const [pendingTemplateId, setPendingTemplateId] = useState<UserSettings['invoice_template'] | null>(null);
 
-  const [bankOptions, setBankOptions] = useState<string[]>([]);
+  const [bankOptions, setBankOptions] = useState<string[]>(FALLBACK_BANKS);
   const { user, profile: authProfile, signOut, isTrialActive, trialDaysRemaining } = useAuth();
   const { theme, setTheme } = useTheme();
   const { setCurrencySymbol } = useCurrency();
@@ -539,11 +538,12 @@ const SettingsPage = () => {
   }, []);
 
   const fetchProfile = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
@@ -739,20 +739,13 @@ const SettingsPage = () => {
         const { data, error } = await supabase.functions.invoke('banks-fetch', {
           headers: { "Content-Type": "application/json" },
         });
-        if (error) {
-          console.warn('Failed to fetch bank list from Supabase:', error);
-          setBankOptions(FALLBACK_BANKS);
-          return;
-        }
+        if (error) return;
         const banks = (data as { banks?: string[] } | null)?.banks;
         if (banks && banks.length > 0) {
           setBankOptions(banks);
-        } else {
-          setBankOptions(FALLBACK_BANKS);
         }
-      } catch (error) {
-        console.warn('Failed to fetch bank list, falling back to defaults.', error);
-        setBankOptions(FALLBACK_BANKS);
+      } catch {
+        // Silently fallback to default bank options
       }
     };
 
@@ -949,17 +942,14 @@ const SettingsPage = () => {
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
-      </AppLayout>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-black tracking-tighter text-foreground uppercase">Profile & Settings</h1>
         <p className="text-muted-foreground mt-1 text-sm font-medium">Manage your account profile and application preferences</p>
@@ -993,25 +983,94 @@ const SettingsPage = () => {
                 <Palette className="w-4 h-4 shrink-0" />
                 <span>Appearance</span>
               </TabsTrigger>
-              {authProfile?.role === 'admin' && (
-                <>
-                  <TabsTrigger value="team" className="flex items-center justify-center gap-2 py-2 px-4 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-[11px] font-bold uppercase tracking-widest whitespace-nowrap">
-                    <Users className="w-4 h-4 shrink-0" />
-                    <span>Team</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="roles" className="flex items-center justify-center gap-2 py-2 px-4 rounded-md data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-[11px] font-bold uppercase tracking-widest whitespace-nowrap">
-                    <ShieldCheck className="w-4 h-4 shrink-0" />
-                    <span>Roles</span>
-                  </TabsTrigger>
-                </>
-              )}
+
             </TabsList>
           </div>
         </div>
 
         <div className="space-y-6 max-w-4xl mx-auto">
-          <TabsContent value="profile" className="m-0 space-y-6">
+          <TabsContent value="profile" className="m-0 space-y-5">
+            {/* Hero Card - MyProfile style */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+              {/* Banner */}
+              <div className="bg-gradient-to-br from-purple-700 to-indigo-700 px-8 py-10 flex flex-col sm:flex-row items-center gap-6">
+                <div className="w-24 h-24 rounded-3xl bg-white/20 border-2 border-white/30 text-white font-black text-3xl flex items-center justify-center shadow-lg flex-shrink-0">
+                  {(authProfile?.full_name || user?.user_metadata?.full_name || user?.email || 'U').charAt(0).toUpperCase()}
+                </div>
+                <div className="text-center sm:text-left">
+                  <h2 className="text-2xl font-black text-white leading-tight">
+                    {authProfile?.full_name || user?.user_metadata?.full_name || 'Business Owner'}
+                  </h2>
+                  <p className="text-purple-200 text-sm mt-0.5 flex items-center gap-1.5 justify-center sm:justify-start">
+                    <Mail className="w-3.5 h-3.5" />
+                    {user?.email}
+                  </p>
+                  <span className="inline-flex items-center gap-1.5 mt-2 bg-amber-400/20 text-amber-200 border border-amber-400/30 text-[11px] font-black px-3 py-1 rounded-full">
+                    <Crown className="w-3 h-3" /> Primary Business Owner
+                  </span>
+                </div>
+              </div>
 
+              {/* Body */}
+              <div className="p-6 space-y-6">
+                {/* Info Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4">
+                    <div className="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-950/60 flex items-center justify-center mb-2">
+                      <Shield className="w-4 h-4 text-purple-600" />
+                    </div>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-0.5">Role</p>
+                    <p className="font-black text-foreground text-sm capitalize">
+                      {authProfile?.role === 'admin' ? 'Admin / Owner' : (authProfile?.role || 'Admin')}
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 flex items-center justify-center mb-2">
+                      <Building2 className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-0.5">Company</p>
+                    <p className="font-black text-foreground text-sm">{profile.company_name || '—'}</p>
+                  </div>
+                  <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center mb-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-0.5">Member Since</p>
+                    <p className="font-black text-foreground text-sm">
+                      {user?.created_at ? safelyToLocaleDate(user.created_at) : '—'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Account Details */}
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <User className="w-4 h-4 text-purple-600" />
+                    <h3 className="font-black text-sm text-foreground uppercase tracking-wide">Account Details</h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Full Name</p>
+                      <p className="font-semibold text-foreground text-sm">{authProfile?.full_name || user?.user_metadata?.full_name || 'Account User'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Email Address</p>
+                      <p className="font-semibold text-foreground text-sm">{user?.email || 'N/A'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Account User ID</p>
+                      <p className="font-mono text-xs text-muted-foreground truncate">{user?.id || 'N/A'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Access Level</p>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                        <Crown className="w-3 h-3" /> Full Access
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </TabsContent>
 
 
@@ -1884,16 +1943,7 @@ const SettingsPage = () => {
               </DialogContent>
             </Dialog>
           </TabsContent>
-          {authProfile?.role === 'admin' && (
-            <>
-              <TabsContent value="team" className="m-0 space-y-6">
-                <TeamManagement />
-              </TabsContent>
-              <TabsContent value="roles" className="m-0 space-y-6">
-                <RolesPermissions />
-              </TabsContent>
-            </>
-          )}
+
         </div>
       </Tabs>
 
@@ -1946,7 +1996,6 @@ const SettingsPage = () => {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-    </AppLayout>
   );
 };
 

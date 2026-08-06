@@ -1,4 +1,4 @@
-import { AppLayout } from "@/components/AppLayout";
+
 import { Button } from "@/components/ui/button";
 import { CheckCheck, Bell, FileText, Users, DollarSign, Calendar, Shield, ArrowLeft } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -105,8 +105,7 @@ const Notifications = () => {
   };
 
   return (
-    <AppLayout>
-      <div className="space-y-6 max-w-4xl mx-auto py-2 animate-fade-in">
+    <div className="space-y-6 max-w-4xl mx-auto py-2 animate-fade-in">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Button 
@@ -250,8 +249,7 @@ const Notifications = () => {
             })
           )}
         </div>
-      </div>
-    </AppLayout>
+    </div>
   );
 };
 

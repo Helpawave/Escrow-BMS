@@ -94,7 +94,7 @@ const CreateInvoicePage = () => {
           <AlertTitle className="font-bold">No Products or Services Found</AlertTitle>
           <AlertDescription className="flex items-center justify-between mt-1 flex-wrap gap-2">
             <span>Your inventory catalog is currently empty. Add a product or service to quickly add line items.</span>
-            <Button size="sm" type="button" onClick={() => setNewProductDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+            <Button size="sm" type="button" onClick={() => navigate('/inventory/products/new')} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold cursor-pointer">
               + Add First Product
             </Button>
           </AlertDescription>

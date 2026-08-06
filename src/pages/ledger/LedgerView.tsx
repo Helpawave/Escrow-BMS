@@ -126,19 +126,23 @@ const LedgerView = () => {
 
   // DB Sync logic
   const fetchParties = async () => {
+    if (!authUser) { setLoading(false); return; }
     try {
-      const { data, error } = await supabase.from('parties').select('*').order('party_name', { ascending: true });
+      const { data, error } = await supabase
+        .from('parties')
+        .select('*')
+        .eq('user_id', authUser.id)
+        .order('party_name', { ascending: true });
       if (error) throw error;
       const cleanData = (data || []) as Party[];
       setParties(cleanData);
       try {
         localStorage.setItem('cached_parties', JSON.stringify(cleanData));
-      } catch (e) {
-        console.error('Error caching parties in Ledger:', e);
+      } catch {
+        // localStorage quota exceeded — non-fatal
       }
     } catch (err) {
-      console.error(err);
-      alert("Error fetching parties (Ledger): " + JSON.stringify(err));
+      console.warn('Error fetching parties (Ledger):', err);
     } finally {
       setLoading(false);
     }
@@ -268,8 +272,9 @@ const LedgerView = () => {
     }
   };
 
-  // Load parties list and click outside listeners on mount
+  // Load parties when auth user becomes available (was missing authUser dep — race condition)
   useEffect(() => {
+    if (!authUser) return;
     fetchParties();
     
     const partiesChannel = supabase.channel('ledger-parties-changes')
@@ -278,6 +283,13 @@ const LedgerView = () => {
       })
       .subscribe();
 
+    return () => {
+      supabase.removeChannel(partiesChannel);
+    };
+  }, [authUser]);
+
+  // Separate effect for click-outside (doesn't depend on authUser)
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsLinkedSearchOpen(false);
@@ -287,10 +299,8 @@ const LedgerView = () => {
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      supabase.removeChannel(partiesChannel);
     };
   }, []);
 

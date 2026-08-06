@@ -73,48 +73,75 @@ type RoleConfig = {
 };
 
 const defaultRoles: Record<string, RoleConfig> = {
-  super_admin: {
-    label: "Super Admin",
-    description: "Full system access with no restrictions",
-    color: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
-    permissions: new Set(allPermissionKeys),
-  },
   admin: {
     label: "Admin",
-    description: "System administration excluding role management",
-    color: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
-    permissions: new Set(allPermissionKeys.filter((k) => k !== "roles_manage")),
+    description: "Full business access to all modules, financial entries & settings",
+    color: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+    permissions: new Set(allPermissionKeys),
   },
-  hr_manager: {
-    label: "HR Manager",
-    description: "Employee, leave, attendance, and payroll management",
+  accountant: {
+    label: "Accountant",
+    description: "Access to Account Ledger, Billing, Daily Calc & Inventory",
+    color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
+    permissions: new Set([
+      "emp_view", "pay_view",
+      "report_view", "report_export", "settings_view",
+    ]),
+  },
+  sales: {
+    label: "Sales",
+    description: "Access to CRM pipeline, lead tracking & task management",
     color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+    permissions: new Set([
+      "emp_view", "report_view",
+    ]),
+  },
+  hr: {
+    label: "HR",
+    description: "Access to Payroll, Employees, Attendance, Leave & Payslips",
+    color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
     permissions: new Set([
       "emp_view", "emp_create", "emp_edit", "emp_delete",
       "pay_view", "pay_run", "pay_export",
       "leave_view", "leave_approve", "att_view", "att_manage",
-      "report_view", "report_export", "settings_view",
+      "report_view", "report_export",
     ]),
   },
-  manager: {
-    label: "Manager",
-    description: "Team oversight with limited administrative access",
-    color: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
-    permissions: new Set([
-      "emp_view", "pay_view", "leave_view", "leave_approve",
-      "att_view", "report_view",
-    ]),
+  view: {
+    label: "View Only",
+    description: "Read-only access across all business modules (no edits/deletions)",
+    color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+    permissions: new Set(["emp_view", "pay_view", "leave_view", "att_view", "report_view"]),
   },
-  employee: {
-    label: "Employee",
-    description: "Self-service access to personal records only",
-    color: "bg-muted text-muted-foreground border-border",
-    permissions: new Set(["emp_view", "pay_view", "leave_view", "att_view"]),
+  custom: {
+    label: "Custom Role",
+    description: "Customized module permissions configured by Admin",
+    color: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
+    permissions: new Set(["emp_view", "pay_view", "report_view", "settings_view"]),
   },
 };
 
+const loadInitialRoles = (): Record<string, RoleConfig> => {
+  try {
+    const cached = localStorage.getItem('escrow_custom_roles_permissions');
+    if (cached) {
+      const parsed: Record<string, string[]> = JSON.parse(cached);
+      const merged = { ...defaultRoles };
+      Object.entries(parsed).forEach(([k, permsArray]) => {
+        if (merged[k]) {
+          merged[k] = { ...merged[k], permissions: new Set(permsArray) };
+        }
+      });
+      return merged;
+    }
+  } catch (e) {
+    console.error('Error loading custom roles:', e);
+  }
+  return defaultRoles;
+};
+
 export function RolesPermissions() {
-  const [roles, setRoles] = useState<Record<string, RoleConfig>>(defaultRoles);
+  const [roles, setRoles] = useState<Record<string, RoleConfig>>(loadInitialRoles);
   const [editingRole, setEditingRole] = useState<string | null>(null);
 
   const togglePermission = (roleKey: string, permKey: string) => {
@@ -151,7 +178,17 @@ export function RolesPermissions() {
   };
 
   const handleSave = () => {
-    toast.success(`Permissions for ${roles[editingRole!].label} updated`);
+    if (!editingRole) return;
+    try {
+      const serializable: Record<string, string[]> = {};
+      Object.entries(roles).forEach(([k, r]) => {
+        serializable[k] = Array.from(r.permissions);
+      });
+      localStorage.setItem('escrow_custom_roles_permissions', JSON.stringify(serializable));
+    } catch (err) {
+      console.error('Error saving permissions:', err);
+    }
+    toast.success(`Permissions for ${roles[editingRole].label} updated & saved`);
     setEditingRole(null);
   };
 

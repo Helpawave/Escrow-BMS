@@ -1,4 +1,4 @@
-import { AppLayout } from "@/components/AppLayout";
+
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Download, Shield, Eye } from "lucide-react";
@@ -39,8 +39,7 @@ export const Audit = () => {
   );
 
   return (
-    <AppLayout title="Audit Log">
-      <div className="space-y-6">
+    <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Complete audit trail of all system actions</p>
           <Button variant="outline" size="sm" className="gap-2" onClick={() => toast.success("Audit log exported")}>
@@ -88,7 +87,6 @@ export const Audit = () => {
             </tbody>
           </table>
         </div>
-      </div>
-    </AppLayout>
+    </div>
   );
 };

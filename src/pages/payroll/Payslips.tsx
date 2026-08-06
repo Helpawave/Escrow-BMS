@@ -1,4 +1,4 @@
-import { AppLayout } from "@/components/AppLayout";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -202,8 +202,7 @@ const Payslips = () => {
   };
 
   return (
-    <AppLayout title={t("Payslips")}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-sm">Generate, view, and distribute employee payslips</p>
           <div className="flex gap-2">
@@ -257,7 +256,6 @@ const Payslips = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
       {/* View Payslip Detail Dialog */}
       <Dialog open={!!viewSlip} onOpenChange={(o) => !o && setViewSlip(null)}>
@@ -312,7 +310,7 @@ const Payslips = () => {
           )}
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </div>
   );
 };
 

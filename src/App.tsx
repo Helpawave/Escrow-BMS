@@ -14,6 +14,7 @@ import { Toaster } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
+import { AppLayout } from '@/components/layout/AppLayout';
 
 // Core pages (loaded synchronously for immediate initial paint)
 import Auth from '@/pages/Auth';
@@ -41,6 +42,7 @@ const CrmModule = React.lazy(() => import('@/pages/modules').then(m => ({ defaul
 const UsersPage = React.lazy(() => import('@/pages/users/UsersPage'));
 const MembersPage = React.lazy(() => import('@/pages/users/MembersPage'));
 const MyProfilePage = React.lazy(() => import('@/pages/MyProfilePage'));
+const ReportsPage = React.lazy(() => import('@/pages/ReportsPage'));
 
 function PageFallback() {
   return (
@@ -252,127 +254,88 @@ export default function App() {
                             }
                           />
 
-                          {/* Protected Core Routes */}
+                          {/* Protected Core Routes wrapped in single persistent AppLayout */}
                           <Route
-                            path="/dashboard"
                             element={
                               <AuthGuard>
-                                <Dashboard />
+                                <AppLayout />
                               </AuthGuard>
                             }
+                          >
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/pricing" element={<Pricing />} />
+                            <Route path="/settings" element={<Settings />} />
+                            <Route path="/users" element={<UsersPage />} />
+                            <Route path="/members" element={<MembersPage />} />
+                            <Route path="/reports" element={<ReportsPage />} />
+                            <Route path="/teams" element={<MembersPage />} />
+                            <Route path="/my-profile" element={<MyProfilePage />} />
+
+                            {/* Protected Module Routes */}
+                            <Route
+                              path="/payroll/*"
+                              element={
+                                <ModuleGuard moduleKey="payroll">
+                                  <PayrollModule />
+                                </ModuleGuard>
+                              }
+                            />
+                            <Route
+                              path="/ledger/*"
+                              element={
+                                <ModuleGuard moduleKey="ledger">
+                                  <LedgerModule />
+                                </ModuleGuard>
+                              }
+                            />
+                            <Route
+                              path="/billing/*"
+                              element={
+                                <ModuleGuard moduleKey="billing">
+                                  <BillingModule />
+                                </ModuleGuard>
+                              }
+                            />
+                            <Route
+                              path="/calculation/*"
+                              element={
+                                <ModuleGuard moduleKey="hisab">
+                                  <HisabModule />
+                                </ModuleGuard>
+                              }
+                            />
+                            <Route
+                              path="/inventory/*"
+                              element={
+                                <ModuleGuard moduleKey="inventory">
+                                  <InventoryModule />
+                                </ModuleGuard>
+                              }
+                            />
+                            <Route
+                              path="/crm/*"
+                              element={
+                                <ModuleGuard moduleKey="crm">
+                                  <CrmModule />
+                                </ModuleGuard>
+                              }
+                            />
+                            <Route path="/workspace-admin" element={<ClientAdminDashboard />} />
+                          </Route>
+
+                          <Route
+                            path="/clients"
+                            element={<Navigate to="/billing/clients" replace />}
                           />
 
                           <Route
-                            path="/pricing"
-                            element={
-                              <AuthGuard>
-                                <Pricing />
-                              </AuthGuard>
-                            }
+                            path="/vendors"
+                            element={<Navigate to="/billing/vendors" replace />}
                           />
 
                           <Route
-                            path="/settings"
-                            element={
-                              <AuthGuard>
-                                <Settings />
-                              </AuthGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/users"
-                            element={
-                              <AuthGuard>
-                                <UsersPage />
-                              </AuthGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/members"
-                            element={
-                              <AuthGuard>
-                                <MembersPage />
-                              </AuthGuard>
-                            }
-                          />
-
-                          {/* Protected Module Routes */}
-                          <Route
-                            path="/payroll/*"
-                            element={
-                              <ModuleGuard moduleKey="payroll">
-                                <PayrollModule />
-                              </ModuleGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/ledger/*"
-                            element={
-                              <ModuleGuard moduleKey="ledger">
-                                <LedgerModule />
-                              </ModuleGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/billing/*"
-                            element={
-                              <ModuleGuard moduleKey="billing">
-                                <BillingModule />
-                              </ModuleGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/calculation/*"
-                            element={
-                              <ModuleGuard moduleKey="hisab">
-                                <HisabModule />
-                              </ModuleGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/inventory/*"
-                            element={
-                              <ModuleGuard moduleKey="inventory">
-                                <InventoryModule />
-                              </ModuleGuard>
-                            }
-                          />
-
-                          <Route
-                            path="/crm/*"
-                            element={
-                              <ModuleGuard moduleKey="crm">
-                                <CrmModule />
-                              </ModuleGuard>
-                            }
-                          />
-
-                          {/* Platform Owner Dashboard */}
-                          <Route
-                            path="/workspace-admin"
-                            element={
-                              <AuthGuard>
-                                <ClientAdminDashboard />
-                              </AuthGuard>
-                            }
-                          />
-
-                          {/* Dynamic Redirects for conflicting absolute paths in modules */}
-                          <Route path="/products" element={<DynamicProductsRedirect />} />
-                          <Route path="/settings" element={<DynamicSettingsRedirect />} />
-                          <Route
-                            path="/my-profile"
-                            element={
-                              <AuthGuard>
-                                <MyProfilePage />
-                              </AuthGuard>
-                            }
+                            path="/employees"
+                            element={<Navigate to="/payroll/employees" replace />}
                           />
                           <Route path="/reports" element={<DynamicReportsRedirect />} />
                           <Route path="/history" element={<DynamicHistoryRedirect />} />

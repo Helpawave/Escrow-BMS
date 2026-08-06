@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
-type Role = "admin" | "hr_manager" | "manager" | "employee";
+type Role = "admin" | "accountant" | "sales" | "hr" | "view" | "custom";
 
 type TeamMember = {
   id: string;
@@ -30,16 +30,20 @@ type TeamMember = {
 
 const roleLabels: Record<Role, string> = {
   admin: "Admin",
-  hr_manager: "HR Manager",
-  manager: "Manager",
-  employee: "Employee",
+  accountant: "Accountant",
+  sales: "Sales",
+  hr: "HR",
+  view: "View Only",
+  custom: "Custom",
 };
 
 const roleColors: Record<Role, string> = {
-  admin: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
-  hr_manager: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-  manager: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20",
-  employee: "bg-muted text-muted-foreground border-border",
+  admin: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+  accountant: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
+  sales: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  hr: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  view: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  custom: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
 };
 
 // No hardcoded data — loaded from Supabase profiles
@@ -66,7 +70,7 @@ export function TeamManagement() {
         id: p.id,
         name: p.full_name || p.email || 'Unknown',
         email: p.email || '',
-        role: (['admin', 'hr_manager', 'manager', 'employee'].includes(p.role) ? p.role : 'employee') as Role,
+        role: (['admin', 'accountant', 'sales', 'hr', 'view', 'custom'].includes(p.role) ? p.role : 'custom') as Role,
         status: p.is_allowed !== false ? 'active' : 'invited',
         addedAt: p.created_at?.substring(0, 10) || '',
       }));
@@ -191,10 +195,12 @@ export function TeamManagement() {
                     <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="hr_manager">HR Manager</SelectItem>
-                    <SelectItem value="manager">Manager</SelectItem>
-                    <SelectItem value="employee">Employee</SelectItem>
+                    <SelectItem value="admin">Admin (Full Access)</SelectItem>
+                    <SelectItem value="accountant">Accountant (Ledger, Billing, Daily Calc, Inventory)</SelectItem>
+                    <SelectItem value="sales">Sales (CRM)</SelectItem>
+                    <SelectItem value="hr">HR (Payroll & HR)</SelectItem>
+                    <SelectItem value="view">View Only (Read-Only across all modules)</SelectItem>
+                    <SelectItem value="custom">Custom (Configurable Permissions)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -131,46 +131,7 @@ export const Settings = () => {
           </CardContent>
         </Card>
 
-        {/* User Management */}
-        <Card className="glass-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />
-              User Management
-            </CardTitle>
-            <CardDescription>
-              Manage team members and their access permissions.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <div className="font-medium">John Doe</div>
-                  <div className="text-sm text-muted-foreground">john@techcorp.com</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge>Owner</Badge>
-                  <span className="text-sm text-muted-foreground">Last login: 2 hours ago</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <div className="font-medium">Sarah Wilson</div>
-                  <div className="text-sm text-muted-foreground">sarah@techcorp.com</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">Admin</Badge>
-                  <span className="text-sm text-muted-foreground">Last login: 1 day ago</span>
-                </div>
-              </div>
-            </div>
-            <Button variant="outline">
-              <Users className="h-4 w-4 mr-2" />
-              Invite User
-            </Button>
-          </CardContent>
-        </Card>
+
 
         {/* Notifications */}
         <Card className="glass-card">

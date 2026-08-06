@@ -181,6 +181,7 @@ export async function postPayrollToExpenses(payload: ERPPayrollPostingPayload) {
         amount: payload.totalSalary,
         category: 'Salaries & Payroll',
         expense_date: new Date().toISOString().split('T')[0],
+        date: new Date().toISOString().split('T')[0],
         notes: `[ERP Auto-Generated] Monthly salary payout for ${payload.employeeCount} staff members.`
       }]);
     } catch (expErr) {

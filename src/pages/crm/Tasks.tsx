@@ -175,8 +175,19 @@ const KanbanColumn: React.FC<ColumnProps> = ({
       {/* Cards List */}
       <div className="p-4 space-y-3.5 overflow-y-auto min-h-[150px] flex-grow">
         {tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 px-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-slate-400 dark:text-slate-500 text-xs text-center font-medium">
-            Empty Column
+          <div className="flex flex-col items-center justify-center py-10 px-4 border border-dashed border-slate-200/80 dark:border-slate-800 rounded-xl text-center space-y-2">
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+              {status === 'todo' && 'No pending tasks'}
+              {status === 'progress' && 'No active tasks in progress'}
+              {status === 'review' && 'No tasks in review'}
+              {status === 'done' && 'No completed tasks yet'}
+            </p>
+            <p className="text-[11px] text-slate-400/80 dark:text-slate-600 max-w-[160px] leading-tight">
+              {status === 'todo' && 'Add follow-up items or deal tasks'}
+              {status === 'progress' && 'Drag tasks here when work begins'}
+              {status === 'review' && 'Drag tasks here for approval'}
+              {status === 'done' && 'Completed tasks will appear here'}
+            </p>
           </div>
         ) : (
           tasks.map(task => {

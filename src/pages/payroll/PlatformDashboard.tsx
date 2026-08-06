@@ -143,8 +143,7 @@ const PlatformDashboard = () => {
   const activeCount = companies.filter((c) => c.is_active).length;
 
   return (
-    <AppLayout title="Platform Administration">
-      <div className="space-y-6">
+    <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Companies" value={companies.length.toString()} subtitle={`${activeCount} active`} icon={Building2} />
           <StatCard title="Total Users" value={totalUsers.toString()} subtitle="Across all companies" icon={Users} />
@@ -283,7 +282,6 @@ const PlatformDashboard = () => {
             </table>
           </div>
         )}
-      </div>
 
       {/* Add Company Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
@@ -363,7 +361,7 @@ const PlatformDashboard = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </div>
   );
 };
 

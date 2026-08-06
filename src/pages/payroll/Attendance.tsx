@@ -237,8 +237,7 @@ const Attendance = () => {
   const avgM = workingCount > 0 ? Math.round((totalMinutes / workingCount) % 60) : 0;
 
   return (
-    <AppLayout title={t("Attendance")}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Employee Self-Service Check In/Out - only for HR, Manager, Employee */}
         {canCheckInOut && (
         <section className="rounded-xl border-2 border-dashed border-primary/30 bg-gradient-to-br from-primary/5 to-transparent p-6">
@@ -390,7 +389,6 @@ const Attendance = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
       <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
         <DialogContent className="sm:max-w-md">
@@ -416,7 +414,7 @@ const Attendance = () => {
           </div>
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </div>
   );
 };
 

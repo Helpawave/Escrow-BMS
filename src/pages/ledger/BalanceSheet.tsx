@@ -68,43 +68,53 @@ const BalanceSheet = () => {
   const fetchData = async () => {
     if (!user) return;
     try {
-      // Fetch parties and their latest transaction in a single query using nested limits
+      // Step 1: Fetch all parties for this user
       const { data: partiesData, error: partiesError } = await supabase
         .from('parties')
-        .select(`
-          id,
-          party_name,
-          sr_no,
-          status,
-          system_type,
-          transactions (
-            balance,
-            transaction_date,
-            created_at
-          )
-        `)
+        .select('id, party_name, sr_no, status, system_type')
         .eq('user_id', user.id)
-        .order('transaction_date', { foreignTable: 'transactions', ascending: false })
-        .order('created_at', { foreignTable: 'transactions', ascending: false })
-        .limit(1, { foreignTable: 'transactions' });
+        .order('party_name', { ascending: true });
 
       if (partiesError) throw partiesError;
 
-      // Combine parties with their latest balance
-      const mappedParties: PartyBalance[] = (partiesData || []).map(p => {
-        const tns = p.transactions as any[];
-        const bal = tns && tns.length > 0 ? tns[0].balance : 0;
-        return {
-          id: p.id,
-          party_name: p.party_name,
-          sr_no: p.sr_no,
-          status: p.status as 'take' | 'give',
-          system_type: p.system_type as 'normal' | 'commission' | 'escrow',
-          balance: bal
-        };
-      });
+      if (!partiesData || partiesData.length === 0) {
+        setParties([]);
+        setLoading(false);
+        return;
+      }
 
-      // Sort by sr_no or name for consistent display
+      // Step 2: Fetch latest balance per party using a separate query
+      // Get most recent transaction balance for each party
+      const partyIds = partiesData.map(p => p.id);
+      const { data: latestTxns, error: txnError } = await supabase
+        .from('transactions')
+        .select('party_id, balance, transaction_date, created_at')
+        .eq('user_id', user.id)
+        .in('party_id', partyIds)
+        .order('transaction_date', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (txnError) throw txnError;
+
+      // Build a map: partyId → latest balance (first occurrence wins since sorted desc)
+      const balanceMap = new Map<string, number>();
+      for (const txn of (latestTxns || [])) {
+        if (!balanceMap.has(txn.party_id)) {
+          balanceMap.set(txn.party_id, Number(txn.balance));
+        }
+      }
+
+      // Combine parties with their latest balance
+      const mappedParties: PartyBalance[] = partiesData.map(p => ({
+        id: p.id,
+        party_name: p.party_name,
+        sr_no: p.sr_no,
+        status: p.status as 'take' | 'give',
+        system_type: p.system_type as 'normal' | 'commission' | 'escrow',
+        balance: balanceMap.get(p.id) ?? 0
+      }));
+
+      // Sort by sr_no numerically, then alphabetically
       mappedParties.sort((a, b) => {
         const numA = parseInt(a.sr_no) || 0;
         const numB = parseInt(b.sr_no) || 0;
@@ -114,11 +124,12 @@ const BalanceSheet = () => {
       setParties(mappedParties);
       try {
         localStorage.setItem('cached_balance_sheet', JSON.stringify(mappedParties));
-      } catch (e) {
-        console.error('Error caching balance sheet:', e);
+      } catch {
+        // localStorage quota exceeded — non-fatal
       }
     } catch (err) {
-      console.error('Error fetching trial balance data:', err);
+      const e = err as any;
+      console.warn('Error fetching trial balance data:', e?.message, '| code:', e?.code, '| details:', e?.details, '| hint:', e?.hint);
     } finally {
       setLoading(false);
     }

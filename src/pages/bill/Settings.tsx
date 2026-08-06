@@ -294,7 +294,7 @@ const SettingsPage = () => {
   const [confirmTemplateCheck, setConfirmTemplateCheck] = useState(false);
   const [pendingTemplateId, setPendingTemplateId] = useState<UserSettings['invoice_template'] | null>(null);
 
-  const [bankOptions, setBankOptions] = useState<string[]>([]);
+  const [bankOptions, setBankOptions] = useState<string[]>(FALLBACK_BANKS);
   const { user, signOut, isTrialActive, trialDaysRemaining } = useAuth();
   const { theme, setTheme } = useTheme();
   const { setCurrencySymbol } = useCurrency();
@@ -735,20 +735,13 @@ const SettingsPage = () => {
         const { data, error } = await supabase.functions.invoke('banks-fetch', {
           headers: { "Content-Type": "application/json" },
         });
-        if (error) {
-          console.warn('Failed to fetch bank list from Supabase:', error);
-          setBankOptions(FALLBACK_BANKS);
-          return;
-        }
+        if (error) return;
         const banks = (data as { banks?: string[] } | null)?.banks;
         if (banks && banks.length > 0) {
           setBankOptions(banks);
-        } else {
-          setBankOptions(FALLBACK_BANKS);
         }
-      } catch (error) {
-        console.warn('Failed to fetch bank list, falling back to defaults.', error);
-        setBankOptions(FALLBACK_BANKS);
+      } catch {
+        // Silently fallback to default bank options
       }
     };
 

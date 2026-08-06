@@ -293,33 +293,19 @@ function ThreeDBackground({ isDark }: { isDark: boolean }) {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
       {/* 3D Canvas Layer */}
-      <canvas ref={canvasRef} className="w-full h-full block opacity-90 dark:opacity-85" />
+      <canvas ref={canvasRef} className="w-full h-full block opacity-35 dark:opacity-25" />
 
-      {/* Floating 3D Glowing Ambient Orbs */}
+      {/* Subtle Background Accent */}
       <div
-        className={`absolute top-10 left-12 w-80 h-80 rounded-full blur-3xl animate-pulse ${
-          isDark
-            ? 'bg-gradient-to-tr from-blue-600/35 via-violet-600/30 to-cyan-500/25 shadow-[0_0_150px_rgba(59,130,246,0.5)]'
-            : 'bg-gradient-to-tr from-blue-300/50 via-indigo-200/50 to-sky-300/50 shadow-[0_30px_80px_rgba(99,102,241,0.25)]'
-        }`}
-        style={{ animationDuration: '8s' }}
+        className={`absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.08),transparent_60%)]`}
       />
 
-      <div
-        className={`absolute bottom-12 right-12 w-96 h-96 rounded-full blur-3xl animate-pulse ${
-          isDark
-            ? 'bg-gradient-to-br from-emerald-500/30 via-teal-600/25 to-blue-600/30 shadow-[0_0_160px_rgba(16,185,129,0.4)]'
-            : 'bg-gradient-to-br from-indigo-200/50 via-blue-200/50 to-purple-200/50 shadow-[0_35px_90px_rgba(56,189,248,0.25)]'
-        }`}
-        style={{ animationDuration: '10s', animationDelay: '-4s' }}
-      />
-
-      {/* Light / Dark Ambient Ray Overlay */}
+      {/* Light / Dark Ambient Overlay */}
       <div
         className={`absolute inset-0 bg-gradient-to-b ${
           isDark
-            ? 'from-blue-950/20 via-transparent to-[#05080f]'
-            : 'from-blue-50/50 via-transparent to-slate-50'
+            ? 'from-transparent via-slate-950/40 to-[#05080f]'
+            : 'from-transparent via-slate-50/40 to-slate-50'
         }`}
       />
     </div>

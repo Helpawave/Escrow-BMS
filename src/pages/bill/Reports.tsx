@@ -504,12 +504,14 @@ const ReportsPage = () => {
               )
             )
           `)
+          .eq('user_id', user.id)
           .gte('created_at', startISO)
           .lte('created_at', endISO)
           .order('created_at', { ascending: false }),
         supabase
           .from('expenses')
           .select('*')
+          .eq('user_id', user.id)
           .gte('expense_date', startDateOnly)
           .lte('expense_date', endDateOnly)
           .order('expense_date', { ascending: false }),
@@ -698,7 +700,8 @@ const ReportsPage = () => {
       setItemsReports(itemsReportData);
 
     } catch (error) {
-      console.error('Error fetching reports data:', error);
+      const e = error as any;
+      console.error('Error fetching reports data:', e?.message, '| code:', e?.code, '| details:', e?.details);
       toast({ variant: "destructive", title: "Error", description: "Failed to load reports data." });
     } finally {
       setLoading(false);

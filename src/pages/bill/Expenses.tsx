@@ -212,7 +212,7 @@ const ExpensesPage = () => {
         const expenseDate = formData.expense_date || new Date().toISOString().split('T')[0];
         const { error, data: insertedData } = await supabase
           .from('expenses')
-          .insert([{ id: crypto.randomUUID(), ...formData, expense_date: expenseDate, user_id: activeUserId }])
+          .insert([{ id: crypto.randomUUID(), ...formData, expense_date: expenseDate, date: expenseDate, user_id: activeUserId }])
           .select();
 
         if (error) throw error;

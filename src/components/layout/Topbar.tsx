@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { Menu, Bell, Sun, Moon, User, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { Menu, Bell, Sun, Moon, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MODULES } from '@/lib/constants';
 
@@ -28,7 +28,6 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
   const { profile, user, signOut } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const [langOpen, setLangOpen] = React.useState(false);
-  const [avatarOpen, setAvatarOpen] = React.useState(false);
   const [dark, setDark] = React.useState(() =>
     document.documentElement.classList.contains('dark')
   );
@@ -79,11 +78,7 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
           <h1 className="text-base sm:text-lg font-black font-heading text-slate-900 dark:text-white flex items-center gap-2">
             {displayTitle}
           </h1>
-          {isInsideModule && activeModule && (
-            <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-650 dark:text-indigo-400">
-              {t(`${activeModule.key}Subtitle`)}
-            </span>
-          )}
+          {/* Title rendered cleanly without decorative APP badge */}
         </div>
 
         <div className="flex items-center gap-3">
@@ -92,8 +87,15 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
             <span className="font-bold truncate max-w-[140px]">
               {profile?.company_name || 'GenZ Collection'}
             </span>
-            <span className="px-1.5 py-0.2 bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded text-[9px] font-black tracking-wider uppercase">
-              {profile?.role === 'admin' ? 'OWNER' : 'STAFF'}
+            <span className={cn(
+              "px-2 py-0.5 rounded text-[9.5px] font-black tracking-wider uppercase border",
+              profile?.role === 'view' ? "bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800" :
+              profile?.role === 'accountant' ? "bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800" :
+              profile?.role === 'sales' ? "bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800" :
+              profile?.role === 'hr' ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800" :
+              "bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800"
+            )}>
+              {profile?.role ? (profile.role === 'view' ? 'READ-ONLY (VIEW)' : profile.role.toUpperCase()) : 'ADMIN'}
             </span>
           </div>
 
@@ -151,59 +153,23 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
             <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border-2 border-white dark:border-slate-900" />
           </button>
 
-          {/* Avatar + Profile Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setAvatarOpen(!avatarOpen)}
-              className="flex items-center gap-1.5 cursor-pointer rounded-xl p-1 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white text-xs font-bold flex items-center justify-center select-none">
-                {initials}
-              </div>
-              <span className="hidden md:inline font-bold text-xs text-slate-700 dark:text-slate-200 truncate max-w-[80px]">{displayFirstName}</span>
-              <ChevronDown className={cn("w-3.5 h-3.5 text-slate-400 hidden md:block transition-transform", avatarOpen && "rotate-180")} />
-            </button>
-
-            {avatarOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setAvatarOpen(false)} />
-                <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl py-2 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                  {/* User info header */}
-                  <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-700">
-                    <p className="font-black text-sm text-slate-900 dark:text-white truncate">{displayFirstName}</p>
-                    <p className="text-[11px] text-slate-400 truncate">{user?.email}</p>
-                  </div>
-
-                  <div className="py-1">
-                    <button
-                      onClick={() => { setAvatarOpen(false); navigate('/my-profile'); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-purple-50 dark:hover:bg-purple-950/40 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
-                    >
-                      <User className="w-4 h-4" />
-                      My Profile
-                    </button>
-                    <button
-                      onClick={() => { setAvatarOpen(false); navigate('/settings'); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                    >
-                      <Settings className="w-4 h-4" />
-                      Settings
-                    </button>
-                  </div>
-
-                  <div className="border-t border-slate-100 dark:border-slate-700 pt-1">
-                    <button
-                      onClick={() => { setAvatarOpen(false); signOut?.(); }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+          {/* Avatar + Name */}
+          <div className="flex items-center gap-1.5 px-1 rounded-xl">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white text-xs font-bold flex items-center justify-center select-none flex-shrink-0">
+              {initials}
+            </div>
+            <span className="hidden md:inline font-bold text-xs text-slate-700 dark:text-slate-200 truncate max-w-[80px]">{displayFirstName}</span>
           </div>
+
+          {/* Sign Out Button */}
+          <button
+            onClick={() => signOut?.()}
+            title="Sign Out"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
         </div>
       </div>
     </header>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -206,6 +206,7 @@ const ProductsPage = () => {
   const { currencySymbol } = useCurrency();
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState(initialSearch);
 
   // Handle specific product navigation from global search
@@ -593,28 +594,7 @@ const ProductsPage = () => {
   };
 
   const handleEdit = (product: Product) => {
-    setFormData({
-      name: product.name,
-      description: product.description || '',
-      price: product.price?.toString() || '',
-      discount: product.discount?.toString() || '',
-      tax_rate: String(product.tax_rate !== null && product.tax_rate !== undefined ? product.tax_rate : 18),
-      unit: product.unit || 'pcs',
-      category: product.category || 'general',
-      type: product.type || 'product',
-      sku: product.sku || '',
-      purchase_price: product.purchase_price?.toString() || '',
-      opening_stock: product.opening_stock ?? '',
-      price_with_tax: true,
-      hsn_code: product.hsn_code || '',
-      barcode: '',
-      alternative_unit: '',
-      as_of_date: new Date().toISOString().split('T')[0],
-      low_stock_warning: product.low_stock_warning || false,
-      vendor_id: product.vendor_id || ''
-    });
-    setEditingId(product.id);
-    setDialogOpen(true);
+    navigate(`/inventory/product/edit/${product.id}`, { state: { product } });
   };
 
   const handleDelete = async (id: string) => {
@@ -836,13 +816,17 @@ const ProductsPage = () => {
             </Button>
           </div>
 
+          <Button 
+            variant="default" 
+            size="lg" 
+            onClick={() => navigate('/inventory/products/new')} 
+            className="w-full sm:w-auto h-11 cursor-pointer font-bold shadow-sm"
+          >
+            <Plus className="w-5 h-5 mr-2" />
+            Add Product
+          </Button>
+
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="default" size="lg" onClick={resetForm} className="w-full sm:w-auto h-11">
-                <Plus className="w-5 h-5 mr-2" />
-                Add Product
-              </Button>
-            </DialogTrigger>
             <DialogContent className="sm:max-w-[90vw] lg:max-w-[850px] p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background max-h-[85vh] flex flex-col">
               <DialogHeader className="p-4 md:p-8 pb-4 shrink-0">
                 <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">

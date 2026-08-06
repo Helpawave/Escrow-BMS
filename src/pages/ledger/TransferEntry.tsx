@@ -339,42 +339,47 @@ const TransferEntry = () => {
       setLoading(true);
       setDbMissing(false);
 
-      // 1. Fetch parties of the current user
+      // Step 1: Fetch parties for this user
       const { data: partiesData, error: partiesError } = await supabase
         .from('parties')
-        .select(`
-          id,
-          party_name,
-          sr_no,
-          status,
-          system_type,
-          transactions (
-            balance,
-            transaction_date,
-            created_at
-          )
-        `)
+        .select('id, party_name, sr_no, status, system_type')
         .eq('user_id', user.id)
-        .order('transaction_date', { foreignTable: 'transactions', ascending: false })
-        .order('created_at', { foreignTable: 'transactions', ascending: false })
-        .limit(1, { foreignTable: 'transactions' });
+        .order('party_name', { ascending: true });
 
       if (partiesError) throw partiesError;
 
+      // Step 2: Fetch latest balance per party separately
+      const partyIds = (partiesData || []).map(p => p.id);
+      let balanceMap = new Map<string, number>();
+
+      if (partyIds.length > 0) {
+        const { data: latestTxns, error: txnError } = await supabase
+          .from('transactions')
+          .select('party_id, balance, transaction_date, created_at')
+          .eq('user_id', user.id)
+          .in('party_id', partyIds)
+          .order('transaction_date', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        if (txnError) throw txnError;
+
+        for (const txn of (latestTxns || [])) {
+          if (!balanceMap.has(txn.party_id)) {
+            balanceMap.set(txn.party_id, Number(txn.balance));
+          }
+        }
+      }
+
       const mappedParties: PartyBalance[] = (partiesData || [])
         .filter(p => p.system_type === 'normal')
-        .map(p => {
-          const tns = p.transactions as any[];
-          const bal = tns && tns.length > 0 ? Number(tns[0].balance) : 0;
-          return {
-            id: p.id,
-            party_name: p.party_name,
-            sr_no: p.sr_no,
-            status: p.status as 'take' | 'give',
-            system_type: p.system_type as 'normal' | 'commission' | 'escrow',
-            balance: bal
-          };
-        });
+        .map(p => ({
+          id: p.id,
+          party_name: p.party_name,
+          sr_no: p.sr_no,
+          status: p.status as 'take' | 'give',
+          system_type: p.system_type as 'normal' | 'commission' | 'escrow',
+          balance: balanceMap.get(p.id) ?? 0
+        }));
 
       // Sort consistently by sr_no/name
       mappedParties.sort((a, b) => {
@@ -393,7 +398,7 @@ const TransferEntry = () => {
       ] = await Promise.all([
         supabase
           .from('transfer_entries')
-          .select(`id, party_id, amount, final_amount, parties ( party_name )`)
+          .select('id, party_id, amount, final_amount')
           .eq('user_id', user.id)
           .order('created_at', { ascending: true }),
         supabase
@@ -514,7 +519,7 @@ const TransferEntry = () => {
           mappedLeftEntries.push({
             id: t.id,
             partyId: t.party_id,
-            partyName: (t.parties as any)?.party_name || 'Unknown',
+            partyName: party?.party_name || (t as any)?.parties?.party_name || 'Unknown',
             amount: finalAmount,
             finalAmount: finalFinalAmount
           });
@@ -631,7 +636,8 @@ const TransferEntry = () => {
         setCustomRightEntries(sortRightEntries(finalRightEntries));
       }
     } catch (err) {
-      console.error('Error fetching parties for transfer:', err);
+      const e = err as any;
+      console.error('Error fetching parties for transfer:', e?.message, '| code:', e?.code, '| details:', e?.details, '| hint:', e?.hint);
     } finally {
       setLoading(false);
     }
@@ -1067,20 +1073,20 @@ const TransferEntry = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 transfer-entry-container">
       {/* Top Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm print:hidden transition-colors duration-200">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl p-4 shadow-2xs print:hidden transition-colors duration-150">
+        <div className="flex items-center gap-3">
           <button 
             onClick={() => navigate('/dashboard')} 
-            className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl text-slate-400 dark:text-slate-500 transition-all active:scale-95"
+            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 dark:text-slate-500 transition-all active:scale-95 cursor-pointer"
             title="Go back to Dashboard"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
           </button>
-          <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100 dark:shadow-none">
-            <ArrowRightLeft className="w-6 h-6" />
-          </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Transfer Entry</h1>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <ArrowRightLeft className="w-4 h-4 text-indigo-500" />
+              <span>Transfer Entry</span>
+            </h1>
             <p className="text-slate-500 dark:text-slate-400 font-medium text-xs">Reconciliation and Transfer Ledger tool</p>
           </div>
         </div>
@@ -1089,31 +1095,31 @@ const TransferEntry = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button 
             onClick={() => fetchData(true)}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
           >
             <RefreshCcw className="w-3.5 h-3.5" />
-            Refresh Data
-          </button>
-
-          <button 
-            onClick={handleResetClick}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/20 dark:hover:bg-orange-900/30 text-orange-600 dark:text-orange-400 border border-orange-200/40 dark:border-orange-900/30 rounded-xl font-bold text-xs transition-all active:scale-95"
-          >
-            <RefreshCcw className="w-3.5 h-3.5" />
-            Reset Sheet
+            Refresh
           </button>
 
           <button 
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100 dark:shadow-none rounded-xl font-bold text-xs transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
             Print
           </button>
 
           <button 
+            onClick={handleResetClick}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/40 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-slate-200 dark:border-slate-800 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+          >
+            <RefreshCcw className="w-3.5 h-3.5" />
+            Reset Sheet
+          </button>
+
+          <button 
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-100 dark:shadow-none rounded-xl font-bold text-xs transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
           >
             <XCircle className="w-3.5 h-3.5" />
             Exit

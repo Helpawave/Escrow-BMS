@@ -26,6 +26,7 @@ export interface Transaction {
   is_finalized?: boolean;
   settlement_id?: string;
   created_at?: string;
+  updated_at?: string;
   is_modified?: boolean;
   is_checked?: boolean;
 }

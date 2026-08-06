@@ -5,8 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Sun, Moon, Building2, Globe, Shield, Bell, Palette } from "lucide-react";
-import { RolesPermissions } from "@/components/settings/RolesPermissions";
-import { TeamManagement } from "@/components/settings/TeamManagement";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -36,8 +34,7 @@ const Settings = () => {
   };
 
   return (
-    <AppLayout title="Settings">
-      <div className="space-y-8 max-w-3xl animate-fade-in">
+    <div className="space-y-8 max-w-3xl animate-fade-in">
         {/* Company Info */}
         <section className="rounded-lg border bg-card shadow-sm">
           <div className="flex items-center gap-3 px-6 py-4 border-b">
@@ -184,11 +181,7 @@ const Settings = () => {
             </div>
           </div>
         </section>
-
-        <TeamManagement />
-        <RolesPermissions />
       </div>
-    </AppLayout>
   );
 };
 

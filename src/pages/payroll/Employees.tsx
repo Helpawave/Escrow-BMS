@@ -1,4 +1,4 @@
-import { AppLayout } from "@/components/AppLayout";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -434,8 +434,7 @@ const Employees = () => {
   };
 
   return (
-    <AppLayout title={t("Employee Directory")}>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* ── Stats row ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
@@ -681,11 +680,8 @@ const Employees = () => {
             </p>
           </div>
         </div>
-      </div>
 
-      {/* ════════════════════════════════════════
-          View Profile Sheet
-      ════════════════════════════════════════ */}
+      {/* View Profile Sheet */}
       <Sheet open={!!viewEmp} onOpenChange={(o) => !o && setViewEmp(null)}>
         <SheetContent className="w-full sm:max-w-sm">
           {viewEmp && (
@@ -987,7 +983,7 @@ const Employees = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </AppLayout>
+    </div>
   );
 };
 

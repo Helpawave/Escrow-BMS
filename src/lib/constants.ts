@@ -31,7 +31,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-export type ModuleKey = 'payroll' | 'ledger' | 'billing' | 'hisab' | 'inventory' | 'crm';
+export type ModuleKey = 'payroll' | 'ledger' | 'billing' | 'hisab' | 'inventory' | 'crm' | 'members';
 
 export interface ModuleDefinition {
   key: ModuleKey;
@@ -45,15 +45,6 @@ export interface ModuleDefinition {
 }
 
 export const MODULES: ModuleDefinition[] = [
-  {
-    key: 'payroll',
-    name: 'Payroll',
-    description: 'Employee salary, attendance, leave & payslip management',
-    icon: Users,
-    route: '/payroll/employees',
-    color: 'from-violet-500 to-purple-600',
-    iconBg: 'bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400',
-  },
   {
     key: 'ledger',
     name: 'Account Ledger',
@@ -75,15 +66,6 @@ export const MODULES: ModuleDefinition[] = [
     badge: 'Popular',
   },
   {
-    key: 'hisab',
-    name: 'Daily Calculation',
-    description: 'Simple daily income & expense tracking with history',
-    icon: Calculator,
-    route: '/calculation/history',
-    color: 'from-amber-500 to-orange-600',
-    iconBg: 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400',
-  },
-  {
     key: 'inventory',
     name: 'Inventory',
     description: 'Product catalog, stock tracking, barcode scanning & reports',
@@ -101,6 +83,24 @@ export const MODULES: ModuleDefinition[] = [
     color: 'from-indigo-500 to-blue-700',
     iconBg: 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400',
   },
+  {
+    key: 'hisab',
+    name: 'Daily Calculation',
+    description: 'Simple daily income & expense tracking with history',
+    icon: Calculator,
+    route: '/calculation/history',
+    color: 'from-amber-500 to-orange-600',
+    iconBg: 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400',
+  },
+  {
+    key: 'payroll',
+    name: 'Payroll',
+    description: 'Employee salary, attendance, leave & payslip management',
+    icon: Users,
+    route: '/payroll/employees',
+    color: 'from-violet-500 to-purple-600',
+    iconBg: 'bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-400',
+  },
 ];
 
 export const MODULE_MAP = Object.fromEntries(
@@ -115,48 +115,42 @@ export interface MenuItemDefinition {
 
 export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
   payroll: [
-    { labelKey: 'employees', route: '/payroll/employees', icon: Users },
-    { labelKey: 'payrollSalary', route: '/payroll/payroll', icon: DollarSign },
-    { labelKey: 'attendance', route: '/payroll/attendance', icon: Clock },
-    { labelKey: 'leave', route: '/payroll/leave', icon: Calendar },
-    { labelKey: 'payslips', route: '/payroll/payslips', icon: FileText },
-    { labelKey: 'reports', route: '/payroll/reports', icon: TrendingUp },
+    { labelKey: 'Salary Structure', route: '/payroll/payroll', icon: DollarSign },
+    { labelKey: 'Attendance Log', route: '/payroll/attendance', icon: Clock },
+    { labelKey: 'Leave Requests', route: '/payroll/leave', icon: Calendar },
+    { labelKey: 'Payslips', route: '/payroll/payslips', icon: FileText },
   ],
   ledger: [
-    { labelKey: 'ledgerParty', route: '/ledger', icon: Users },
-    { labelKey: 'transferEntry', route: '/ledger/transfer', icon: ArrowLeftRight },
-    { labelKey: 'createParty', route: '/ledger/create/party', icon: PlusCircle },
-    { labelKey: 'balanceSheet', route: '/ledger/reports/balance-sheet', icon: FileText },
-    { labelKey: 'profitLoss', route: '/ledger/reports/profit-loss', icon: TrendingUp },
-    { labelKey: 'partiesReport', route: '/ledger/reports/parties', icon: ClipboardList },
-    { labelKey: 'transactionsReport', route: '/ledger/reports/transactions', icon: History },
+    { labelKey: 'Account Ledger', route: '/ledger', icon: Users },
+    { labelKey: 'Transfer Entry', route: '/ledger/transfer', icon: ArrowLeftRight },
+    { labelKey: 'Balance Sheet', route: '/ledger/reports/balance-sheet', icon: FileText },
+    { labelKey: 'Party Report', route: '/ledger/reports/parties', icon: ClipboardList },
   ],
   billing: [
-    { labelKey: 'salesInvoices', route: '/billing/invoices', icon: Receipt },
-    { labelKey: 'createInvoice', route: '/billing/create-invoice', icon: FilePlus },
-    { labelKey: 'purchaseInvoices', route: '/billing/purchase-invoices', icon: ShoppingBag },
-    { labelKey: 'clients', route: '/billing/clients', icon: Users },
-    { labelKey: 'vendors', route: '/billing/vendors', icon: Truck },
-    { labelKey: 'payments', route: '/billing/payments', icon: CreditCard },
-    { labelKey: 'expenses', route: '/billing/expenses', icon: Wallet },
-    { labelKey: 'products', route: '/billing/products', icon: Package },
-    { labelKey: 'eInvoice', route: '/billing/e-invoice', icon: Zap },
-    { labelKey: 'reports', route: '/billing/reports', icon: TrendingUp },
+    { labelKey: 'Create Invoice', route: '/billing/create-invoice', icon: FilePlus },
+    { labelKey: 'Sales Invoices', route: '/billing/invoices', icon: Receipt },
+    { labelKey: 'Purchase Invoices', route: '/billing/purchase-invoices', icon: ShoppingBag },
+    { labelKey: 'Payments', route: '/billing/payments', icon: CreditCard },
+    { labelKey: 'Expenses', route: '/billing/expenses', icon: Wallet },
+    { labelKey: 'E-Invoices', route: '/billing/e-invoice', icon: Zap },
   ],
   hisab: [
-    { labelKey: 'hisabHistory', route: '/calculation/history', icon: History },
+    { labelKey: 'Daily Calculation Log', route: '/calculation/history', icon: History },
   ],
   inventory: [
-    { labelKey: 'productsStock', route: '/inventory/products', icon: Package },
-    { labelKey: 'scanBarcode', route: '/inventory/scan', icon: QrCode },
-    { labelKey: 'stockHistory', route: '/inventory/history', icon: History },
-    { labelKey: 'reports', route: '/inventory/reports', icon: TrendingUp },
-    { labelKey: 'usersStaff', route: '/inventory/users', icon: Users },
+    { labelKey: 'Stock Products', route: '/inventory/products', icon: Package },
+    { labelKey: 'Scan Barcode', route: '/inventory/scan', icon: QrCode },
+    { labelKey: 'Stock History', route: '/inventory/history', icon: History },
   ],
   crm: [
-    { labelKey: 'taskBoard', route: '/crm/tasks', icon: KanbanSquare },
-    { labelKey: 'leads', route: '/crm/leads', icon: Users },
-    { labelKey: 'contacts', route: '/crm/contacts', icon: Contact },
-    { labelKey: 'analytics', route: '/crm/analytics', icon: BarChart3 },
+    { labelKey: 'Task Board', route: '/crm/tasks', icon: KanbanSquare },
+    { labelKey: 'Leads', route: '/crm/leads', icon: Users },
+    { labelKey: 'Contacts', route: '/crm/contacts', icon: Contact },
+  ],
+  members: [
+    { labelKey: 'Clients', route: '/billing/clients', icon: Users },
+    { labelKey: 'Vendors', route: '/billing/vendors', icon: Truck },
+    { labelKey: 'Parties', route: '/ledger/create/party', icon: User },
+    { labelKey: 'Employees', route: '/payroll/employees', icon: UserCog },
   ],
 };

@@ -46,7 +46,7 @@ interface SystemUser {
 }
 
 export default function UsersPage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -88,12 +88,13 @@ export default function UsersPage() {
   const [viewingUser, setViewingUser] = useState<SystemUser | null>(null);
 
   const fetchUsers = async () => {
+    if (!user) { setLoading(false); return; }
     setLoading(true);
     try {
       const [profilesRes, clientsRes, partiesRes] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('clients').select('*').order('created_at', { ascending: false }),
-        supabase.from('parties').select('*').order('created_at', { ascending: false })
+        supabase.from('profiles').select('*').eq('id', user.id).order('created_at', { ascending: false }),
+        supabase.from('clients').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('parties').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
       ]);
 
       const userMap = new Map<string, SystemUser>();
@@ -167,7 +168,7 @@ export default function UsersPage() {
 
       setUsers(Array.from(userMap.values()));
     } catch (e) {
-      console.error("Error fetching users directory:", e);
+      console.warn('Error fetching users directory:', e);
     } finally {
       setLoading(false);
     }
@@ -175,7 +176,7 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [user]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -311,8 +312,7 @@ export default function UsersPage() {
   );
 
   return (
-    <AppLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Header Banner - Blue / Cyan Styling */}
         <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 p-6 sm:p-8 rounded-3xl text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -913,7 +913,6 @@ export default function UsersPage() {
         )}
 
       </div>
-    </AppLayout>
   );
 }
 

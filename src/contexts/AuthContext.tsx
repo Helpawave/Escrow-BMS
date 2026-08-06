@@ -93,12 +93,28 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Helper for cached profile
+const getCachedProfile = (): Profile | null => {
+  try {
+    const item = localStorage.getItem('escrow_cached_profile');
+    return item ? JSON.parse(item) : null;
+  } catch {
+    return null;
+  }
+};
+
 // ── Provider ───────────────────────────────────────────────────
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(getCachedProfile);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('escrow_is_superadmin') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string, email?: string) => {
@@ -111,6 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = profileRes.data;
       if (data) {
         setProfile(data as Profile);
+        try { localStorage.setItem('escrow_cached_profile', JSON.stringify(data)); } catch { }
       } else {
         // Profile not created yet (trigger may not have fired) — create it
         const { data: created } = await supabase
@@ -118,7 +135,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .insert({ id: userId, role: 'admin' })
           .select()
           .maybeSingle();
-        if (created) setProfile(created as Profile);
+        if (created) {
+          setProfile(created as Profile);
+          try { localStorage.setItem('escrow_cached_profile', JSON.stringify(created)); } catch { }
+        }
       }
 
       // Check if user is superadmin in user_roles or email list
@@ -126,7 +146,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const hasSuperRole = roles?.some((r: any) => r.role === 'super_admin') || false;
       const superEmails = ['admin_bms@escrowbms.com', 'admin@escrowbms.com', '5213aadarsh@gmail.com'];
       const isSuperEmail = email ? superEmails.includes(email.toLowerCase()) : false;
-      setIsSuperAdmin(hasSuperRole || isSuperEmail);
+      const superVal = hasSuperRole || isSuperEmail;
+      setIsSuperAdmin(superVal);
+      try { localStorage.setItem('escrow_is_superadmin', superVal ? 'true' : 'false'); } catch { }
     } catch (e) {
       console.error('Error loading profile:', e);
     }
@@ -134,30 +156,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Restore session on mount
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session: initialSession } }) => {
+    let isMounted = true;
+
+    // Safety fallback: Ensure loading is NEVER stuck for more than 500ms
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) setLoading(false);
+    }, 500);
+
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      if (!isMounted) return;
       if (initialSession) {
         setSession(initialSession as any);
         setUser(initialSession.user as any);
-        await fetchProfile(initialSession.user.id, initialSession.user.email);
+        // Non-blocking async fetch
+        fetchProfile(initialSession.user.id, initialSession.user.email);
       }
       setLoading(false);
+      clearTimeout(safetyTimer);
+    }).catch((err) => {
+      console.error('Session get error:', err);
+      if (isMounted) setLoading(false);
+      clearTimeout(safetyTimer);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      if (!isMounted) return;
       if (currentSession) {
         setSession(currentSession as any);
         setUser(currentSession.user as any);
-        await fetchProfile(currentSession.user.id, currentSession.user.email);
+        fetchProfile(currentSession.user.id, currentSession.user.email);
       } else {
         setSession(null);
         setUser(null);
         setProfile(null);
         setIsSuperAdmin(false);
+        try {
+          localStorage.removeItem('escrow_cached_profile');
+          localStorage.removeItem('escrow_is_superadmin');
+        } catch { }
       }
       setLoading(false);
+      clearTimeout(safetyTimer);
     });
 
-    return () => { subscription.unsubscribe(); };
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const refreshProfile = async () => {
@@ -203,7 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = signIn;
   const signup = signUp;
   const logout = signOut;
-  
+
   const resetPassword = async (email?: string): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.resetPasswordForEmail(email || user?.email || '', {
       redirectTo: window.location.origin + '/auth',
@@ -258,7 +304,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const hasActiveFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
     const plan = (profile.plan_type || 'free').toLowerCase();
     const isPaid = !!profile.is_paid || hasActiveFutureExpiry || (plan !== 'free' && plan !== '' && plan !== 'null' && plan !== 'undefined');
-    
+
     // If the plan is extended by Admin or marked as paid / pro
     if (isPaid) {
       return { isSubscribed: true, isTrialActive: false, trialDaysRemaining: 0 };
@@ -268,10 +314,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const createdDate = profile.created_at ? new Date(profile.created_at) : new Date();
     const diffTime = Date.now() - createdDate.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    
+
     const daysRemaining = Math.max(0, 14 - diffDays);
     const active = diffDays < 14;
-    
+
     return {
       isSubscribed: active,
       isTrialActive: active,
@@ -280,18 +326,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [profile]);
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      profile, 
+    <AuthContext.Provider value={{
+      user,
+      session,
+      profile,
       role: profile?.role || null,
-      loading, 
-      isAdmin, 
+      loading,
+      isAdmin,
       isSuperAdmin,
-      signUp, 
-      signIn, 
-      signInWithGoogle, 
-      signOut, 
+      signUp,
+      signIn,
+      signInWithGoogle,
+      signOut,
       refreshProfile,
       login,
       signup,
@@ -310,8 +356,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isBusinessSetup,
       isSupabaseConnected: true,
       hasRole: (...rolesToCheck: string[]) => rolesToCheck.some(r => profile?.role === r || (r === 'admin' && profile?.role === 'admin') || (r === 'super_admin' && isSuperAdmin)),
-      refreshUser: async () => {},
-      checkUserApprovalStatus: async () => {}
+      refreshUser: async () => { },
+      checkUserApprovalStatus: async () => { }
     }}>
       {children}
     </AuthContext.Provider>

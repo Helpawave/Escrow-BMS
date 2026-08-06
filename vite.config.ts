@@ -21,35 +21,25 @@ export default defineConfig({
     target: "esnext",
     minify: "esbuild",
     cssMinify: true,
-    modulePreload: false,
+    modulePreload: true,
     reportCompressedSize: false,
     sourcemap: false,
-    chunkSizeWarningLimit: 3000,
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (
-              id.includes('react') ||
-              id.includes('react-dom') ||
-              id.includes('react-router') ||
-              id.includes('@radix-ui') ||
-              id.includes('cmdk') ||
-              id.includes('framer-motion') ||
-              id.includes('recharts') ||
-              id.includes('chart.js') ||
-              id.includes('react-chartjs-2')
-            ) {
-              return 'vendor-core';
+            if (id.includes('recharts') || id.includes('chart.js') || id.includes('react-chartjs-2')) {
+              return 'vendor-charts';
             }
-            if (id.includes('@supabase') || id.includes('firebase')) {
-              return 'vendor-db';
+            if (id.includes('framer-motion')) {
+              return 'vendor-motion';
             }
             if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('html2pdf') || id.includes('xlsx')) {
               return 'vendor-docs';
             }
-            if (id.includes('lucide-react') || id.includes('date-fns') || id.includes('@tanstack')) {
-              return 'vendor-utils';
+            if (id.includes('@supabase') || id.includes('firebase')) {
+              return 'vendor-db';
             }
           }
         }

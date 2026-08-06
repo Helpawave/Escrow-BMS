@@ -1,6 +1,5 @@
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2 } from 'lucide-react';
 
 // Providers
@@ -32,7 +31,7 @@ export function PayrollModule() {
   return (
     <Suspense fallback={<ModuleLoader />}>
       <Routes>
-        <Route path="/" element={<Navigate to="/payroll/employees" replace />} />
+        <Route path="/" element={<Navigate to="/payroll/payroll" replace />} />
         <Route path="/intro" element={<PayrollIntro />} />
         <Route path="/employees" element={<PayrollEmployees />} />
         <Route path="/payroll" element={<PayrollSalary />} />
@@ -42,7 +41,7 @@ export function PayrollModule() {
         <Route path="/reports" element={<PayrollReports />} />
         <Route path="/notifications" element={<PayrollNotifications />} />
         <Route path="/settings" element={<Navigate to="/settings" replace />} />
-        <Route path="*" element={<Navigate to="employees" replace />} />
+        <Route path="*" element={<Navigate to="payroll" replace />} />
       </Routes>
     </Suspense>
   );
@@ -63,25 +62,23 @@ const LedgerAdminDashboard = React.lazy(() => import('../ledger/AdminDashboard')
 
 export function LedgerModule() {
   return (
-    <AppLayout>
-      <Suspense fallback={<ModuleLoader />}>
-        <Routes>
-          <Route path="/" element={<LedgerView />} />
-          <Route path="/ledger" element={<LedgerView />} />
-          <Route path="/transfer" element={<LedgerTransfer />} />
-          <Route path="/create/party" element={<LedgerCreateParty />} />
-          <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
-          <Route path="/configure/company" element={<Navigate to="/settings?tab=business" replace />} />
-          <Route path="/reports/balance-sheet" element={<LedgerBalanceSheet />} />
-          <Route path="/reports/profit-loss" element={<LedgerProfitLoss />} />
-          <Route path="/reports/parties" element={<LedgerPartyReport />} />
-          <Route path="/reports/transactions" element={<LedgerTransactionReport />} />
-          <Route path="/admin" element={<LedgerAdminLogin />} />
-          <Route path="/admin/dashboard" element={<LedgerAdminDashboard />} />
-          <Route path="*" element={<Navigate to="" replace />} />
-        </Routes>
-      </Suspense>
-    </AppLayout>
+    <Suspense fallback={<ModuleLoader />}>
+      <Routes>
+        <Route path="/" element={<LedgerView />} />
+        <Route path="/ledger" element={<LedgerView />} />
+        <Route path="/transfer" element={<LedgerTransfer />} />
+        <Route path="/create/party" element={<LedgerCreateParty />} />
+        <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
+        <Route path="/configure/company" element={<Navigate to="/settings?tab=business" replace />} />
+        <Route path="/reports/balance-sheet" element={<LedgerBalanceSheet />} />
+        <Route path="/reports/profit-loss" element={<LedgerProfitLoss />} />
+        <Route path="/reports/parties" element={<LedgerPartyReport />} />
+        <Route path="/reports/transactions" element={<LedgerTransactionReport />} />
+        <Route path="/admin" element={<LedgerAdminLogin />} />
+        <Route path="/admin/dashboard" element={<LedgerAdminDashboard />} />
+        <Route path="*" element={<Navigate to="" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
@@ -104,30 +101,31 @@ const BillBusinessSetup = React.lazy(() => import('../bill/BusinessSetup'));
 
 export function BillingModule() {
   return (
-    <AppLayout>
-      <Suspense fallback={<ModuleLoader />}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/billing/invoices" replace />} />
-          <Route path="/invoices" element={<BillInvoices />} />
-          <Route path="/invoices/:invoiceId/edit" element={<BillCreateInvoice />} />
-          <Route path="/create-invoice" element={<BillCreateInvoice />} />
-          <Route path="/clients" element={<BillClients />} />
-          <Route path="/vendors" element={<BillVendors />} />
-          <Route path="/purchase-invoices" element={<BillPurchaseInvoices />} />
-          <Route path="/products" element={<BillProducts />} />
-          <Route path="/payments" element={<BillPayments />} />
-          <Route path="/expenses" element={<BillExpenses />} />
-          <Route path="/reports" element={<BillReports />} />
-          <Route path="/e-invoice" element={<BillEInvoice />} />
-          <Route path="/scan" element={<BillScanProduct />} />
-          <Route path="/settings" element={<Navigate to="/settings" replace />} />
-          <Route path="/admin" element={<BillAdminLogin />} />
-          <Route path="/admin/dashboard" element={<BillAdminDashboard />} />
-          <Route path="/setup-business" element={<BillBusinessSetup />} />
-          <Route path="*" element={<Navigate to="invoices" replace />} />
-        </Routes>
-      </Suspense>
-    </AppLayout>
+    <Suspense fallback={<ModuleLoader />}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/billing/invoices" replace />} />
+        <Route path="/invoices" element={<BillInvoices />} />
+        <Route path="/invoices/:invoiceId/edit" element={<BillCreateInvoice />} />
+        <Route path="/create-invoice" element={<BillCreateInvoice />} />
+        <Route path="/clients" element={<BillClients />} />
+        <Route path="/vendors" element={<BillVendors />} />
+        <Route path="/purchase-invoices" element={<BillPurchaseInvoices />} />
+        <Route path="/products" element={<BillProducts />} />
+        <Route path="/products/new" element={<InventoryAddProduct />} />
+        <Route path="/add-product" element={<InventoryAddProduct />} />
+        <Route path="/product/edit/:id" element={<InventoryEdit />} />
+        <Route path="/payments" element={<BillPayments />} />
+        <Route path="/expenses" element={<BillExpenses />} />
+        <Route path="/reports" element={<BillReports />} />
+        <Route path="/e-invoice" element={<BillEInvoice />} />
+        <Route path="/scan" element={<BillScanProduct />} />
+        <Route path="/settings" element={<Navigate to="/settings" replace />} />
+        <Route path="/admin" element={<BillAdminLogin />} />
+        <Route path="/admin/dashboard" element={<BillAdminDashboard />} />
+        <Route path="/setup-business" element={<BillBusinessSetup />} />
+        <Route path="*" element={<Navigate to="invoices" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
@@ -142,18 +140,16 @@ const HisabProfile = React.lazy(() => import('../daily-hisab/user/Profile').then
 export function HisabModule() {
   return (
     <FinanceProvider>
-      <AppLayout>
-        <Suspense fallback={<ModuleLoader />}>
-          <Routes>
-            <Route path="/" element={<Navigate to="/calculation/history" replace />} />
-            <Route path="/history" element={<HisabHistory />} />
-            <Route path="/profile" element={<HisabProfile />} />
-            <Route path="/admin" element={<HisabAdminLogin />} />
-            <Route path="/admin/dashboard" element={<HisabAdminDashboard />} />
-            <Route path="*" element={<Navigate to="history" replace />} />
-          </Routes>
-        </Suspense>
-      </AppLayout>
+      <Suspense fallback={<ModuleLoader />}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/calculation/history" replace />} />
+          <Route path="/history" element={<HisabHistory />} />
+          <Route path="/profile" element={<HisabProfile />} />
+          <Route path="/admin" element={<HisabAdminLogin />} />
+          <Route path="/admin/dashboard" element={<HisabAdminDashboard />} />
+          <Route path="*" element={<Navigate to="history" replace />} />
+        </Routes>
+      </Suspense>
     </FinanceProvider>
   );
 }
@@ -161,6 +157,7 @@ export function HisabModule() {
 // 5. Inventory Pages (Lazy Loaded)
 const InventoryDashboard = React.lazy(() => import('../inventory/Dashboard').then(m => ({ default: m.Dashboard })));
 const InventoryProducts = React.lazy(() => import('../inventory/Products').then(m => ({ default: m.Products })));
+const InventoryAddProduct = React.lazy(() => import('../inventory/AddProduct').then(m => ({ default: m.AddProduct })));
 const InventoryDetails = React.lazy(() => import('../inventory/ProductDetails').then(m => ({ default: m.ProductDetails })));
 const InventoryEdit = React.lazy(() => import('../inventory/EditProduct').then(m => ({ default: m.EditProduct })));
 const InventoryScan = React.lazy(() => import('../inventory/ScanPage').then(m => ({ default: m.ScanPage })));
@@ -172,22 +169,22 @@ export function InventoryModule() {
   return (
     <NotificationProvider>
       <ProductsProvider>
-        <AppLayout>
-          <Suspense fallback={<ModuleLoader />}>
-            <Routes>
-              <Route path="/" element={<Navigate to="/inventory/products" replace />} />
-              <Route path="/products" element={<InventoryProducts />} />
-              <Route path="/product/:id" element={<InventoryDetails />} />
-              <Route path="/product/edit/:id" element={<InventoryEdit />} />
-              <Route path="/scan" element={<InventoryScan />} />
-              <Route path="/history" element={<InventoryHistory />} />
-              <Route path="/reports" element={<InventoryReports />} />
-              <Route path="/settings" element={<Navigate to="/settings" replace />} />
-              <Route path="/users" element={<InventoryUsers />} />
-              <Route path="*" element={<Navigate to="" replace />} />
-            </Routes>
-          </Suspense>
-        </AppLayout>
+        <Suspense fallback={<ModuleLoader />}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/inventory/products" replace />} />
+            <Route path="/products" element={<InventoryProducts />} />
+            <Route path="/products/new" element={<InventoryAddProduct />} />
+            <Route path="/add-product" element={<InventoryAddProduct />} />
+            <Route path="/product/:id" element={<InventoryDetails />} />
+            <Route path="/product/edit/:id" element={<InventoryEdit />} />
+            <Route path="/scan" element={<InventoryScan />} />
+            <Route path="/history" element={<InventoryHistory />} />
+            <Route path="/reports" element={<InventoryReports />} />
+            <Route path="/settings" element={<Navigate to="/settings" replace />} />
+            <Route path="/users" element={<InventoryUsers />} />
+            <Route path="*" element={<Navigate to="" replace />} />
+          </Routes>
+        </Suspense>
       </ProductsProvider>
     </NotificationProvider>
   );

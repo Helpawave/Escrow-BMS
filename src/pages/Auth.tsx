@@ -194,37 +194,35 @@ export default function Auth() {
         <main className="flex-grow flex flex-col lg:flex-row max-w-7xl mx-auto w-full p-4 lg:p-8 gap-8 items-center lg:items-stretch justify-center">
           
           {/* Left Panel: Selected Plan Info / Product features showcase */}
-          <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-950 rounded-3xl p-10 flex-col justify-between text-white relative overflow-hidden shadow-2xl border border-indigo-500/10">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(99,102,241,0.15),transparent_45%)]" />
-            
+          <div className="hidden lg:flex lg:w-1/2 bg-slate-900 dark:bg-slate-950 rounded-2xl p-10 flex-col justify-between text-white relative overflow-hidden shadow-sm border border-slate-800">
             {hasPlanSelected ? (
               // Selected Plan Showcase Details
               <div className="relative z-10 space-y-6">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 text-white rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-800 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest border border-slate-700">
                   🛒 Selected Subscription Plan
                 </div>
                 
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-black tracking-tight">
-                    You're subscribing to the <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">{PLAN_DETAILS[planParam].name}</span>
+                  <h2 className="text-2xl font-black tracking-tight text-white">
+                    You're subscribing to the <span className="text-indigo-400">{PLAN_DETAILS[planParam].name}</span>
                   </h2>
-                  <p className="text-slate-400 text-sm font-medium">
+                  <p className="text-slate-400 text-xs font-medium">
                     {PLAN_DETAILS[planParam].desc}
                   </p>
                 </div>
 
                 <div className="flex items-baseline gap-2 pt-2">
-                  <span className="text-4xl font-black">{PLAN_DETAILS[planParam].price}</span>
+                  <span className="text-3xl font-black data-mono">{PLAN_DETAILS[planParam].price}</span>
                   <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">/ billed monthly</span>
                 </div>
 
                 {/* Modules list */}
-                <div className="space-y-3 pt-6 border-t border-white/10">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Allowed Modules in your workspace</p>
+                <div className="space-y-3 pt-6 border-t border-slate-800">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Allowed Modules in your workspace</p>
                   <div className="grid grid-cols-2 gap-3">
                     {PLAN_DETAILS[planParam].modules.map((m) => (
-                      <div key={m} className="flex items-center gap-2.5 p-3 rounded-xl bg-white/5 border border-white/5 text-xs font-bold text-slate-200">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      <div key={m} className="flex items-center gap-2.5 p-3 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-semibold text-slate-200">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                         <span>{t(m)}</span>
                       </div>
                     ))}
@@ -235,30 +233,30 @@ export default function Auth() {
             ) : (
               // Default General Platform Showcase
               <div className="relative z-10 space-y-6">
-                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-white/10 text-white rounded-full text-[11px] font-black uppercase tracking-widest backdrop-blur-md border border-white/10">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[11px] font-bold uppercase tracking-widest border border-slate-700">
                   <img src="/logo.png" alt="Escrow BMS" className="w-5 h-5 object-contain" />
                   <span>Escrow Business Management Suite</span>
                 </div>
                 
                 <div className="space-y-2">
-                  <h2 className="text-3xl font-black tracking-tight leading-tight">
+                  <h2 className="text-2xl font-black tracking-tight leading-snug">
                     Simplify your business operations in one workspace
                   </h2>
-                  <p className="text-slate-400 text-sm font-medium">
+                  <p className="text-slate-400 text-xs font-medium">
                     Create invoices, reconcile ledgers, track inventory stock, and run employee payroll seamlessly.
                   </p>
                 </div>
 
-                <div className="space-y-3 pt-6 border-t border-white/10">
+                <div className="space-y-3 pt-6 border-t border-slate-800">
                   {[
                     { title: t('billing'), desc: t('billingDesc'), icon: "📄" },
                     { title: t('ledger'), desc: t('ledgerDesc'), icon: "💰" },
                     { title: t('payroll'), desc: t('payrollDesc'), icon: "👥" },
                   ].map((item, idx) => (
-                    <div key={idx} className="flex gap-4 p-3.5 rounded-2xl bg-white/5 border border-white/5">
-                      <span className="text-xl block">{item.icon}</span>
+                    <div key={idx} className="flex gap-4 p-3.5 rounded-xl bg-slate-800/60 border border-slate-800">
+                      <span className="text-lg block">{item.icon}</span>
                       <div>
-                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-100">{item.title}</h4>
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">{item.title}</h4>
                         <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{item.desc}</p>
                       </div>
                     </div>
@@ -266,20 +264,18 @@ export default function Auth() {
                 </div>
               </div>
             )}
-
-
           </div>
 
           {/* Right Panel: Authentication Form Gated like request callback form */}
           <div className="flex-1 flex flex-col justify-center max-w-md w-full">
-            <div className="card p-8 shadow-2xl border border-slate-200/80 dark:border-slate-850 bg-white dark:bg-slate-950 rounded-3xl">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-8 shadow-xs rounded-2xl">
               
               {/* Logo Badge */}
               <div className="flex flex-col items-center text-center mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/30 flex items-center justify-center shadow-lg p-2 mb-3">
-                  <img src="/logo.png" alt="Escrow BMS" className="w-12 h-12 object-contain" />
+                <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center p-2 mb-2">
+                  <img src="/logo.png" alt="Escrow BMS" className="w-8 h-8 object-contain" />
                 </div>
-                <h3 className="font-heading font-black text-slate-900 dark:text-white text-lg tracking-tight">Escrow BMS</h3>
+                <h3 className="font-heading font-black text-slate-900 dark:text-white text-base tracking-tight">Escrow BMS</h3>
               </div>
 
               {/* Login / Sign Up Tabs */}

@@ -35,6 +35,24 @@ import { toast } from 'sonner';
 import { syncMemberToPayroll, updateUserAcrossAllModules } from '@/utils/erpPosting';
 import { formatSalaryDisplay, calculateSalaryBreakdown } from '@/pages/payroll/Employees';
 
+const PRESET_ROLES = [
+  { key: 'admin', label: '👑 Admin', modules: ['billing', 'ledger', 'payroll', 'inventory', 'crm', 'hisab'] as ModuleKey[] },
+  { key: 'accountant', label: '📊 Accountant', modules: ['billing', 'ledger', 'inventory', 'hisab'] as ModuleKey[] },
+  { key: 'sales', label: '💼 Sales', modules: ['crm'] as ModuleKey[] },
+  { key: 'hr', label: '👥 HR', modules: ['payroll'] as ModuleKey[] },
+  { key: 'view', label: '👁️ View Only', modules: ['billing', 'ledger', 'payroll', 'inventory', 'crm', 'hisab'] as ModuleKey[] },
+  { key: 'custom', label: '⚙️ Custom', modules: null }
+];
+
+function getMatchingRoleKey(modules: ModuleKey[]): string {
+  if (!modules || modules.length === 0) return 'custom';
+  if (modules.length === 4 && ['billing', 'ledger', 'inventory', 'hisab'].every(m => modules.includes(m as any))) return 'accountant';
+  if (modules.length === 1 && modules.includes('crm' as any)) return 'sales';
+  if (modules.length === 1 && modules.includes('payroll' as any)) return 'hr';
+  if (modules.length === 6) return 'admin';
+  return 'custom';
+}
+
 export interface CompanyMember {
   id: string;
   full_name: string;
@@ -79,11 +97,13 @@ export default function MembersPage() {
   const [memberEmail, setMemberEmail] = useState('');
   const [memberDepartment, setMemberDepartment] = useState('Billing & Sales Dept');
   const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(['billing']);
+  const [inviteRole, setInviteRole] = useState<string>('custom');
 
   // Modal State - Edit & Double Verification
   const [editingMember, setEditingMember] = useState<CompanyMember | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEditConfirmModal, setShowEditConfirmModal] = useState(false);
+  const [editRole, setEditRole] = useState<string>('custom');
   const [editForm, setEditForm] = useState<{
     full_name: string;
     email: string;
@@ -186,6 +206,7 @@ export default function MembersPage() {
       salary: (member as any).salary || '600000',
       allowed_modules: [...member.allowed_modules]
     });
+    setEditRole(getMatchingRoleKey(member.allowed_modules));
     setShowEditModal(true);
   };
 
@@ -263,8 +284,7 @@ export default function MembersPage() {
   );
 
   return (
-    <AppLayout>
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Purple / Indigo Header Banner for Members */}
         <div className="bg-gradient-to-r from-purple-700 via-indigo-700 to-violet-800 p-6 sm:p-8 rounded-3xl text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -763,7 +783,38 @@ export default function MembersPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-2">Granted Department Read & Write Rights</label>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                    <span>Assign System Role</span>
+                    <span className="text-[10px] text-purple-600 font-extrabold uppercase">Preset Auto-Config</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5 mb-3">
+                    {PRESET_ROLES.map((r) => {
+                      const isSelected = inviteRole === r.key;
+                      return (
+                        <button
+                          key={r.key}
+                          type="button"
+                          onClick={() => {
+                            setInviteRole(r.key);
+                            if (r.modules !== null) {
+                              setSelectedModules(r.modules);
+                            }
+                          }}
+                          className={cn(
+                            "px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all text-left truncate cursor-pointer flex items-center justify-between",
+                            isSelected
+                              ? "bg-purple-600 text-white border-purple-600 shadow-xs ring-2 ring-purple-500/30"
+                              : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
+                          )}
+                        >
+                          <span className="truncate">{r.label}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-white flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-2">Granted Module Access Rights</label>
                   <div className="grid grid-cols-2 gap-2">
                     {MODULES.map((mod) => {
                       const selected = selectedModules.includes(mod.key);
@@ -772,19 +823,26 @@ export default function MembersPage() {
                           key={mod.key}
                           type="button"
                           onClick={() => {
-                            setSelectedModules(prev => 
-                              selected ? prev.filter(m => m !== mod.key) : [...prev, mod.key]
-                            );
+                            const nextModules = selected
+                              ? selectedModules.filter(m => m !== mod.key)
+                              : [...selectedModules, mod.key];
+                            setSelectedModules(nextModules);
+                            setInviteRole(getMatchingRoleKey(nextModules));
                           }}
                           className={cn(
                             'p-2.5 rounded-xl text-xs font-bold flex items-center justify-between border cursor-pointer transition-all',
                             selected
-                              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-400'
-                              : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-400 shadow-2xs'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-slate-300'
                           )}
                         >
                           <span>{mod.name}</span>
-                          {selected ? <Check className="w-4 h-4 text-purple-600" /> : null}
+                          <div className={cn(
+                            "w-4 h-4 rounded-md border flex items-center justify-center transition-all",
+                            selected ? "bg-purple-600 border-purple-600 text-white" : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
+                          )}>
+                            {selected ? <Check className="w-3 h-3 text-white" /> : null}
+                          </div>
                         </button>
                       );
                     })}
@@ -806,131 +864,206 @@ export default function MembersPage() {
 
         {/* Modal: Edit Department Member (Step 1) */}
         {showEditModal && editingMember && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto animate-in zoom-in-95">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
-                <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <Edit3 className="w-5 h-5 text-purple-600" />
-                  Edit Staff Member & Rights
-                </h3>
-                <button onClick={() => setShowEditModal(false)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full shadow-2xl max-h-[92vh] overflow-hidden flex flex-col animate-in zoom-in-95">
+
+              {/* Modal Header – Purple Gradient */}
+              <div className="bg-gradient-to-r from-purple-700 to-indigo-700 px-6 py-5 flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/15 border border-white/25 flex items-center justify-center">
+                    <Edit3 className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">Edit Staff Member & Rights</h3>
+                    <p className="text-[11px] text-purple-200 mt-0.5">Update member details and module access permissions</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowEditModal(false)} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleEditSubmitStep1} className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Staff Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editForm.full_name}
-                    onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
+              {/* Scrollable Body */}
+              <div className="overflow-y-auto flex-1">
+                <form onSubmit={handleEditSubmitStep1} className="p-6 space-y-5 text-xs">
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Staff Email Address *</label>
-                  <input
-                    type="email"
-                    required
-                    value={editForm.email}
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
+                  {/* ── Section 1: Staff Info ── */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+                      <Users className="w-3.5 h-3.5 text-purple-600" />
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Staff Information</span>
+                    </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Department Division</label>
-                  <select
-                    value={editForm.department}
-                    onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="Billing & Sales Dept">Billing & Sales Dept</option>
-                    <option value="Accounts & Finance Dept">Accounts & Finance Dept</option>
-                    <option value="HR & Payroll Dept">HR & Payroll Dept</option>
-                    <option value="Stock & Inventory Dept">Stock & Inventory Dept</option>
-                    <option value="CRM & Client Relations Dept">CRM & Client Relations Dept</option>
-                    <option value="Daily Operations Dept">Daily Operations Dept</option>
-                  </select>
-                </div>
-
-                <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-black text-purple-900 dark:text-purple-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <Calculator className="w-4 h-4 text-purple-600" />
-                      Annual CTC Salary Package (₹)
-                    </label>
-                    <span className="text-[10px] text-purple-600 font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded-full">
-                      Statutory Auto-Calculator
-                    </span>
-                  </div>
-
-                  <input
-                    type="number"
-                    placeholder="e.g. 600000 (6 Lakhs)"
-                    value={(editForm as any).salary !== undefined && (editForm as any).salary !== null ? String((editForm as any).salary).replace(/[^\d]/g, '') : ''}
-                    onChange={(e) => setEditForm({ ...editForm, salary: e.target.value } as any)}
-                    className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white"
-                  />
-
-                  {(editForm as any).salary && parseFloat(String((editForm as any).salary).replace(/[^\d]/g, '')) > 0 && (() => {
-                    const b = calculateSalaryBreakdown((editForm as any).salary, true);
-                    return (
-                      <div className="mt-2 p-3 bg-white dark:bg-slate-900 border border-purple-200 rounded-xl space-y-1 text-[11px]">
-                        <div className="flex justify-between font-bold text-slate-800 dark:text-slate-200">
-                          <span>Monthly Gross CTC: ₹{b.ctcMonthly.toLocaleString('en-IN')}</span>
-                          <span className="text-emerald-600 font-black">Net In-Hand: ₹{b.netInHandMonthly.toLocaleString('en-IN')}/mo</span>
-                        </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Staff Full Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={editForm.full_name}
+                          onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs"
+                        />
                       </div>
-                    );
-                  })()}
-                </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Staff Email Address *</label>
+                        <input
+                          type="email"
+                          required
+                          value={editForm.email}
+                          onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                          className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs"
+                        />
+                      </div>
+                    </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-2">Granted Module Access Rights</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {MODULES.map((mod) => {
-                      const selected = editForm.allowed_modules.includes(mod.key);
-                      return (
-                        <button
-                          key={mod.key}
-                          type="button"
-                          onClick={() => {
-                            setEditForm(prev => ({
-                              ...prev,
-                              allowed_modules: selected
-                                ? prev.allowed_modules.filter(m => m !== mod.key)
-                                : [...prev.allowed_modules, mod.key]
-                            }));
-                          }}
-                          className={cn(
-                            'p-2.5 rounded-xl text-xs font-bold flex items-center justify-between border cursor-pointer transition-all',
-                            selected
-                              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-400'
-                              : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
-                          )}
-                        >
-                          <span>{mod.name}</span>
-                          {selected ? <Check className="w-4 h-4 text-purple-600" /> : null}
-                        </button>
-                      );
-                    })}
+                    <div>
+                      <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Department Division</label>
+                      <select
+                        value={editForm.department}
+                        onChange={(e) => setEditForm({ ...editForm, department: e.target.value })}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs"
+                      >
+                        <option value="Billing & Sales Dept">Billing & Sales Dept</option>
+                        <option value="Accounts & Finance Dept">Accounts & Finance Dept</option>
+                        <option value="HR & Payroll Dept">HR & Payroll Dept</option>
+                        <option value="Stock & Inventory Dept">Stock & Inventory Dept</option>
+                        <option value="CRM & Client Relations Dept">CRM & Client Relations Dept</option>
+                        <option value="Daily Operations Dept">Daily Operations Dept</option>
+                      </select>
+                    </div>
                   </div>
-                </div>
 
-                <div className="pt-2 flex justify-end gap-2">
-                  <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold cursor-pointer">
-                    Cancel
-                  </button>
-                  <button type="submit" className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-md cursor-pointer flex items-center gap-1">
-                    <Save className="w-4 h-4" />
-                    <span>Proceed to Verification</span>
-                  </button>
-                </div>
-              </form>
+                  {/* ── Section 2: Salary ── */}
+                  <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-purple-900 dark:text-purple-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Calculator className="w-4 h-4 text-purple-600" />
+                        Annual CTC Salary Package (₹)
+                      </label>
+                      <span className="text-[10px] text-purple-600 font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded-full">
+                        Statutory Auto-Calculator
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="e.g. 600000 (6 Lakhs)"
+                      value={(editForm as any).salary !== undefined && (editForm as any).salary !== null ? String((editForm as any).salary).replace(/[^\d]/g, '') : ''}
+                      onChange={(e) => setEditForm({ ...editForm, salary: e.target.value } as any)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl font-bold text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    {(editForm as any).salary && parseFloat(String((editForm as any).salary).replace(/[^\d]/g, '')) > 0 && (() => {
+                      const b = calculateSalaryBreakdown((editForm as any).salary, true);
+                      return (
+                        <div className="mt-2 p-3 bg-white dark:bg-slate-900 border border-purple-200 rounded-xl text-[11px]">
+                          <div className="flex justify-between font-bold text-slate-800 dark:text-slate-200">
+                            <span>Monthly Gross CTC: ₹{b.ctcMonthly.toLocaleString('en-IN')}</span>
+                            <span className="text-emerald-600 font-black">Net In-Hand: ₹{b.netInHandMonthly.toLocaleString('en-IN')}/mo</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* ── Section 3: Role Presets ── */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Assign System Role</span>
+                      <span className="ml-auto text-[9px] font-black text-purple-600 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 px-2 py-0.5 rounded-full uppercase tracking-wider">Preset Auto-Config</span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      {PRESET_ROLES.map((r) => {
+                        const isSelected = editRole === r.key;
+                        return (
+                          <button
+                            key={r.key}
+                            type="button"
+                            onClick={() => {
+                              setEditRole(r.key);
+                              if (r.modules !== null) {
+                                setEditForm(prev => ({ ...prev, allowed_modules: r.modules as ModuleKey[] }));
+                              }
+                            }}
+                            className={cn(
+                              "py-2 px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-between gap-1 cursor-pointer",
+                              isSelected
+                                ? "bg-purple-600 text-white border-purple-600 shadow-md ring-2 ring-purple-400/30"
+                                : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950/30 hover:border-purple-300"
+                            )}
+                          >
+                            <span className="truncate">{r.label}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-white flex-shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ── Section 4: Module Access ── */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+                      <Lock className="w-3.5 h-3.5 text-purple-600" />
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Granted Module Access Rights</span>
+                      <span className="ml-auto text-[10px] font-bold text-slate-500">
+                        {editForm.allowed_modules.length}/{MODULES.length} modules
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {MODULES.map((mod) => {
+                        const selected = editForm.allowed_modules.includes(mod.key);
+                        return (
+                          <button
+                            key={mod.key}
+                            type="button"
+                            onClick={() => {
+                              const nextModules = selected
+                                ? editForm.allowed_modules.filter(m => m !== mod.key)
+                                : [...editForm.allowed_modules, mod.key];
+                              setEditForm(prev => ({ ...prev, allowed_modules: nextModules }));
+                              setEditRole(getMatchingRoleKey(nextModules));
+                            }}
+                            className={cn(
+                              'p-2.5 rounded-xl text-xs font-bold flex items-center justify-between border cursor-pointer transition-all',
+                              selected
+                                ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-400'
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700 hover:border-purple-300 hover:bg-purple-50/40'
+                            )}
+                          >
+                            <span>{mod.name}</span>
+                            <div className={cn(
+                              "w-4 h-4 rounded-md border flex items-center justify-center transition-all flex-shrink-0",
+                              selected ? "bg-purple-600 border-purple-600" : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900"
+                            )}>
+                              {selected && <Check className="w-3 h-3 text-white" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ── Footer Buttons ── */}
+                  <div className="pt-1 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setShowEditModal(false)}
+                      className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-md shadow-purple-600/20 cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Save className="w-4 h-4" />
+                      Proceed to Verification
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         )}
@@ -1033,6 +1166,5 @@ export default function MembersPage() {
         )}
 
       </div>
-    </AppLayout>
   );
 }
