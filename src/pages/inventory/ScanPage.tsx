@@ -443,7 +443,12 @@ export const ScanPage = () => {
                 disabled={isCapturing}
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
               >
-                {isCapturing ? "Processing..." : "📸 Capture & Scan"}
+                {isCapturing ? "Processing..." : (
+                  <span className="flex items-center justify-center gap-2">
+                    <Camera className="w-4 h-4" />
+                    <span>Capture & Scan</span>
+                  </span>
+                )}
               </Button>
               <Button variant="outline" onClick={stopCamera} className="w-full">
                 Close Camera

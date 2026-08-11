@@ -33,10 +33,9 @@ const Dashboard = () => {
     const fetchStats = async () => {
       setLoadingStats(true);
       try {
-        const [empRes, leavesRes, runsRes] = await Promise.all([
+        const [empRes, leavesRes] = await Promise.all([
           supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active'),
           supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'pending'),
-          supabase.from('payroll_runs').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(3),
         ]);
         setEmployeeCount(empRes.count || 0);
         setPendingLeaves(leavesRes.count || 0);
@@ -46,15 +45,7 @@ const Dashboard = () => {
         const totalSalary = (salaryData || []).reduce((sum: number, e: any) => sum + Number(e.salary || 0), 0);
         setTotalPayroll(totalSalary);
 
-        const fmt = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
-        const mapped = ((runsRes.data as any[]) || []).map((r: any) => ({
-          id: r.id,
-          period: r.period || '',
-          status: (r.status?.toUpperCase() as 'DRAFT' | 'PAID' | 'LOCKED') || 'DRAFT',
-          employees: r.employee_count || 0,
-          total: fmt(r.net_amount || r.net || 0),
-        }));
-        setRecentPayrollRuns(mapped);
+        setRecentPayrollRuns([]);
       } catch {
         // Tables may not exist yet — graceful empty state
       } finally {

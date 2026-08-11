@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { MODULES } from '@/lib/constants';
-import { Zap, ArrowRight, CheckCircle2, Star, Shield, Headphones } from 'lucide-react';
+import { Zap, ArrowRight, CheckCircle2, Star, Shield, Headphones, Globe, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 
@@ -71,9 +71,10 @@ export default function Pricing() {
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-bold shadow-sm active:scale-95"
               title="Choose language / ભાષા / भाषा"
             >
-              🌐 {language === 'en' ? 'English' : language === 'hi' ? 'हिंदी' : 'ગુજરાતી'}
+              <Globe className="w-3.5 h-3.5 text-indigo-500" />
+              <span>{language === 'en' ? 'English' : language === 'hi' ? 'हिंदी' : 'ગુજરાતી'}</span>
             </button>
-            
+
             {dropdownOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
@@ -111,7 +112,10 @@ export default function Pricing() {
       <div className="max-w-6xl mx-auto px-6 py-16">
         {/* Header */}
         <div className="text-center mb-14">
-          <span className="badge badge-blue mb-4">💰 {t('pricing')}</span>
+          <span className="badge badge-blue mb-4 inline-flex items-center gap-1.5">
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>{t('pricing')}</span>
+          </span>
           <h1 className="text-4xl font-heading font-black text-slate-900 dark:text-white mb-4">
             {t('pricingTitle')}
           </h1>

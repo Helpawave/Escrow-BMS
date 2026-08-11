@@ -70,8 +70,54 @@ const VendorsPage = () => {
   const [idToDelete, setIdToDelete] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successInfo, setSuccessInfo] = useState({ title: '', message: '' });
+  const [selectedVendorIds, setSelectedVendorIds] = useState<string[]>([]);
+  const [deletingBulk, setDeletingBulk] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+
+  const toggleSelectVendor = (id: string) => {
+    setSelectedVendorIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedVendorIds.length === vendors.length && vendors.length > 0) {
+      setSelectedVendorIds([]);
+    } else {
+      setSelectedVendorIds(vendors.map(v => v.id));
+    }
+  };
+
+  const handleBulkDeleteVendors = async () => {
+    if (selectedVendorIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedVendorIds.length} selected vendors?`)) return;
+
+    setDeletingBulk(true);
+    try {
+      const { error } = await supabase
+        .from('vendors')
+        .delete()
+        .in('id', selectedVendorIds);
+
+      if (error) throw error;
+
+      toast({
+        title: "Vendors Deleted",
+        description: `Successfully removed ${selectedVendorIds.length} vendors.`
+      });
+      setSelectedVendorIds([]);
+      queryClient.invalidateQueries({ queryKey: ['vendors'] });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Deletion Failed",
+        description: err.message || "Failed to delete selected vendors."
+      });
+    } finally {
+      setDeletingBulk(false);
+    }
+  };
 
   const fetchVendors = useCallback(async () => {
     queryClient.invalidateQueries({ queryKey: ['vendors'] });
@@ -426,6 +472,24 @@ const VendorsPage = () => {
         )}
       </div>
 
+      {selectedVendorIds.length > 0 && (
+        <div className="flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-xl shadow-xs mb-4">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+            {selectedVendorIds.length} Vendor{selectedVendorIds.length > 1 ? 's' : ''} Selected
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleBulkDeleteVendors}
+            disabled={deletingBulk}
+            className="h-8 font-bold text-xs cursor-pointer flex items-center gap-1.5"
+          >
+            {deletingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            <span>Delete Selected ({selectedVendorIds.length})</span>
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="grid grid-cols-1 gap-4">
           {[...Array(6)].map((_, i) => (
@@ -450,6 +514,14 @@ const VendorsPage = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[40px]">
+                    <input
+                      type="checkbox"
+                      checked={selectedVendorIds.length === vendors.length && vendors.length > 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead>Vendor Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
@@ -461,12 +533,20 @@ const VendorsPage = () => {
                 {vendors.map((vendor) => (
                   <TableRow
                     key={vendor.id}
-                    className="cursor-pointer"
+                    className={cn("cursor-pointer", selectedVendorIds.includes(vendor.id) ? "bg-primary/5" : "")}
                     onClick={() => {
                       setSelectedVendor(vendor as Vendor);
                       setViewVendorDialog(true);
                     }}
                   >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedVendorIds.includes(vendor.id)}
+                        onChange={() => toggleSelectVendor(vendor.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">{vendor.name}</TableCell>
                     <TableCell>{vendor.email || '-'}</TableCell>
                     <TableCell>{vendor.phone || '-'}</TableCell>

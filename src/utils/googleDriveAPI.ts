@@ -198,7 +198,6 @@ export class GoogleDriveAPI {
         },
         body: new URLSearchParams({
           client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
-          client_secret: GOOGLE_DRIVE_CONFIG.CLIENT_SECRET,
           refresh_token: this.refreshToken,
           grant_type: 'refresh_token',
         }),
@@ -234,7 +233,6 @@ export class GoogleDriveAPI {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
-          client_secret: GOOGLE_DRIVE_CONFIG.CLIENT_SECRET,
           code,
           grant_type: 'authorization_code',
           redirect_uri: GOOGLE_DRIVE_CONFIG.REDIRECT_URI,

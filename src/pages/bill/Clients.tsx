@@ -63,8 +63,54 @@ const ClientsPage = () => {
   const [idToDelete, setIdToDelete] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successInfo, setSuccessInfo] = useState({ title: '', message: '' });
+  const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
+  const [deletingBulk, setDeletingBulk] = useState(false);
   const { user } = useAuth();
   const { toast } = useToast();
+
+  const toggleSelectClient = (id: string) => {
+    setSelectedClientIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedClientIds.length === clients.length && clients.length > 0) {
+      setSelectedClientIds([]);
+    } else {
+      setSelectedClientIds(clients.map(c => c.id));
+    }
+  };
+
+  const handleBulkDeleteClients = async () => {
+    if (selectedClientIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedClientIds.length} selected clients?`)) return;
+
+    setDeletingBulk(true);
+    try {
+      const { error } = await supabase
+        .from('clients')
+        .delete()
+        .in('id', selectedClientIds);
+
+      if (error) throw error;
+
+      toast({
+        title: "Clients Deleted",
+        description: `Successfully removed ${selectedClientIds.length} clients.`
+      });
+      setSelectedClientIds([]);
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Deletion Failed",
+        description: err.message || "Failed to delete selected clients."
+      });
+    } finally {
+      setDeletingBulk(false);
+    }
+  };
 
   const fetchClients = useCallback(async () => {
     queryClient.invalidateQueries({ queryKey: ['clients'] });
@@ -553,30 +599,63 @@ const ClientsPage = () => {
         </Card>
       ) : (
         <>
+          {selectedClientIds.length > 0 && (
+            <div className="flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-xl shadow-xs mb-4">
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                {selectedClientIds.length} Client{selectedClientIds.length > 1 ? 's' : ''} Selected
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBulkDeleteClients}
+                disabled={deletingBulk}
+                className="h-8 font-bold text-xs cursor-pointer flex items-center gap-1.5"
+              >
+                {deletingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                <span>Delete Selected ({selectedClientIds.length})</span>
+              </Button>
+            </div>
+          )}
+
           {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {clients.map((client) => (
                 <Card
                   key={client.id}
-                  className="group hover:border-primary transition-all cursor-pointer p-5 flex flex-col h-full"
+                  className={cn(
+                    "group transition-all cursor-pointer p-5 flex flex-col h-full relative border",
+                    selectedClientIds.includes(client.id) ? "border-primary ring-2 ring-primary/20 bg-primary/5" : "hover:border-primary"
+                  )}
                   onClick={() => {
                     setSelectedClient(client);
                     setViewClientDialog(true);
                   }}
                 >
                   <div className="flex justify-between items-start mb-4">
-                    <div className="space-y-1">
-                      <h3 className="text-lg font-bold group-hover:text-primary transition-colors">{client.name}</h3>
-                      <div className="flex flex-col gap-0.5">
-                        <p className="text-xs text-muted-foreground font-medium">{client.email || 'No email'}</p>
-                        <p className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">{client.phone || 'No phone'}</p>
-                      </div>
-                      {client.pending_amount !== undefined && client.pending_amount > 0 && (
-                        <div className="mt-2 text-rose-600 font-bold text-xs flex items-center gap-1">
-                          <CreditCard className="w-3 h-3" />
-                          Pending: ₹{client.pending_amount.toLocaleString()}
+                    <div className="flex items-start gap-3 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedClientIds.includes(client.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleSelectClient(client.id);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer mt-1"
+                      />
+                      <div className="space-y-1">
+                        <h3 className="text-lg font-bold group-hover:text-primary transition-colors">{client.name}</h3>
+                        <div className="flex flex-col gap-0.5">
+                          <p className="text-xs text-muted-foreground font-medium">{client.email || 'No email'}</p>
+                          <p className="text-[10px] text-muted-foreground/60 font-semibold uppercase tracking-wider">{client.phone || 'No phone'}</p>
                         </div>
-                      )}
+                        {client.pending_amount !== undefined && client.pending_amount > 0 && (
+                          <div className="mt-2 text-rose-600 font-bold text-xs flex items-center gap-1">
+                            <CreditCard className="w-3 h-3" />
+                            Pending: ₹{client.pending_amount.toLocaleString()}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1">
                       <Button
@@ -613,6 +692,14 @@ const ClientsPage = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[40px]">
+                      <input
+                        type="checkbox"
+                        checked={selectedClientIds.length === clients.length && clients.length > 0}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                      />
+                    </TableHead>
                     <TableHead>Client Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Phone</TableHead>
@@ -625,12 +712,20 @@ const ClientsPage = () => {
                   {clients.map((client) => (
                     <TableRow
                       key={client.id}
-                      className="cursor-pointer"
+                      className={cn("cursor-pointer", selectedClientIds.includes(client.id) ? "bg-primary/5" : "")}
                       onClick={() => {
                         setSelectedClient(client);
                         setViewClientDialog(true);
                       }}
                     >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedClientIds.includes(client.id)}
+                          onChange={() => toggleSelectClient(client.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">{client.name}</TableCell>
                       <TableCell>{client.email || '-'}</TableCell>
                       <TableCell>{client.phone || '-'}</TableCell>

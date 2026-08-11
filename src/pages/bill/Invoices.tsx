@@ -30,7 +30,7 @@ import { safelyToLocaleDate } from "@/utils/dateUtils";
 import { googleDriveAPI } from "@/utils/googleDriveAPI";
 import { SuccessModal } from "@/components/SuccessModal";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from "@/utils/invoicePDF";
-import { adjustStock } from "@/utils/inventory";
+import { adjustStock, adjustStockBatch } from "@/utils/inventory";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -729,13 +729,15 @@ const InvoicesPage = () => {
 
       if (fetchError) throw fetchError;
 
-      // Restore stock for each item if it has a product_id
+      // Restore stock for each item atomically if it has a product_id
       if (items && items.length > 0) {
-        const invoiceItems = items as unknown as { product_id: string | null; quantity: number }[];
-        for (const item of invoiceItems) {
-          if (item.product_id && item.quantity > 0) {
-            await adjustStock(item.product_id, item.quantity);
-          }
+        const deleteOpId = crypto.randomUUID();
+        const validItems = (items as unknown as { product_id: string | null; quantity: number }[])
+          .filter(i => i.product_id && i.quantity > 0)
+          .map(i => ({ product_id: i.product_id!, quantity: i.quantity }));
+
+        if (validItems.length > 0) {
+          await adjustStockBatch(validItems, 'SALE_CANCEL', invoiceToDelete.id, `${deleteOpId}:DELETE`);
         }
       }
 

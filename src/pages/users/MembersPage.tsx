@@ -36,12 +36,12 @@ import { syncMemberToPayroll, updateUserAcrossAllModules } from '@/utils/erpPost
 import { formatSalaryDisplay, calculateSalaryBreakdown } from '@/pages/payroll/Employees';
 
 const PRESET_ROLES = [
-  { key: 'admin', label: '👑 Admin', modules: ['billing', 'ledger', 'payroll', 'inventory', 'crm', 'hisab'] as ModuleKey[] },
-  { key: 'accountant', label: '📊 Accountant', modules: ['billing', 'ledger', 'inventory', 'hisab'] as ModuleKey[] },
-  { key: 'sales', label: '💼 Sales', modules: ['crm'] as ModuleKey[] },
-  { key: 'hr', label: '👥 HR', modules: ['payroll'] as ModuleKey[] },
-  { key: 'view', label: '👁️ View Only', modules: ['billing', 'ledger', 'payroll', 'inventory', 'crm', 'hisab'] as ModuleKey[] },
-  { key: 'custom', label: '⚙️ Custom', modules: null }
+  { key: 'admin', label: 'Admin', modules: ['billing', 'ledger', 'payroll', 'inventory', 'crm', 'hisab'] as ModuleKey[] },
+  { key: 'accountant', label: 'Accountant', modules: ['billing', 'ledger', 'inventory', 'hisab'] as ModuleKey[] },
+  { key: 'sales', label: 'Sales', modules: ['crm'] as ModuleKey[] },
+  { key: 'hr', label: 'HR', modules: ['payroll'] as ModuleKey[] },
+  { key: 'view', label: 'View Only', modules: ['billing', 'ledger', 'payroll', 'inventory', 'crm', 'hisab'] as ModuleKey[] },
+  { key: 'custom', label: 'Custom', modules: null }
 ];
 
 function getMatchingRoleKey(modules: ModuleKey[]): string {
@@ -1122,7 +1122,7 @@ export default function MembersPage() {
 
               <div>
                 <span className="px-2.5 py-0.5 bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 rounded-full text-[10px] font-black uppercase tracking-wider">
-                  ⚠️ Double Verification Security
+                  Double Verification Security
                 </span>
                 <h3 className="text-base font-black text-slate-900 dark:text-white mt-1">Confirm Permanent Removal?</h3>
                 <p className="text-xs text-slate-500 mt-1">

@@ -94,7 +94,7 @@ export const AdminDashboard = () => {
 
         // Load calculations count
         const { data: calculations } = await supabase
-          .from('calculation_entries')
+          .from('calculations')
           .select('id', { count: 'exact' });
         
         if (calculations) {

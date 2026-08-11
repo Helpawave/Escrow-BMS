@@ -269,6 +269,8 @@ export interface ERPUserSyncPayload {
   state?: string;
   postalCode?: string;
   country?: string;
+  isTeamMember?: boolean;
+  role?: string;
 }
 
 export interface ERPMemberSyncPayload {
@@ -283,6 +285,7 @@ export interface ERPMemberSyncPayload {
 /**
  * 5. UNIVERSAL USER & CLIENT SYNC
  * Synchronizes new system users/clients across Escrow Billing (clients), Ledger (parties & accounts), CRM (leads), and Directory (profiles).
+ * Note: Invited team members/staff use existing Admin parties and do not create separate duplicate parties.
  */
 export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
   try {
@@ -292,6 +295,9 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
     const trimmedName = payload.name.trim();
     const trimmedEmail = payload.email.trim();
     if (!trimmedName) return;
+
+    // Check if this payload represents an invited team member or staff
+    const isTeamMember = payload.isTeamMember || ['member', 'employee', 'staff', 'sub_user'].includes(payload.role?.toLowerCase() || '');
 
     // 1. Sync to Escrow Billing (clients table)
     if (userId) {
@@ -323,28 +329,41 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
         console.warn("Universal Sync to Clients warning:", cErr);
       }
 
-      // 2. Sync to Account Ledger (parties table)
-      try {
-        const { data: existingParty } = await supabase
-          .from('parties')
-          .select('id')
-          .eq('user_id', userId)
-          .ilike('party_name', trimmedName)
-          .maybeSingle();
+      // 2. Sync to Account Ledger (parties table - skip for invited team members so they share Admin parties)
+      if (!isTeamMember) {
+        try {
+          const { data: existingParty } = await supabase
+            .from('parties')
+            .select('id')
+            .eq('user_id', userId)
+            .ilike('party_name', trimmedName)
+            .maybeSingle();
 
-        if (!existingParty) {
-          await supabase.from('parties').insert([{
-            id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${Date.now()}`,
-            user_id: userId,
-            sr_no: String(Math.floor(1000 + Math.random() * 9000)),
-            party_name: trimmedName,
-            status: 'take',
-            commission_type: 'with',
-            commission_rate: 3.5
-          }]);
+          if (!existingParty) {
+            await supabase.from('parties').insert([
+              {
+                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-take-${Date.now()}`,
+                user_id: userId,
+                sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+                party_name: trimmedName,
+                status: 'take',
+                commission_type: 'with',
+                commission_rate: 3.5
+              },
+              {
+                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-give-${Date.now()}`,
+                user_id: userId,
+                sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+                party_name: `${trimmedName} (Vendor / Give)`,
+                status: 'give',
+                commission_type: 'with',
+                commission_rate: 1.0
+              }
+            ]);
+          }
+        } catch (pErr) {
+          console.warn("Universal Sync to Parties warning:", pErr);
         }
-      } catch (pErr) {
-        console.warn("Universal Sync to Parties warning:", pErr);
       }
 
       // 3. Sync to CRM (leads table)
@@ -601,5 +620,84 @@ export async function updateUserAcrossAllModules(payload: ERPUserUpdatePayload) 
     }
   } catch (err) {
     console.error("Unified Update Error:", err);
+  }
+}
+
+/**
+ * 7. AUTO INITIALIZE 2 DEFAULT LEDGER PARTIES FOR USER ACCOUNT
+ * Ensures every registered account has at least 2 parties in Account Ledger (Take & Give)
+ */
+export async function ensureDefaultLedgerParties(userId: string) {
+  if (!userId) return;
+  try {
+    const { data: existingParties } = await supabase
+      .from('parties')
+      .select('id, party_name, system_type')
+      .eq('user_id', userId);
+
+    const partyNames = (existingParties || []).map(p => p.party_name?.toLowerCase());
+    const newPartiesToInsert: any[] = [];
+
+    // 1. Ensure Company Account exists (System Account for Ledger 3-Way Split)
+    if (!partyNames.includes('company account')) {
+      newPartiesToInsert.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-comp-${Date.now()}`,
+        user_id: userId,
+        sr_no: 'C-01',
+        party_name: 'Company Account',
+        status: 'take',
+        commission_type: 'without',
+        commission_rate: 0,
+        system_type: 'company'
+      });
+    }
+
+    // 2. Ensure Commission Account exists (System Account for Ledger Auto Commission)
+    if (!partyNames.includes('commission account')) {
+      newPartiesToInsert.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-comm-${Date.now()}`,
+        user_id: userId,
+        sr_no: 'C-02',
+        party_name: 'Commission Account',
+        status: 'take',
+        commission_type: 'without',
+        commission_rate: 0,
+        system_type: 'commission'
+      });
+    }
+
+    // 3. Ensure Cash Account (Take)
+    if (!partyNames.includes('cash account (general)')) {
+      newPartiesToInsert.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-cash-${Date.now()}`,
+        user_id: userId,
+        sr_no: '1',
+        party_name: 'Cash Account (General)',
+        status: 'take',
+        commission_type: 'with',
+        commission_rate: 3.5,
+        system_type: 'normal'
+      });
+    }
+
+    // 4. Ensure General Market Supplier (Give)
+    if (!partyNames.includes('general market supplier')) {
+      newPartiesToInsert.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-supplier-${Date.now()}`,
+        user_id: userId,
+        sr_no: '2',
+        party_name: 'General Market Supplier',
+        status: 'give',
+        commission_type: 'with',
+        commission_rate: 1.0,
+        system_type: 'normal'
+      });
+    }
+
+    if (newPartiesToInsert.length > 0) {
+      await supabase.from('parties').insert(newPartiesToInsert);
+    }
+  } catch (err) {
+    console.warn("Auto ledger parties initialization warning:", err);
   }
 }

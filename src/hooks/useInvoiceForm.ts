@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Client, Product, Vendor, InvoiceItem, Invoice, PurchaseInvoice, Expense } from '@/types/invoice';
-import { adjustStock } from '@/utils/inventory';
+import { adjustStock, adjustStockBatch } from '@/utils/inventory';
 import { postInvoiceToLedger } from '@/utils/erpPosting';
 import { calculateItemAmount as calcItemAmount, generateInvoiceNumber as genInvNum } from '@/utils/invoice-helpers';
 import { type HSNCode } from '@/types/hsn';
@@ -155,10 +155,12 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   }, [user]);
 
   const fetchClients = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from('clients')
         .select('*')
+        .eq('user_id', user.id)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -171,13 +173,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         description: "Failed to load clients."
       });
     }
-  }, [toast]);
+  }, [user, toast]);
 
   const fetchVendors = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from('vendors')
         .select('*')
+        .eq('user_id', user.id)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -185,13 +189,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } catch (error) {
       console.error('Error fetching vendors:', error);
     }
-  }, []);
+  }, [user]);
 
   const fetchProducts = useCallback(async () => {
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .eq('user_id', user.id)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -206,7 +212,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [user, toast]);
 
   const isUUID = (str?: string) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
@@ -633,25 +639,14 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           // Table purchase_invoice_items may not exist in schema, proceed with stock update
         }
 
-        // Increment stock for purchase
-        for (const item of items) {
-          if (item.product_id && item.quantity > 0) {
-            const { data: productData } = await supabase
-              .from('products')
-              .select('opening_stock')
-              .eq('id', item.product_id)
-              .single();
-
-            if (productData) {
-              const currentStock = parseFloat((productData as unknown as { opening_stock: string }).opening_stock) || 0;
-              const newStock = currentStock + item.quantity;
-              await supabase
-                .from('products')
-                .update({ opening_stock: newStock.toString() })
-                .eq('id', item.product_id);
-            }
-          }
-        }
+        // Atomic batch stock increment for purchase bill
+        const opId = crypto.randomUUID();
+        await adjustStockBatch(
+          items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+          'PURCHASE',
+          purchaseData.id,
+          `${opId}:CREATE`
+        );
 
         setSuccessInfo({
           title: "Purchase Bill Created",
@@ -684,18 +679,20 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
         if (updateError) throw updateError;
 
-        // Stock Reconciliation for Purchase Bill edits
+        // Stock Reconciliation for Purchase Bill edits (Atomic Batch Reversal & Application)
+        const editOpId = crypto.randomUUID();
         const { data: oldItems } = await supabase
           .from('purchase_invoice_items')
           .select('product_id, quantity')
           .eq('invoice_id', invoiceId);
 
-        if (oldItems) {
-          for (const oldItem of (oldItems as unknown as { product_id: string, quantity: number }[])) {
-            if (oldItem.product_id && oldItem.quantity > 0) {
-              await adjustStock(oldItem.product_id, -oldItem.quantity);
-            }
-          }
+        if (oldItems && oldItems.length > 0) {
+          await adjustStockBatch(
+            (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
+            'PURCHASE_CANCEL',
+            invoiceId,
+            `${editOpId}:EDIT_REVERSAL`
+          );
         }
 
         await supabase
@@ -720,11 +717,12 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
             .insert(formattedItems);
           if (insertError) throw insertError;
 
-          for (const item of items) {
-            if (item.product_id && item.quantity > 0) {
-              await adjustStock(item.product_id, item.quantity);
-            }
-          }
+          await adjustStockBatch(
+            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+            'PURCHASE',
+            invoiceId,
+            `${editOpId}:EDIT_APPLY`
+          );
         }
 
         setSuccessInfo({
@@ -765,18 +763,20 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
         if (updateError) throw updateError;
 
-        // Stock Reconciliation for Edits: Refund old quantities first
+        // Stock Reconciliation for Edits (Atomic Batch Reversal & Application)
+        const editOpId = crypto.randomUUID();
         const { data: oldItems } = await supabase
           .from('invoice_items')
           .select('product_id, quantity')
           .eq('invoice_id', invoiceId);
 
-        if (oldItems) {
-          for (const oldItem of (oldItems as unknown as { product_id: string, quantity: number }[])) {
-            if (oldItem.product_id && oldItem.quantity > 0) {
-              await adjustStock(oldItem.product_id, oldItem.quantity);
-            }
-          }
+        if (oldItems && oldItems.length > 0) {
+          await adjustStockBatch(
+            (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
+            'SALE_CANCEL',
+            invoiceId,
+            `${editOpId}:EDIT_REVERSAL`
+          );
         }
 
         const { error: deleteError } = await supabase
@@ -804,12 +804,12 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
           if (insertError) throw insertError;
 
-          // Deduct stock for the updated items
-          for (const item of items) {
-            if (item.product_id && item.quantity > 0) {
-              await adjustStock(item.product_id, -item.quantity);
-            }
-          }
+          await adjustStockBatch(
+            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+            'SALE',
+            invoiceId,
+            `${editOpId}:EDIT_APPLY`
+          );
         }
 
         setSuccessInfo({
@@ -895,11 +895,13 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
           if (itemsError) throw itemsError;
 
-          for (const item of items) {
-            if (item.product_id && item.quantity > 0) {
-              await adjustStock(item.product_id, -item.quantity);
-            }
-          }
+          const createOpId = crypto.randomUUID();
+          await adjustStockBatch(
+            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+            'SALE',
+            (invoiceData as Invoice).id,
+            `${createOpId}:CREATE`
+          );
         }
 
         // ERP Auto-Posting: Sync invoice to Party Ledger statement

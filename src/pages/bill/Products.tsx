@@ -54,12 +54,16 @@ interface Product {
   category: string;
   type?: string;
   opening_stock?: string;
+  current_stock?: number;
   purchase_price?: number;
   sku?: string;
   hsn_code?: string;
   low_stock_warning?: boolean;
   created_at?: string;
   vendor_id?: string;
+  location?: string;
+  returnable_item?: boolean;
+  tax_preference?: 'Taxable' | 'Non-Taxable';
 }
 
 import { useProducts } from "@/hooks/useProducts";
@@ -100,6 +104,7 @@ const ProductsPage = () => {
     tax_rate: '18',
     unit: 'pcs',
     opening_stock: '',
+    current_stock: 0,
     description: '',
     purchase_price: '',
     sku: '',
@@ -109,7 +114,10 @@ const ProductsPage = () => {
     alternative_unit: '',
     as_of_date: new Date().toISOString().split('T')[0],
     low_stock_warning: false,
-    vendor_id: ''
+    vendor_id: '',
+    location: '',
+    returnable_item: false,
+    tax_preference: 'Taxable'
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -649,6 +657,7 @@ const ProductsPage = () => {
       tax_rate: '18',
       unit: 'pcs',
       opening_stock: '',
+      current_stock: 0,
       description: '',
       purchase_price: '',
       sku: '',
@@ -658,7 +667,10 @@ const ProductsPage = () => {
       alternative_unit: '',
       as_of_date: new Date().toISOString().split('T')[0],
       low_stock_warning: false,
-      vendor_id: ''
+      vendor_id: '',
+      location: '',
+      returnable_item: false,
+      tax_preference: 'Taxable'
     });
     setEditingId(null);
   };

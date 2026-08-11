@@ -70,61 +70,72 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
     (m) => location.pathname === m.route || location.pathname.startsWith(m.route + '/')
   );
 
-  // Single active expanded module key (auto-closes previous when expanding another)
-  const [openModuleKey, setOpenModuleKey] = React.useState<string | null>(() => {
-    if (location.pathname.startsWith('/ledger')) return 'ledger';
-    if (location.pathname.startsWith('/billing')) return 'billing';
-    if (location.pathname.startsWith('/inventory')) return 'inventory';
-    if (location.pathname.startsWith('/crm')) return 'crm';
-    if (location.pathname.startsWith('/calculation')) return 'hisab';
-    if (location.pathname.startsWith('/payroll')) return 'payroll';
-    if (location.pathname.startsWith('/users') || location.pathname.startsWith('/members')) return 'users-members';
-    if (location.pathname.startsWith('/teams')) return 'teams';
-    if (location.pathname.startsWith('/reports')) return 'reports';
-    if (location.pathname.startsWith('/settings')) return 'settings';
+  // Helper to determine module key from path (Users & Members sub-routes take priority over generic prefixes)
+  const getModuleKeyFromPath = (pathname: string): string | null => {
+    if (
+      pathname.startsWith('/billing/clients') ||
+      pathname.startsWith('/billing/vendors') ||
+      pathname.startsWith('/payroll/employees') ||
+      pathname.startsWith('/ledger/create/party') ||
+      pathname.startsWith('/users') ||
+      pathname.startsWith('/members')
+    ) {
+      return 'users-members';
+    }
+    if (pathname.startsWith('/ledger')) return 'ledger';
+    if (pathname.startsWith('/billing')) return 'billing';
+    if (pathname.startsWith('/inventory')) return 'inventory';
+    if (pathname.startsWith('/crm')) return 'crm';
+    if (pathname.startsWith('/calculation')) return 'hisab';
+    if (pathname.startsWith('/payroll')) return 'payroll';
+    if (pathname.startsWith('/teams')) return 'teams';
+    if (pathname.startsWith('/reports')) return 'reports';
+    if (pathname.startsWith('/settings')) return 'settings';
     return null;
-  });
+  };
+
+  // Single active expanded module key (auto-closes previous when expanding another)
+  const [openModuleKey, setOpenModuleKey] = React.useState<string | null>(() => getModuleKeyFromPath(location.pathname));
 
   const toggleModuleAccordion = (key: string) => {
     setOpenModuleKey((prev) => (prev === key ? null : key));
   };
 
+  const handleModuleClick = (key: string, defaultRoute: string) => {
+    if (collapsed) {
+      navigate(defaultRoute);
+    } else {
+      if (openModuleKey === key) {
+        setOpenModuleKey(null);
+      } else {
+        setOpenModuleKey(key);
+        navigate(defaultRoute);
+      }
+    }
+  };
+
   const ledgerOpen = openModuleKey === 'ledger';
   const billingOpen = openModuleKey === 'billing';
   const inventoryOpen = openModuleKey === 'inventory';
-  const crmOpen = openModuleKey === 'crm';
-  const hisabOpen = openModuleKey === 'hisab';
-  const payrollOpen = openModuleKey === 'payroll';
   const usersAndMembersOpen = openModuleKey === 'users-members';
-  const teamsOpen = openModuleKey === 'teams';
-  const reportsOpen = openModuleKey === 'reports';
-  const settingsOpen = openModuleKey === 'settings';
 
   // Sub-groups inner state for Billing Invoices accordion
-  const [invoicesGroupOpen, setInvoicesGroupOpen] = React.useState(() => 
+  const [invoicesGroupOpen, setInvoicesGroupOpen] = React.useState(() =>
     location.pathname === '/billing' ||
-    location.pathname.startsWith('/billing/create-invoice') || 
-    location.pathname.startsWith('/billing/invoices') || 
-    location.pathname.startsWith('/billing/purchase-invoices') || 
+    location.pathname.startsWith('/billing/create-invoice') ||
+    location.pathname.startsWith('/billing/invoices') ||
+    location.pathname.startsWith('/billing/purchase-invoices') ||
     location.pathname.startsWith('/billing/e-invoice')
   );
 
-  const [paymentsExpensesGroupOpen, setPaymentsExpensesGroupOpen] = React.useState(() => 
-    location.pathname.startsWith('/billing/payments') || 
+  const [paymentsExpensesGroupOpen, setPaymentsExpensesGroupOpen] = React.useState(() =>
+    location.pathname.startsWith('/billing/payments') ||
     location.pathname.startsWith('/billing/expenses')
   );
 
   React.useEffect(() => {
-    if (location.pathname.startsWith('/ledger')) setOpenModuleKey('ledger');
-    else if (location.pathname.startsWith('/billing')) setOpenModuleKey('billing');
-    else if (location.pathname.startsWith('/inventory')) setOpenModuleKey('inventory');
-    else if (location.pathname.startsWith('/crm')) setOpenModuleKey('crm');
-    else if (location.pathname.startsWith('/calculation')) setOpenModuleKey('hisab');
-    else if (location.pathname.startsWith('/payroll')) setOpenModuleKey('payroll');
-    else if (location.pathname.startsWith('/users') || location.pathname.startsWith('/members')) setOpenModuleKey('users-members');
-    else if (location.pathname.startsWith('/teams')) setOpenModuleKey('teams');
-    else if (location.pathname.startsWith('/reports')) setOpenModuleKey('reports');
-    else if (location.pathname.startsWith('/settings')) setOpenModuleKey('settings');
+    const key = getModuleKeyFromPath(location.pathname);
+    if (key) setOpenModuleKey(key);
   }, [location.pathname]);
 
   const navItems = [
@@ -139,7 +150,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       label: t(m.key),
       route: m.route,
       icon: <m.icon className="w-4 h-4" />,
-      hasChevron: true,
+      hasChevron: ['ledger', 'billing', 'inventory'].includes(m.key),
       key: m.key
     })),
     {
@@ -153,21 +164,21 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       label: 'Teams',
       route: '/teams',
       icon: <ShieldCheck className="w-4 h-4" />,
-      hasChevron: true,
+      hasChevron: false,
       key: 'teams'
     },
     {
       label: 'Reports',
       route: '/reports',
       icon: <BarChart3 className="w-4 h-4" />,
-      hasChevron: true,
+      hasChevron: false,
       key: 'reports'
     },
     {
       label: 'Settings',
       route: '/settings',
       icon: <Settings className="w-4 h-4" />,
-      hasChevron: true,
+      hasChevron: false,
       key: 'settings'
     },
   ];
@@ -180,7 +191,32 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
   };
 
   const isExactOrChild = (route: string) => {
-    return location.pathname === route;
+    if (route === '/ledger') {
+      return location.pathname === '/ledger' || location.pathname === '/ledger/' || location.pathname.startsWith('/ledger/transfer');
+    }
+    if (route === '/inventory/products') {
+      return location.pathname === '/inventory' || location.pathname === '/inventory/' || location.pathname.startsWith('/inventory/products') || location.pathname.startsWith('/inventory/add-product') || location.pathname.startsWith('/inventory/edit');
+    }
+    if (route === '/crm/tasks') {
+      return location.pathname === '/crm' || location.pathname === '/crm/' || location.pathname.startsWith('/crm/tasks');
+    }
+    if (route === '/payroll/payroll') {
+      return location.pathname === '/payroll' || location.pathname === '/payroll/' || location.pathname.startsWith('/payroll/payroll') || location.pathname.startsWith('/payroll/salary');
+    }
+    if (route === '/billing/clients') {
+      return location.pathname.startsWith('/billing/clients') || location.pathname.startsWith('/clients') || location.pathname === '/users';
+    }
+    if (route === '/billing/vendors') {
+      return location.pathname.startsWith('/billing/vendors') || location.pathname.startsWith('/vendors');
+    }
+    if (route === '/payroll/employees') {
+      return location.pathname.startsWith('/payroll/employees') || location.pathname.startsWith('/members');
+    }
+    if (route.includes('?')) {
+      const [path, search] = route.split('?');
+      return location.pathname === path && location.search.includes(search);
+    }
+    return location.pathname === route || location.pathname.startsWith(route + '/');
   };
 
   const accordionVariants = {
@@ -237,11 +273,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
 
             // 1. ACCOUNT LEDGER EXPANDABLE ACCORDION
             if (item.key === 'ledger') {
-              const isLedgerActive = location.pathname.startsWith('/ledger');
+              const isLedgerActive = location.pathname.startsWith('/ledger') && !location.pathname.startsWith('/ledger/create/party');
               return (
                 <div key="ledger-accordion" className="space-y-1">
                   <button
-                    onClick={() => collapsed ? navigate('/ledger') : toggleModuleAccordion('ledger')}
+                    onClick={() => handleModuleClick('ledger', '/ledger')}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
@@ -250,7 +286,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
                     )}
                   >
-                    <span className={cn('flex-shrink-0 transition-colors', isLedgerActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
+                    <span className={cn('flex-shrink-0 transition-colors', isLedgerActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
                       {item.icon}
                     </span>
                     {!collapsed && (
@@ -290,11 +326,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
 
             // 2. BILLING EXPANDABLE ACCORDION
             if (item.key === 'billing') {
-              const isBillingActive = location.pathname.startsWith('/billing');
+              const isBillingActive = location.pathname.startsWith('/billing') && !location.pathname.startsWith('/billing/clients') && !location.pathname.startsWith('/billing/vendors');
               return (
                 <div key="billing-accordion" className="space-y-1">
                   <button
-                    onClick={() => collapsed ? navigate('/billing/invoices') : toggleModuleAccordion('billing')}
+                    onClick={() => handleModuleClick('billing', '/billing/invoices')}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
@@ -303,7 +339,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
                     )}
                   >
-                    <span className={cn('flex-shrink-0 transition-colors', isBillingActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
+                    <span className={cn('flex-shrink-0 transition-colors', isBillingActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
                       {item.icon}
                     </span>
                     {!collapsed && (
@@ -413,7 +449,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
               return (
                 <div key="inventory-accordion" className="space-y-1">
                   <button
-                    onClick={() => collapsed ? navigate('/inventory/products') : toggleModuleAccordion('inventory')}
+                    onClick={() => handleModuleClick('inventory', '/inventory/products')}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
@@ -422,7 +458,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
                     )}
                   >
-                    <span className={cn('flex-shrink-0 transition-colors', isInventoryActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
+                    <span className={cn('flex-shrink-0 transition-colors', isInventoryActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
                       {item.icon}
                     </span>
                     {!collapsed && (
@@ -447,64 +483,11 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                         <Link to="/inventory/products" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/inventory/products') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
                           <Package className="w-3.5 h-3.5 flex-shrink-0" /><span>Stock Products</span>
                         </Link>
-                        <Link to="/inventory/history" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/inventory/history') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <History className="w-3.5 h-3.5 flex-shrink-0" /><span>Stock History</span>
-                        </Link>
                         <Link to="/inventory/scan" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/inventory/scan') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
                           <QrCode className="w-3.5 h-3.5 flex-shrink-0" /><span>Barcode Scanner</span>
                         </Link>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            }
-
-            // 4. CRM EXPANDABLE ACCORDION
-            if (item.key === 'crm') {
-              const isCrmActive = location.pathname.startsWith('/crm');
-              return (
-                <div key="crm-accordion" className="space-y-1">
-                  <button
-                    onClick={() => collapsed ? navigate('/crm/tasks') : toggleModuleAccordion('crm')}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
-                      isCrmActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
-                    )}
-                  >
-                    <span className={cn('flex-shrink-0 transition-colors', isCrmActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
-                      {item.icon}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 text-slate-400", crmOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
-
-                  <AnimatePresence initial={false}>
-                    {!collapsed && crmOpen && (
-                      <motion.div
-                        key="crm-content"
-                        initial="closed"
-                        animate="open"
-                        exit="closed"
-                        variants={accordionVariants}
-                        transition={transitionConfig}
-                        className="overflow-hidden pl-4 pr-1 py-1 space-y-1"
-                      >
-                        <Link to="/crm/tasks" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/crm/tasks') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <KanbanSquare className="w-3.5 h-3.5 flex-shrink-0" /><span>Task Board</span>
-                        </Link>
-                        <Link to="/crm/leads" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/crm/leads') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <Users className="w-3.5 h-3.5 flex-shrink-0" /><span>Leads Directory</span>
-                        </Link>
-                        <Link to="/crm/contacts" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/crm/contacts') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <Contact className="w-3.5 h-3.5 flex-shrink-0" /><span>Contacts</span>
+                        <Link to="/inventory/history" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/inventory/history') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
+                          <History className="w-3.5 h-3.5 flex-shrink-0" /><span>Stock History</span>
                         </Link>
                       </motion.div>
                     )}
@@ -513,108 +496,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
               );
             }
 
-            // 5. DAILY CALCULATION EXPANDABLE ACCORDION
-            if (item.key === 'hisab') {
-              const isHisabActive = location.pathname.startsWith('/calculation');
-              return (
-                <div key="hisab-accordion" className="space-y-1">
-                  <button
-                    onClick={() => collapsed ? navigate('/calculation/history') : toggleModuleAccordion('hisab')}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
-                      isHisabActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
-                    )}
-                  >
-                    <span className={cn('flex-shrink-0 transition-colors', isHisabActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
-                      {item.icon}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 text-slate-400", hisabOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
 
-                  <AnimatePresence initial={false}>
-                    {!collapsed && hisabOpen && (
-                      <motion.div
-                        key="hisab-content"
-                        initial="closed"
-                        animate="open"
-                        exit="closed"
-                        variants={accordionVariants}
-                        transition={transitionConfig}
-                        className="overflow-hidden pl-4 pr-1 py-1 space-y-1"
-                      >
-                        <Link to="/calculation/history" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/calculation/history') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <History className="w-3.5 h-3.5 flex-shrink-0" /><span>Calculation History</span>
-                        </Link>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            }
-
-            // 6. PAYROLL EXPANDABLE ACCORDION
-            if (item.key === 'payroll') {
-              const isPayrollActive = location.pathname.startsWith('/payroll');
-              return (
-                <div key="payroll-accordion" className="space-y-1">
-                  <button
-                    onClick={() => collapsed ? navigate('/payroll/payroll') : toggleModuleAccordion('payroll')}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
-                      isPayrollActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
-                    )}
-                  >
-                    <span className={cn('flex-shrink-0 transition-colors', isPayrollActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
-                      {item.icon}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 text-slate-400", payrollOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
-
-                  <AnimatePresence initial={false}>
-                    {!collapsed && payrollOpen && (
-                      <motion.div
-                        key="payroll-content"
-                        initial="closed"
-                        animate="open"
-                        exit="closed"
-                        variants={accordionVariants}
-                        transition={transitionConfig}
-                        className="overflow-hidden pl-4 pr-1 py-1 space-y-1"
-                      >
-                        <Link to="/payroll/payroll" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/payroll/payroll') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <DollarSign className="w-3.5 h-3.5 flex-shrink-0" /><span>Salary Structure</span>
-                        </Link>
-                        <Link to="/payroll/payslips" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/payroll/payslips') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <FileText className="w-3.5 h-3.5 flex-shrink-0" /><span>Payslips</span>
-                        </Link>
-                        <Link to="/payroll/attendance" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/payroll/attendance') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <Clock className="w-3.5 h-3.5 flex-shrink-0" /><span>Attendance Log</span>
-                        </Link>
-                        <Link to="/payroll/leave" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/payroll/leave') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <Calendar className="w-3.5 h-3.5 flex-shrink-0" /><span>Leave Requests</span>
-                        </Link>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            }
 
             // 7. USERS & MEMBERS PARENT EXPANDABLE ACCORDION
             if (item.key === 'users-members') {
@@ -622,7 +504,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
               return (
                 <div key="users-members-accordion" className="space-y-1">
                   <button
-                    onClick={() => collapsed ? navigate('/users') : toggleModuleAccordion('users-members')}
+                    onClick={() => handleModuleClick('users-members', '/billing/clients')}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
@@ -631,7 +513,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
                     )}
                   >
-                    <span className={cn('flex-shrink-0 transition-colors', isUsersMembersActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
+                    <span className={cn('flex-shrink-0 transition-colors', isUsersMembersActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
                       {item.icon}
                     </span>
                     {!collapsed && (
@@ -672,224 +554,76 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
               );
             }
 
-            // 8. TEAMS EXPANDABLE ACCORDION
-            if (item.key === 'teams') {
-              const isTeamsActive = location.pathname.startsWith('/teams');
-              return (
-                <div key="teams-accordion" className="space-y-1">
-                  <button
-                    onClick={() => collapsed ? navigate('/teams') : toggleModuleAccordion('teams')}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
-                      isTeamsActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
-                    )}
-                  >
-                    <span className={cn('flex-shrink-0 transition-colors', isTeamsActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
-                      {item.icon}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 text-slate-400", teamsOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
 
-                  <AnimatePresence initial={false}>
-                    {!collapsed && teamsOpen && (
-                      <motion.div
-                        key="teams-content"
-                        initial="closed"
-                        animate="open"
-                        exit="closed"
-                        variants={accordionVariants}
-                        transition={transitionConfig}
-                        className="overflow-hidden pl-4 pr-1 py-1 space-y-1"
-                      >
-                        <Link to="/teams" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/teams') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" /><span>Roles & Permissions</span>
-                        </Link>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            }
 
-            // 9. REPORTS EXPANDABLE ACCORDION
-            if (item.key === 'reports') {
-              const isReportsActive = location.pathname.startsWith('/reports');
-              return (
-                <div key="reports-accordion" className="space-y-1">
-                  <button
-                    onClick={() => collapsed ? navigate('/reports') : toggleModuleAccordion('reports')}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
-                      isReportsActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
+            return (
+              <Link
+                key={item.route}
+                to={item.route}
+                onMouseEnter={() => preloadPage(item.route)}
+                onTouchStart={() => preloadPage(item.route)}
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative',
+                  active
+                    ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
+                )}
+              >
+                <span className={cn(
+                  'flex-shrink-0 transition-colors',
+                  active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white'
+                )}>
+                  {item.icon}
+                </span>
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.hasChevron && (
+                      <ChevronRight className={cn(
+                        "w-3.5 h-3.5 flex-shrink-0 transition-transform",
+                        active ? "text-white/80" : "text-slate-400"
+                      )} />
                     )}
-                  >
-                    <span className={cn('flex-shrink-0 transition-colors', isReportsActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
-                      {item.icon}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 text-slate-400", reportsOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
+                  </>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
 
-                  <AnimatePresence initial={false}>
-                    {!collapsed && reportsOpen && (
-                      <motion.div
-                        key="reports-content"
-                        initial="closed"
-                        animate="open"
-                        exit="closed"
-                        variants={accordionVariants}
-                        transition={transitionConfig}
-                        className="overflow-hidden pl-4 pr-1 py-1 space-y-1"
-                      >
-                        <Link to="/reports" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', isExactOrChild('/reports') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <BarChart3 className="w-3.5 h-3.5 flex-shrink-0" /><span>Business Reports</span>
-                        </Link>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            }
+        {/* User + Toggle Footer */}
+        <div className="border-t border-slate-100 dark:border-slate-800/80 p-3.5 space-y-2 bg-white dark:bg-[#090D16]">
+          <button
+            onClick={onToggle}
+            className="w-full flex items-center justify-center py-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
 
-            // 10. SETTINGS EXPANDABLE ACCORDION
-            if (item.key === 'settings') {
-              const isSettingsActive = location.pathname.startsWith('/settings');
-              return (
-                <div key="settings-accordion" className="space-y-1">
-                  <button
-                    onClick={() => collapsed ? navigate('/settings') : toggleModuleAccordion('settings')}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative text-left cursor-pointer',
-                      isSettingsActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
-                    )}
-                  >
-                    <span className={cn('flex-shrink-0 transition-colors', isSettingsActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white')}>
-                      {item.icon}
-                    </span>
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{item.label}</span>
-                        <ChevronDown className={cn("w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 text-slate-400", settingsOpen && "rotate-180")} />
-                      </>
-                    )}
-                  </button>
-
-                  <AnimatePresence initial={false}>
-                    {!collapsed && settingsOpen && (
-                      <motion.div
-                        key="settings-content"
-                        initial="closed"
-                        animate="open"
-                        exit="closed"
-                        variants={accordionVariants}
-                        transition={transitionConfig}
-                        className="overflow-hidden pl-4 pr-1 py-1 space-y-1"
-                      >
-                        <Link to="/settings?tab=profile" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', location.pathname === '/settings' && location.search.includes('profile') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <User className="w-3.5 h-3.5 flex-shrink-0" /><span>Profile</span>
-                        </Link>
-                        <Link to="/settings?tab=business" className={cn('flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all', location.pathname === '/settings' && (!location.search || location.search.includes('business')) ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
-                          <Building2 className="w-3.5 h-3.5 flex-shrink-0" /><span>Business Information</span>
-                        </Link>
-                        <button
-                          onClick={signOut}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors text-left cursor-pointer"
-                        >
-                          <LogOut className="w-3.5 h-3.5 flex-shrink-0" /><span>Logout</span>
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            }
-
-          return (
-            <Link
-              key={item.route}
-              to={item.route}
-              onMouseEnter={() => preloadPage(item.route)}
-              onTouchStart={() => preloadPage(item.route)}
-              title={collapsed ? item.label : undefined}
-              className={cn(
-                'flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 group relative',
-                active
-                  ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border-l-3 border-indigo-600 dark:border-indigo-500 shadow-2xs'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-900/80 hover:text-slate-900 dark:hover:text-white'
-              )}
-            >
-              <span className={cn(
-                'flex-shrink-0 transition-colors',
-                active ? 'text-white' : 'text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white'
-              )}>
-                {item.icon}
-              </span>
-              {!collapsed && (
-                <>
-                  <span className="flex-1 truncate">{item.label}</span>
-                  {item.hasChevron && (
-                    <ChevronRight className={cn(
-                      "w-3.5 h-3.5 flex-shrink-0 transition-transform",
-                      active ? "text-white/80" : "text-slate-400"
-                    )} />
-                  )}
-                </>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* User + Toggle Footer */}
-      <div className="border-t border-slate-100 dark:border-slate-800/80 p-3.5 space-y-2 bg-white dark:bg-[#090D16]">
-        <button
-          onClick={onToggle}
-          className="w-full flex items-center justify-center py-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-        </button>
-
-        <div className={cn('flex items-center gap-3 rounded-2xl p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800/80 shadow-2xs', collapsed ? 'justify-center' : '')}>
-          <div className="w-8 h-8 rounded-full bg-[#5644E6] text-white text-xs font-bold flex items-center justify-center flex-shrink-0 shadow-xs">
-            {initials}
-          </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{profile?.full_name || 'User'}</p>
-              <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">{profile?.company_name || ''}</p>
+          <div className={cn('flex items-center gap-3 rounded-2xl p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800/80 shadow-2xs', collapsed ? 'justify-center' : '')}>
+            <div className="w-8 h-8 rounded-full bg-[#5644E6] text-white text-xs font-bold flex items-center justify-center flex-shrink-0 shadow-xs">
+              {initials}
             </div>
-          )}
-          {!collapsed && (
-            <button
-              onClick={signOut}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
+            {!collapsed && (
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{profile?.full_name || 'User'}</p>
+                <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">{profile?.company_name || ''}</p>
+              </div>
+            )}
+            {!collapsed && (
+              <button
+                onClick={signOut}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                title="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-    </aside>
-  </>
+      </aside>
+    </>
   );
 }

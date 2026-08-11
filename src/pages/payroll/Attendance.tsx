@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface AttendanceRecord {
+  id?: string;
   empId: string;
   name: string;
   dept: string;
@@ -72,6 +73,7 @@ const Attendance = () => {
               .limit(100);
 
             mapped = (rows || []).map((r: any) => ({
+              id: r.id,
               empId: r.employee_id || r.emp_id || '',
               name: r.employee_name || r.name || 'Unknown',
               dept: r.department || r.dept || '',
@@ -154,7 +156,6 @@ const Attendance = () => {
     const rec = data.find(a => a.empId === selectedEmp);
     const newStatus = hourNum >= 10 ? "Late" : "Present";
 
-    // Write to Supabase
     try {
       const upsertPayload: any = {
         employee_id: selectedEmp,
@@ -165,8 +166,22 @@ const Attendance = () => {
         status: newStatus,
       };
       if (user?.id) upsertPayload.user_id = user.id;
-      await supabase.from('attendance').upsert(upsertPayload, { onConflict: 'user_id,employee_id,date' });
-    } catch { /* table may not exist yet */ }
+      if (rec?.id) upsertPayload.id = rec.id;
+
+      const { data: savedData, error } = await supabase
+        .from('attendance')
+        .upsert(upsertPayload)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error recording check-in:', error);
+      } else if (savedData?.id && rec) {
+        rec.id = savedData.id;
+      }
+    } catch (err) {
+      console.error('Check-in error:', err);
+    }
 
     setData((prev) =>
       prev.map((a) =>
@@ -191,7 +206,6 @@ const Attendance = () => {
     const status = totalMins < 240 ? "Half Day" : selectedRecord.status;
     const hoursStr = `${h}h ${String(m).padStart(2, '0')}m`;
 
-    // Write to Supabase
     try {
       const upsertPayload: any = {
         employee_id: selectedEmp,
@@ -202,8 +216,18 @@ const Attendance = () => {
         status,
       };
       if (user?.id) upsertPayload.user_id = user.id;
-      await supabase.from('attendance').upsert(upsertPayload, { onConflict: 'user_id,employee_id,date' });
-    } catch { /* table may not exist yet */ }
+      if (selectedRecord?.id) upsertPayload.id = selectedRecord.id;
+
+      const { error } = await supabase
+        .from('attendance')
+        .upsert(upsertPayload);
+
+      if (error) {
+        console.error('Error recording check-out:', error);
+      }
+    } catch (err) {
+      console.error('Check-out error:', err);
+    }
 
     setData((prev) =>
       prev.map((a) =>
@@ -310,8 +334,9 @@ const Attendance = () => {
                     </span>
                   )}
                   {isCompleted && (
-                    <span className="text-muted-foreground">
-                      ✅ Done for today — {selectedRecord.checkIn} → {selectedRecord.checkOut} ({selectedRecord.hours})
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 inline" />
+                      <span>Done for today — {selectedRecord.checkIn} → {selectedRecord.checkOut} ({selectedRecord.hours})</span>
                     </span>
                   )}
                 </div>

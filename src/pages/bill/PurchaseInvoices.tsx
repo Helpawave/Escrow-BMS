@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PurchaseInvoiceDialog } from "@/components/PurchaseInvoiceDialog";
 import { PurchasePreviewDialog } from "@/components/PurchasePreviewDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { adjustStock, adjustStockBatch } from "@/utils/inventory";
 
 interface PurchaseInvoice {
   id: string;
@@ -90,6 +91,23 @@ const PurchaseInvoicesPage = () => {
     if (!confirm("Are you sure you want to delete this purchase bill?")) return;
     
     try {
+      // Reverse stock for items atomically before deleting purchase bill
+      const { data: purchaseItems } = await supabase
+        .from('purchase_invoice_items')
+        .select('product_id, quantity')
+        .eq('invoice_id', id);
+
+      if (purchaseItems && purchaseItems.length > 0) {
+        const deleteOpId = crypto.randomUUID();
+        const validItems = (purchaseItems as unknown as { product_id: string | null; quantity: number }[])
+          .filter(i => i.product_id && i.quantity > 0)
+          .map(i => ({ product_id: i.product_id!, quantity: i.quantity }));
+
+        if (validItems.length > 0) {
+          await adjustStockBatch(validItems, 'PURCHASE_CANCEL', id, `${deleteOpId}:DELETE`);
+        }
+      }
+
       const { error } = await supabase
         .from('purchase_invoices')
         .delete()
@@ -99,6 +117,7 @@ const PurchaseInvoicesPage = () => {
       
       toast({ title: "Success", description: "Purchase bill deleted." });
       queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Failed to delete purchase bill." });
     }

@@ -113,7 +113,9 @@ export default function UsersAndMembers({ defaultTab = 'members' }: { defaultTab
     setLoading(true);
     try {
       // 1. Fetch System Users from Supabase profiles
-      const { data: profilesData } = await supabase.from('profiles').select('*');
+      const { data: profilesData } = user 
+        ? await supabase.from('profiles').select('*').eq('id', user.id)
+        : { data: [] };
       if (profilesData && profilesData.length > 0) {
         const usersMapped: SystemUser[] = profilesData.map((p: any) => ({
           id: p.id,

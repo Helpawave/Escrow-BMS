@@ -62,11 +62,16 @@ export function Navigation({ className, onItemClick }: NavigationProps) {
     });
   }, [location.pathname]);
 
-  const toggleExpand = (label: string) => {
-    setExpandedItems(prev => ({
-      ...prev,
-      [label]: !prev[label]
-    }));
+  const toggleExpand = (label: string, defaultPath?: string) => {
+    setExpandedItems(prev => {
+      if (prev[label]) {
+        return {};
+      }
+      return { [label]: true };
+    });
+    if (defaultPath) {
+      navigate(defaultPath);
+    }
   };
 
   const handleCreateInvoice = () => {
@@ -99,20 +104,15 @@ export function Navigation({ className, onItemClick }: NavigationProps) {
           {navigationItems.map((item) => {
             const hasSubItems = item.subItems && item.subItems.length > 0;
             const isExpanded = expandedItems[item.label];
-            const isActive = location.pathname === item.path || (hasSubItems && item.subItems?.some(si => si.path === location.pathname));
+            const isActive = !hasSubItems && location.pathname === item.path;
 
             return (
               <li key={item.label} className="space-y-1">
                 {hasSubItems ? (
                   <>
                     <button
-                      onClick={() => toggleExpand(item.label)}
-                      className={cn(
-                        "w-full flex items-center justify-between px-3 py-2 rounded-md transition-all text-sm font-medium",
-                        isActive 
-                          ? "text-primary bg-primary/5" 
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                      )}
+                      onClick={() => toggleExpand(item.label, item.subItems?.[0]?.path)}
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-md transition-all text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <div className="flex items-center gap-3">
                         <item.icon className="w-4 h-4" />
@@ -123,7 +123,7 @@ export function Navigation({ className, onItemClick }: NavigationProps) {
                     {isExpanded && (
                       <ul className="ml-7 space-y-1 mt-1 border-l border-border/50 pl-2">
                         {item.subItems?.map((subItem) => {
-                          const isSubActive = location.pathname === subItem.path;
+                          const isSubActive = location.pathname === subItem.path || location.pathname.startsWith(subItem.path + '/');
                           return (
                             <li key={subItem.label}>
                               <Link

@@ -201,7 +201,7 @@ function getAvatarColor(name: string) {
 }
 
 const Employees = () => {
-  const { hasRole } = useAuth();
+  const { user, hasRole } = useAuth();
   const { t } = useLanguage();
   // Ensure Owner and all authenticated admins can manage employees
   const canManage = true;
@@ -214,11 +214,13 @@ const Employees = () => {
   // Fetch real employees from Supabase
   useEffect(() => {
     const fetchEmployees = async () => {
+      if (!user) { setLoading(false); return; }
       setLoading(true);
       try {
         const { data, error } = await supabase
           .from('employees')
           .select('*')
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false });
         if (error) throw error;
         let mapped: Employee[] = (data || []).map((e: any) => ({
@@ -293,7 +295,7 @@ const Employees = () => {
       }
     };
     fetchEmployees();
-  }, []);
+  }, [user]);
 
   // Add dialog
   const [addOpen, setAddOpen] = useState(false);
@@ -312,6 +314,41 @@ const Employees = () => {
 
   // Delete dialog
   const [deleteEmp, setDeleteEmp] = useState<Employee | null>(null);
+
+  // Multi-Selection State
+  const [selectedEmpIds, setSelectedEmpIds] = useState<string[]>([]);
+  const [deletingBulk, setDeletingBulk] = useState(false);
+
+  const toggleSelectEmp = (id: string) => {
+    setSelectedEmpIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedEmpIds.length === filtered.length && filtered.length > 0) {
+      setSelectedEmpIds([]);
+    } else {
+      setSelectedEmpIds(filtered.map(e => e.id));
+    }
+  };
+
+  const handleBulkDeleteEmps = async () => {
+    if (selectedEmpIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to remove ${selectedEmpIds.length} selected employees?`)) return;
+
+    setDeletingBulk(true);
+    try {
+      await supabase.from('employees').delete().in('id', selectedEmpIds);
+      setEmployees(prev => prev.filter(e => !selectedEmpIds.includes(e.id)));
+      toast.success(`Successfully removed ${selectedEmpIds.length} employees`);
+      setSelectedEmpIds([]);
+    } catch (err: any) {
+      toast.error(`Failed to delete selected employees: ${err.message}`);
+    } finally {
+      setDeletingBulk(false);
+    }
+  };
 
   // --- Derived stats ---
   const activeCount = employees.filter((e) => e.status === "Active").length;
@@ -351,7 +388,9 @@ const Employees = () => {
       if (data?.error) throw new Error(data.error);
 
       // Refresh employee list from Supabase after adding
-      const { data: refreshed } = await supabase.from('employees').select('*').order('created_at', { ascending: false });
+      const { data: refreshed } = user 
+        ? await supabase.from('employees').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
+        : { data: [] };
       const mapped: Employee[] = (refreshed || []).map((e: any) => ({
         id: e.employee_id || e.id,
         name: e.name || e.full_name || '',
@@ -493,11 +532,38 @@ const Employees = () => {
           ))}
         </div>
 
+        {/* ── Bulk Action Toolbar ── */}
+        {selectedEmpIds.length > 0 && (
+          <div className="flex items-center justify-between bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-xl shadow-xs">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              {selectedEmpIds.length} Employee{selectedEmpIds.length > 1 ? 's' : ''} Selected
+            </span>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBulkDeleteEmps}
+              disabled={deletingBulk}
+              className="h-8 font-bold text-xs cursor-pointer flex items-center gap-1.5"
+            >
+              {deletingBulk ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              <span>Delete Selected ({selectedEmpIds.length})</span>
+            </Button>
+          </div>
+        )}
+
         {/* ── Table ── */}
         <div className="rounded-xl border bg-card shadow-sm overflow-hidden animate-fade-in">
           <table className="w-full">
             <thead>
               <tr className="border-b bg-muted/30">
+                <th className="w-10 px-4 py-3 text-left">
+                  <input
+                    type="checkbox"
+                    checked={selectedEmpIds.length === filtered.length && filtered.length > 0}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                  />
+                </th>
                 <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t("Employee")}</th>
                 <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden md:table-cell">{t("Department")}</th>
                 <th className="text-left px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hidden lg:table-cell">{t("Designation")}</th>
@@ -509,7 +575,7 @@ const Employees = () => {
             <tbody className="divide-y divide-border/50">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center text-sm text-muted-foreground">
+                  <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-foreground">
                     No employees match your search.
                   </td>
                 </tr>
@@ -519,8 +585,16 @@ const Employees = () => {
                   return (
                     <tr
                       key={emp.id}
-                      className="group hover:bg-muted/20 transition-colors cursor-default"
+                      className={cn("group transition-colors cursor-default", selectedEmpIds.includes(emp.id) ? "bg-primary/5" : "hover:bg-muted/20")}
                     >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedEmpIds.includes(emp.id)}
+                          onChange={() => toggleSelectEmp(emp.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                        />
+                      </td>
                       {/* Employee cell */}
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
@@ -817,7 +891,10 @@ const Employees = () => {
                       </div>
 
                       <div className="pt-2 border-t border-purple-100 dark:border-purple-900/60 flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg text-emerald-800 dark:text-emerald-300">
-                        <span className="font-black text-xs">💵 Estimated Monthly In-Hand Take Home:</span>
+                        <span className="font-black text-xs inline-flex items-center gap-1.5">
+                          <BadgeCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          Estimated Monthly In-Hand Take Home:
+                        </span>
                         <span className="font-black text-sm text-emerald-600 dark:text-emerald-400">
                           ₹{b.netInHandMonthly.toLocaleString('en-IN')} / month
                         </span>

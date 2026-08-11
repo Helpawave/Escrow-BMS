@@ -33,16 +33,24 @@ export function PayrollCostSummary() {
     const loadRealChartData = async () => {
       const months = ["Apr 2025", "May 2025", "Jun 2025", "Jul 2025", "Aug 2025", "Sep 2025", "Oct 2025", "Nov 2025", "Dec 2025", "Jan 2026", "Feb 2026", "Mar 2026"];
       
+      let totalActiveSalary = 0;
       let realRuns: any[] = [];
       if (user) {
         try {
           const { data } = await supabase
+            .from('employees')
+            .select('salary')
+            .eq('user_id', user.id)
+            .eq('status', 'active');
+          totalActiveSalary = (data || []).reduce((sum: number, emp: any) => sum + Number(emp.salary || 0), 0);
+
+          const { data: runs } = await supabase
             .from('payroll_runs')
             .select('*')
             .eq('user_id', user.id);
-          realRuns = data || [];
+          realRuns = runs || [];
         } catch {
-          /* graceful fallback */
+          /* fallback */
         }
       }
 

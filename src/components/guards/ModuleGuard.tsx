@@ -1,6 +1,5 @@
 import React from 'react';
 import { useSubscription } from '@/contexts/SubscriptionContext';
-import { AuthGuard } from '@/components/guards/AuthGuard';
 import type { ModuleKey } from '@/lib/constants';
 import { MODULE_MAP } from '@/lib/constants';
 import { Lock, Loader2, Sparkles, ArrowLeft, ShieldAlert, CheckCircle2 } from 'lucide-react';
@@ -100,9 +99,5 @@ export function ModuleGuard({ moduleKey, children }: ModuleGuardProps) {
     );
   }
 
-  return (
-    <AuthGuard>
-      <>{children}</>
-    </AuthGuard>
-  );
+  return <>{children}</>;
 }

@@ -16,55 +16,11 @@ export interface Product {
     type: 'Goods' | 'Service';
     returnableItem: boolean;
     taxPreference: 'Taxable' | 'Non-Taxable';
+    hsn_code?: string;
+    barcode?: string;
 }
 
-const initialProducts: Product[] = [
-    {
-        id: 1,
-        sku: "IP15P-256",
-        name: "iPhone 15 Pro 256GB",
-        category: "Electronics",
-        supplier: "Apple",
-        cost: 899,
-        price: 1199,
-        quantity: 25,
-        location: "A1-B3",
-        status: "active",
-        type: 'Goods',
-        returnableItem: true,
-        taxPreference: 'Taxable'
-    },
-    {
-        id: 2,
-        sku: "SGS24-128",
-        name: "Samsung Galaxy S24 128GB",
-        category: "Electronics",
-        supplier: "Samsung",
-        cost: 649,
-        price: 899,
-        quantity: 3,
-        location: "A2-C1",
-        status: "low_stock",
-        type: 'Goods',
-        returnableItem: true,
-        taxPreference: 'Taxable'
-    },
-    {
-        id: 3,
-        sku: "MBP-M3-14",
-        name: "MacBook Pro M3 14-inch",
-        category: "Computers",
-        supplier: "Apple",
-        cost: 1599,
-        price: 1999,
-        quantity: 12,
-        location: "B1-A2",
-        status: "active",
-        type: 'Goods',
-        returnableItem: false,
-        taxPreference: 'Taxable'
-    }
-];
+const initialProducts: Product[] = [];
 
 export interface StockMovement {
     id: string;
@@ -81,6 +37,7 @@ interface ProductsContextType {
     addProduct: (product: Product) => void;
     updateProduct: (id: number, product: Product) => void;
     deleteProduct: (id: number) => void;
+    clearHistory: () => void;
 }
 
 const ProductsContext = createContext<ProductsContextType | undefined>(undefined);
@@ -95,24 +52,7 @@ export const ProductsProvider = ({ children }: { children: ReactNode }) => {
 
     const [movements, setMovements] = useState<StockMovement[]>(() => {
         const saved = localStorage.getItem('inventory_movements');
-        return saved ? JSON.parse(saved) : [
-            {
-                id: '1',
-                productId: 1,
-                item: "iPad Air",
-                type: "OUT",
-                quantity: 5,
-                timestamp: Date.now() - 1000 * 60 * 60 * 2
-            },
-            {
-                id: '2',
-                productId: 2,
-                item: "AirPods Pro",
-                type: "IN",
-                quantity: 25,
-                timestamp: Date.now() - 1000 * 60 * 60 * 4
-            }
-        ];
+        return saved ? JSON.parse(saved) : [];
     });
 
     useEffect(() => {
@@ -122,6 +62,16 @@ export const ProductsProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         localStorage.setItem('inventory_movements', JSON.stringify(movements));
     }, [movements]);
+
+    const clearHistory = () => {
+        setMovements([]);
+        localStorage.removeItem('inventory_movements');
+        addNotification({
+            title: "History Cleared",
+            message: "Stock movement history has been cleared",
+            type: "info"
+        });
+    };
 
     const addMovement = (productId: number, itemName: string, type: 'IN' | 'OUT', quantity: number) => {
         const newMovement: StockMovement = {
@@ -198,7 +148,7 @@ export const ProductsProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <ProductsContext.Provider value={{ products, movements, addProduct, updateProduct, deleteProduct }}>
+        <ProductsContext.Provider value={{ products, movements, addProduct, updateProduct, deleteProduct, clearHistory }}>
             {children}
         </ProductsContext.Provider>
     );

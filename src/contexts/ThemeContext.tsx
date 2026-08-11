@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { useUserSettings } from './UserSettingsContext';
 import { supabase } from '@/integrations/supabase/client';
 
 type Theme = 'light' | 'dark';
@@ -25,38 +26,22 @@ const getInitialTheme = (): Theme => {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const { user } = useAuth();
+  const userSettings = useUserSettings();
 
-  // Load theme from user settings
+  // Load theme from userSettings context or localStorage
   useEffect(() => {
-    const loadTheme = async () => {
-      if (user) {
-        try {
-          const { data } = await supabase
-            .from('user_settings')
-            .select('dark_mode')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          if (data) {
-            setTheme(data.dark_mode ? 'dark' : 'light');
-          } else {
-            setTheme('light');
-          }
-        } catch (error) {
-          console.error('Error loading theme:', error);
-          setTheme('light');
-        }
-      } else {
-        // Load from localStorage for non-authenticated users
-        const savedTheme = localStorage.getItem('theme') as Theme;
-        if (savedTheme) {
-          setTheme(savedTheme);
-        }
+    if (user) {
+      if (userSettings?.settings) {
+        setTheme(userSettings.settings.dark_mode ? 'dark' : 'light');
       }
-    };
-
-    loadTheme();
-  }, [user]);
+    } else {
+      // Load from localStorage for non-authenticated users
+      const savedTheme = localStorage.getItem('theme') as Theme;
+      if (savedTheme) {
+        setTheme(savedTheme);
+      }
+    }
+  }, [user, userSettings?.settings]);
 
   // Apply theme to document
   useEffect(() => {
@@ -82,6 +67,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }, { onConflict: 'user_id' })
         .then(({ error }) => {
           if (error) console.error('Error updating theme:', error);
+          if (!error && userSettings?.refetchSettings) {
+            userSettings.refetchSettings();
+          }
         });
     }
   };
@@ -99,6 +87,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }, { onConflict: 'user_id' })
         .then(({ error }) => {
           if (error) console.error('Error updating theme:', error);
+          if (!error && userSettings?.refetchSettings) {
+            userSettings.refetchSettings();
+          }
         });
     }
   };
@@ -109,16 +100,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     toggleTheme,
   };
 
-
-
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    // More descriptive error with debugging info
-    console.error('useTheme must be used within a ThemeProvider. Make sure ThemeProvider wraps your component tree.');
+    console.error('useTheme must be used within a ThemeProvider');
     throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;

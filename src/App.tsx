@@ -8,6 +8,7 @@ import { CurrencyProvider } from '@/contexts/CurrencyContext';
 import { AdminProvider } from '@/contexts/AdminContext';
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { UserSettingsProvider } from '@/contexts/UserSettingsContext';
 import { AuthGuard, PublicOnlyGuard } from '@/components/guards/AuthGuard';
 import { ModuleGuard } from '@/components/guards/ModuleGuard';
 import { Toaster } from 'sonner';
@@ -16,10 +17,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 
-// Core pages (loaded synchronously for immediate initial paint)
-import Auth from '@/pages/Auth';
-import Dashboard from '@/pages/Dashboard';
-import Landing from '@/pages/Landing';
+// Lazy-loaded core pages
+const Auth = React.lazy(() => import('@/pages/Auth'));
+const Dashboard = React.lazy(() => import('@/pages/Dashboard'));
+const Landing = React.lazy(() => import('@/pages/Landing'));
 import { CommandPalette } from '@/components/CommandPalette';
 
 // Lazy-loaded secondary pages & sub-modules
@@ -228,8 +229,9 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <AuthProvider>
-          <ThemeProvider>
-            <CurrencyProvider>
+          <UserSettingsProvider>
+            <ThemeProvider>
+              <CurrencyProvider>
               <AdminProvider>
                 <AdminAuthProvider>
                   <LanguageProvider>
@@ -397,7 +399,8 @@ export default function App() {
               </AdminProvider>
             </CurrencyProvider>
           </ThemeProvider>
-        </AuthProvider>
+        </UserSettingsProvider>
+      </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   );

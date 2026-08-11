@@ -39,7 +39,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { PageTransition } from '@/components/PageTransition';
 
-type PeriodFilter = 'month' | '3m' | '6m' | 'fy' | 'ytd' | 'custom';
+type PeriodFilter = 'all' | 'month' | '3m' | '6m' | 'fy' | 'ytd' | 'custom';
 
 interface DashboardStats {
   totalSales: number;
@@ -76,8 +76,8 @@ interface RecentTask {
 }
 
 export default function Dashboard() {
-  const { user, profile } = useAuth();
-  const { activeModules, hasModule } = useSubscription();
+  const { user, profile, loading: authLoading } = useAuth();
+  const { activeModules, hasModule, loading: subscriptionLoading } = useSubscription();
   const { t } = useLanguage();
   const navigate = useNavigate();
 
@@ -89,8 +89,8 @@ export default function Dashboard() {
   const showInventory = hasModule('inventory');
   const showHisab = hasModule('hisab');
 
-  // Period Filter State
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>('ytd');
+  // Period Filter State (defaults to 'all' for complete initial data overview)
+  const [selectedPeriod, setSelectedPeriod] = useState<PeriodFilter>('all');
   const [customStartDate, setCustomStartDate] = useState<string>(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 1);
@@ -128,6 +128,8 @@ export default function Dashboard() {
     const formatD = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     
     switch (selectedPeriod) {
+      case 'all':
+        return 'All Time Overview • Lifetime Business Performance';
       case 'month': {
         const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
         return `This Month • ${formatD(firstOfMonth)} → ${formatD(today)}`;
@@ -164,7 +166,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || authLoading || subscriptionLoading) return;
+
     let isMounted = true;
 
     const safeQuery = async <T = any>(queryFn: () => PromiseLike<any> | Promise<any>, fallback: any): Promise<T> => {
@@ -194,34 +197,6 @@ export default function Dashboard() {
             expense: 0,
           });
         }
-
-        const [
-          invoicesRes,
-          recentInvsRes,
-          empCountRes,
-          pendLeavesRes,
-          leadsCountRes,
-          pendTasksCountRes,
-          tasksDataRes,
-          accountsRes,
-          expensesRes,
-          productsRes,
-          hisabRes
-        ] = await Promise.all([
-          showBilling ? safeQuery(async () => await supabase.from('invoices').select('status, total_amount, issue_date').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showBilling ? safeQuery(async () => await supabase.from('invoices').select('id, invoice_number, total_amount, status, issue_date, client_id').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showPayroll ? safeQuery(async () => await supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active'), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showPayroll ? safeQuery(async () => await supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'pending'), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showCRM ? safeQuery(async () => await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('user_id', user.id), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showCRM ? safeQuery(async () => await supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('user_id', user.id).neq('status', 'done'), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showCRM ? safeQuery(async () => await supabase.from('tasks').select('id, title, status, priority, due_date').eq('user_id', user.id).neq('status', 'done').order('created_at', { ascending: false }).limit(5), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showLedger ? safeQuery(async () => await supabase.from('accounts').select('id, balance').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          safeQuery(async () => await supabase.from('expenses').select('amount, created_at').eq('user_id', user.id), { data: [] as any[] }),
-          showInventory ? safeQuery(async () => await supabase.from('products').select('*').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showHisab ? safeQuery(async () => await supabase.from('calculation_entries').select('*', { count: 'exact', head: true }).eq('user_id', user.id), { count: 0 }) : Promise.resolve({ count: 0 })
-        ]);
-
-        if (!isMounted) return;
 
         const { start: dateStart, end: dateEnd } = (() => {
           const today = new Date();
@@ -256,30 +231,61 @@ export default function Dashboard() {
               end = customEndDate ? new Date(`${customEndDate}T23:59:59`) : new Date();
               break;
             default:
-              start = new Date(today.getFullYear(), 0, 1);
+              start = new Date(2000, 0, 1);
           }
           return { start, end };
         })();
 
-        let totalSales = 0;
-        let unpaidAmount = 0;
-        let invoiceCount = 0;
+        const [
+          invoicesRes,
+          clientsRes,
+          empCountRes,
+          pendLeavesRes,
+          leadsCountRes,
+          tasksDataRes,
+          accountsRes,
+          expensesRes,
+          productsRes,
+          hisabRes
+        ] = await Promise.all([
+          showBilling ? safeQuery(async () => await supabase.from('invoices').select('id, invoice_number, total_amount, status, issue_date, created_at, client_id').eq('user_id', user.id).order('created_at', { ascending: false }), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          showBilling ? safeQuery(async () => await supabase.from('clients').select('id, name').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          showPayroll ? safeQuery(async () => await supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active'), { count: 0 }) : Promise.resolve({ count: 0 }),
+          showPayroll ? safeQuery(async () => await supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'pending'), { count: 0 }) : Promise.resolve({ count: 0 }),
+          showCRM ? safeQuery(async () => await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('user_id', user.id), { count: 0 }) : Promise.resolve({ count: 0 }),
+          showCRM ? safeQuery(async () => await supabase.from('tasks').select('id, title, status, priority, due_date', { count: 'exact' }).eq('user_id', user.id).neq('status', 'done').order('created_at', { ascending: false }).limit(5), { data: [] as any[], count: 0 }) : Promise.resolve({ data: [] as any[], count: 0 }),
+          showLedger ? safeQuery(async () => await supabase.from('accounts').select('id, balance').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          safeQuery(async () => await supabase.from('expenses').select('amount, created_at').eq('user_id', user.id), { data: [] as any[] }),
+          showInventory ? safeQuery(async () => await supabase.from('products').select('id, opening_stock').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          showHisab ? safeQuery(async () => await supabase.from('calculations').select('*', { count: 'exact', head: true }).eq('user_id', user.id), { count: 0 }) : Promise.resolve({ count: 0 })
+        ]);
+
+        if (!isMounted) return;
+
+        const clientsMap = new Map((clientsRes.data || []).map((c: any) => [c.id, c.name]));
         const rawInvoices = invoicesRes.data || [];
+
         const invoicesData = rawInvoices.filter((inv: any) => {
-          if (!inv.issue_date) return true;
-          const invDate = new Date(inv.issue_date);
+          if (selectedPeriod === 'all') return true;
+          const dateStr = inv.issue_date || inv.created_at;
+          if (!dateStr) return true;
+          const invDate = new Date(dateStr);
           return invDate >= dateStart && invDate <= dateEnd;
         });
 
+        let totalSales = 0;
+        let unpaidAmount = 0;
+        let invoiceCount = 0;
+
         if (showBilling && invoicesData.length > 0) {
-          totalSales = invoicesData.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
+          totalSales = invoicesData.reduce((sum: number, inv: any) => sum + Number(inv.total_amount || 0), 0);
           unpaidAmount = invoicesData
-            .filter(inv => inv.status !== 'paid' && inv.status !== 'cancelled')
-            .reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
+            .filter((inv: any) => inv.status !== 'paid' && inv.status !== 'cancelled')
+            .reduce((sum: number, inv: any) => sum + Number(inv.total_amount || 0), 0);
           invoiceCount = invoicesData.length;
 
-          invoicesData.forEach(inv => {
-            const dateStr = inv.issue_date;
+          invoicesData.forEach((inv: any) => {
+            const dateStr = inv.issue_date || inv.created_at;
             if (dateStr) {
               const ym = dateStr.substring(0, 7);
               const mData = last6Months.find(m => m.yearMonth === ym);
@@ -294,28 +300,15 @@ export default function Dashboard() {
           });
         }
 
-        const recentInvs = recentInvsRes.data || [];
-        if (showBilling && recentInvs.length > 0) {
-          const clientIds = recentInvs.map(i => i.client_id).filter(Boolean);
-          let clientMap: Record<string, string> = {};
-          if (clientIds.length > 0) {
-            const clientsResult = await safeQuery<{ data: { id: string; name: string }[] }>(
-              async () => await supabase.from('clients').select('id, name').in('id', clientIds),
-              { data: [] }
-            );
-            clientMap = Object.fromEntries((clientsResult.data || []).map(c => [c.id, c.name]));
-          }
-
-          if (isMounted) {
-            setRecentInvoices(recentInvs.map(inv => ({
-              id: inv.id,
-              invoice_number: inv.invoice_number,
-              total_amount: Number(inv.total_amount),
-              status: inv.status,
-              issue_date: inv.issue_date,
-              client_name: clientMap[inv.client_id] || 'Client'
-            })));
-          }
+        if (showBilling && rawInvoices.length > 0 && isMounted) {
+          setRecentInvoices(rawInvoices.slice(0, 5).map((inv: any) => ({
+            id: inv.id,
+            invoice_number: inv.invoice_number || 'INV',
+            total_amount: Number(inv.total_amount || 0),
+            status: inv.status,
+            issue_date: inv.issue_date || inv.created_at,
+            client_name: clientsMap.get(inv.client_id) || 'Client'
+          })));
         }
 
         if (showCRM && tasksDataRes.data && isMounted) {
@@ -325,6 +318,7 @@ export default function Dashboard() {
         let totalExpenses = 0;
         const rawExps = expensesRes.data || [];
         const exps = rawExps.filter((exp: any) => {
+          if (selectedPeriod === 'all') return true;
           if (!exp.created_at) return true;
           const expDate = new Date(exp.created_at);
           return expDate >= dateStart && expDate <= dateEnd;
@@ -350,7 +344,7 @@ export default function Dashboard() {
 
         const prods = productsRes.data || [];
         const inventoryItemCount = prods.length;
-        const lowStockCount = prods.filter((p: any) => Number(p.stock_quantity || 0) <= Number(p.min_stock_alert || 5)).length;
+        const lowStockCount = prods.filter((p: any) => Number(p.current_stock ?? p.opening_stock ?? 0) <= 5).length;
 
         const netCash = totalSales - totalExpenses;
 
@@ -371,7 +365,7 @@ export default function Dashboard() {
             employeeCount: empCountRes.count || 0,
             pendingLeaves: pendLeavesRes.count || 0,
             leadsCount: leadsCountRes.count || 0,
-            pendingTasksCount: pendTasksCountRes.count || 0,
+            pendingTasksCount: (tasksDataRes as any).count || 0,
             ledgerBalance,
             inventoryItemCount,
             lowStockCount,
@@ -392,7 +386,7 @@ export default function Dashboard() {
     return () => {
       isMounted = false;
     };
-  }, [user, showBilling, showLedger, showPayroll, showCRM, showInventory, showHisab, selectedPeriod, customStartDate, customEndDate]);
+  }, [user, authLoading, subscriptionLoading, activeModules, selectedPeriod, customStartDate, customEndDate]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -425,6 +419,17 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center gap-2">
             {/* Pill Period Filters (Khaata Omniworks Style) */}
             <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200/80 dark:border-slate-800">
+              <button
+                onClick={() => setSelectedPeriod('all')}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer",
+                  selectedPeriod === 'all'
+                    ? "bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+                )}
+              >
+                All Time
+              </button>
               <button
                 onClick={() => setSelectedPeriod('month')}
                 className={cn(

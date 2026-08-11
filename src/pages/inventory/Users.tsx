@@ -63,40 +63,7 @@ import {
   lastActive: string; // ISO string
 };
 
-const initialUsers: UserRecord[] = [
-  {
-    id: "u_001",
-    name: "Aisha Khan",
-    email: "aisha.khan@example.com",
-    role: "Admin",
-    status: "Active",
-    lastActive: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-  },
-  {
-    id: "u_002",
-    name: "Rohit Sharma",
-    email: "rohit.sharma@example.com",
-    role: "Manager",
-    status: "Active",
-    lastActive: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-  },
-  {
-    id: "u_003",
-    name: "Emily Chen",
-    email: "emily.chen@example.com",
-    role: "Staff",
-    status: "Invited",
-    lastActive: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-  },
-  {
-    id: "u_004",
-    name: "Carlos Diaz",
-    email: "carlos.diaz@example.com",
-    role: "Staff",
-    status: "Suspended",
-    lastActive: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
-  },
-];
+const initialUsers: UserRecord[] = [];
 
 const roleBadgeMap: Record<Role, string> = {
   Admin: "bg-primary/10 text-primary",
@@ -147,6 +114,7 @@ export const Users = () => {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
   const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -165,6 +133,29 @@ export const Users = () => {
       return matchesQuery && matchesRole && matchesStatus;
     });
   }, [users, query, roleFilter, statusFilter]);
+
+  const toggleSelectUser = (id: string) => {
+    setSelectedUserIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedUserIds.length === filtered.length && filtered.length > 0) {
+      setSelectedUserIds([]);
+    } else {
+      setSelectedUserIds(filtered.map(u => u.id));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedUserIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedUserIds.length} selected users?`)) return;
+
+    setUsers(prev => prev.filter(u => !selectedUserIds.includes(u.id)));
+    toast.success(`Removed ${selectedUserIds.length} selected users`);
+    setSelectedUserIds([]);
+  };
 
   const handleAdd = () => {
     if (!newName || !newEmail) {
@@ -209,6 +200,7 @@ export const Users = () => {
 
   const removeUser = (id: string) => {
     setUsers(prev => prev.filter(u => u.id !== id));
+    setSelectedUserIds(prev => prev.filter(i => i !== id));
     toast.success("User removed");
   };
 
@@ -288,9 +280,19 @@ export const Users = () => {
                   <SelectItem value="all">All status</SelectItem>
                   <SelectItem value="Active">Active</SelectItem>
                   <SelectItem value="Invited">Invited</SelectItem>
-                  <SelectItem value="Suspended">Suspended</SelectItem>
                 </SelectContent>
               </Select>
+              {selectedUserIds.length > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleBulkDelete}
+                  className="font-bold text-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedUserIds.length})</span>
+                </Button>
+              )}
             </div>
           </div>
 
@@ -298,6 +300,14 @@ export const Users = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[40px]">
+                    <input
+                      type="checkbox"
+                      checked={selectedUserIds.length === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                    />
+                  </TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
@@ -307,7 +317,15 @@ export const Users = () => {
               </TableHeader>
               <TableBody>
                 {filtered.map((u) => (
-                  <TableRow key={u.id}>
+                  <TableRow key={u.id} className={selectedUserIds.includes(u.id) ? "bg-primary/5" : ""}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={() => toggleSelectUser(u.id)}
+                        className="w-4 h-4 rounded border-slate-300 text-primary cursor-pointer"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center">

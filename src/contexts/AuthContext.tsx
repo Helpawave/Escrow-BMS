@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { syncUserAcrossAllModules, ensureDefaultLedgerParties } from '@/utils/erpPosting';
 
 // ── Types ──────────────────────────────────────────────────────
 interface Profile {
@@ -61,6 +62,7 @@ interface AuthContextValue {
   session: Session | null;
   profile: Profile | null;
   role: string | null;
+  userRoles: string[];
   loading: boolean;
   isAdmin: boolean;
   isSuperAdmin: boolean;
@@ -108,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(getCachedProfile);
+  const [userRoles, setUserRoles] = useState<string[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
     try {
       return localStorage.getItem('escrow_is_superadmin') === 'true';
@@ -116,8 +119,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   });
   const [loading, setLoading] = useState(true);
+  const lastFetchedUserIdRef = React.useRef<string | null>(null);
 
-  const fetchProfile = async (userId: string, email?: string) => {
+  const fetchProfile = async (userId: string, email?: string, forceRefresh = false) => {
+    if (!forceRefresh && lastFetchedUserIdRef.current === userId) {
+      return;
+    }
+    lastFetchedUserIdRef.current = userId;
+
+    console.log('[PERF] profiles fetch & user_roles fetch');
     try {
       const [profileRes, rolesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
@@ -141,14 +151,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Check if user is superadmin in user_roles or email list
+      // Check if user is superadmin strictly in database (user_roles table or profile.role)
       const roles = rolesRes.data;
-      const hasSuperRole = roles?.some((r: any) => r.role === 'super_admin') || false;
-      const superEmails = ['admin_bms@escrowbms.com', 'admin@escrowbms.com', '5213aadarsh@gmail.com'];
-      const isSuperEmail = email ? superEmails.includes(email.toLowerCase()) : false;
-      const superVal = hasSuperRole || isSuperEmail;
-      setIsSuperAdmin(superVal);
-      try { localStorage.setItem('escrow_is_superadmin', superVal ? 'true' : 'false'); } catch { }
+      const fetchedRoles: string[] = roles ? roles.map((r: any) => r.role) : [];
+      setUserRoles(fetchedRoles);
+      const hasSuperRole = fetchedRoles.includes('super_admin') || data?.role === 'super_admin';
+      setIsSuperAdmin(hasSuperRole);
+      // Auto-ensure 2 default ledger parties (Take & Give) for new user accounts
+      ensureDefaultLedgerParties(userId).catch(() => {});
     } catch (e) {
       console.error('Error loading profile:', e);
     }
@@ -156,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Restore session on mount
   useEffect(() => {
+    console.log('[PERF] AuthContext init');
     let isMounted = true;
 
     // Safety fallback: Ensure loading is NEVER stuck for more than 500ms
@@ -179,16 +190,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(safetyTimer);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
       if (!isMounted) return;
       if (currentSession) {
         setSession(currentSession as any);
         setUser(currentSession.user as any);
-        fetchProfile(currentSession.user.id, currentSession.user.email);
+        if (event !== 'SIGNED_IN') {
+          fetchProfile(currentSession.user.id, currentSession.user.email);
+        }
       } else {
+        lastFetchedUserIdRef.current = null;
         setSession(null);
         setUser(null);
         setProfile(null);
+        setUserRoles([]);
         setIsSuperAdmin(false);
         try {
           localStorage.removeItem('escrow_cached_profile');
@@ -207,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshProfile = async () => {
-    if (user) await fetchProfile(user.id, user.email);
+    if (user) await fetchProfile(user.id, user.email, true);
   };
 
   const signUp = async (
@@ -227,7 +242,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error && data?.session && data?.user) {
+      setSession(data.session as any);
+      setUser(data.user as any);
+      // Fetch profile with valid session token immediately during login
+      await fetchProfile(data.user.id, data.user.email, true);
+    }
     return { error: error as Error | null };
   };
 
@@ -242,6 +263,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    lastFetchedUserIdRef.current = null;
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setUserRoles([]);
+    setIsSuperAdmin(false);
+    try {
+      localStorage.removeItem('escrow_cached_profile');
+      localStorage.removeItem('escrow_is_superadmin');
+    } catch { }
     await supabase.auth.signOut();
   };
 
@@ -331,6 +362,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       profile,
       role: profile?.role || null,
+      userRoles,
       loading,
       isAdmin,
       isSuperAdmin,

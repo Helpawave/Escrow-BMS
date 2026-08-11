@@ -102,17 +102,7 @@ import {
 
 import { UserData, RawUserData, RevenueData, AuditLog, SystemSetting } from '@/types/admin';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
-const serviceRoleSupabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    storageKey: 'supabase-admin-service-role',
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false
-  }
-});
 
 const WhatsAppIcon = ({ className }: { className?: string }) => (
   <svg 
@@ -247,7 +237,7 @@ const AdminDashboard = () => {
     const fetchSelectedUserSettings = async () => {
       setLoadingSettings(true);
       try {
-        const { data, error } = await (serviceRoleSupabase as any)
+        const { data, error } = await (supabase as any)
           .from('user_settings')
           .select('whatsapp_provider')
           .eq('user_id', selectedUser.user_id)
@@ -273,7 +263,7 @@ const AdminDashboard = () => {
     if (!selectedUser) return;
     try {
       setLoadingSettings(true);
-      const { error } = await (serviceRoleSupabase as any)
+      const { error } = await (supabase as any)
         .from('user_settings')
         .upsert({
           user_id: selectedUser.user_id,
@@ -315,7 +305,7 @@ const AdminDashboard = () => {
 
     try {
       setLoading(true);
-      const { error } = await (serviceRoleSupabase as any)
+      const { error } = await (supabase as any)
         .from('user_settings')
         .upsert({
           user_id: userId,
