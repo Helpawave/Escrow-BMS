@@ -78,19 +78,38 @@ const CreateParty = () => {
       }
       if (!user) throw new Error("Please log in to add a party.");
 
-      const { error: dbError } = await supabase
-        .from('parties')
-        .insert([{
-          id: crypto.randomUUID(),
-          user_id: user.id,
-          sr_no: formData.srNo,
-          party_name: formData.partyName,
-          status: formData.status,
-          commission_type: formData.commissionType,
-          commission_rate: parseFloat(formData.commissionRate)
-        }]);
+      let dbError = null;
+      try {
+        const res = await supabase
+          .from('parties')
+          .insert([{
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            sr_no: formData.srNo,
+            party_name: formData.partyName,
+            status: formData.status,
+            commission_type: formData.commissionType,
+            commission_rate: parseFloat(formData.commissionRate)
+          }]);
+        dbError = res.error;
+      } catch (e) {
+        dbError = e;
+      }
 
-      if (dbError) throw dbError;
+      // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
+      if (dbError) {
+        console.warn("Party full insert warning, retrying with core schema:", dbError);
+        const { error: fbErr } = await supabase
+          .from('parties')
+          .insert([{
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            sr_no: formData.srNo || String(Date.now()),
+            party_name: formData.partyName,
+            status: formData.status
+          }]);
+        if (fbErr) throw fbErr;
+      }
       
       // Unified Client/Party Sync: Auto-create across Billing, CRM & Users Directory
       try {

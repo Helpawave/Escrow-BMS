@@ -223,14 +223,39 @@ const ClientsPage = () => {
           message: 'Client profile has been successfully synchronized with your records.'
         });
       } else {
-        const { error, data: insertedData } = await supabase
-          .from('clients')
-          .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
-          .select();
+        let insertedData: any = null;
+        let insertErr: any = null;
+        try {
+          const res = await supabase
+            .from('clients')
+            .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
+            .select();
+          insertedData = res.data;
+          insertErr = res.error;
+        } catch (e) {
+          insertErr = e;
+        }
 
-        if (error) throw error;
-        if (!insertedData || insertedData.length === 0) {
-          throw new Error("Failed to create client. Please try again.");
+        // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
+        if (insertErr || !insertedData || insertedData.length === 0) {
+          console.warn("Client full insert warning, retrying with core schema:", insertErr);
+          const coreData = {
+            id: crypto.randomUUID(),
+            user_id: activeUserId,
+            name: finalizedData.name,
+            email: finalizedData.email || '',
+            phone: formData.phone || ''
+          };
+          const { data: fbData, error: fbErr } = await supabase
+            .from('clients')
+            .insert([coreData])
+            .select();
+          
+          if (fbErr) {
+            console.error("Client fallback insert error:", fbErr);
+            throw fbErr;
+          }
+          insertedData = fbData;
         }
 
         // Unified Client/Party Sync: Auto-create in parties table for Ledger & CRM

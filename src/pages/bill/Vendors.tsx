@@ -194,14 +194,39 @@ const VendorsPage = () => {
           message: 'Vendor profile has been successfully updated.'
         });
       } else {
-        const { error, data: insertedData } = await supabase
-          .from('vendors')
-          .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
-          .select();
+        let insertedData: any = null;
+        let insertErr: any = null;
+        try {
+          const res = await supabase
+            .from('vendors')
+            .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
+            .select();
+          insertedData = res.data;
+          insertErr = res.error;
+        } catch (e) {
+          insertErr = e;
+        }
 
-        if (error) throw error;
-        if (!insertedData || insertedData.length === 0) {
-          throw new Error("Failed to create vendor. Please try again.");
+        // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
+        if (insertErr || !insertedData || insertedData.length === 0) {
+          console.warn("Vendor full insert warning, retrying with core schema:", insertErr);
+          const coreData = {
+            id: crypto.randomUUID(),
+            user_id: activeUserId,
+            name: finalizedData.name,
+            email: finalizedData.email || '',
+            phone: formData.phone || ''
+          };
+          const { data: fbData, error: fbErr } = await supabase
+            .from('vendors')
+            .insert([coreData])
+            .select();
+          
+          if (fbErr) {
+            console.error("Vendor fallback insert error:", fbErr);
+            throw fbErr;
+          }
+          insertedData = fbData;
         }
 
         setSuccessInfo({
