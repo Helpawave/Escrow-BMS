@@ -17,6 +17,7 @@ interface Profile {
   company_website?: string | null;
   plan_type?: string | null;
   is_paid?: boolean | null;
+  parent_user_id?: string | null;
   // daily-hisab compatibility fields
   name?: string | null;
   mobile?: string | null;
@@ -134,21 +135,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.from('user_roles').select('role').eq('user_id', userId)
       ]);
 
-      const data = profileRes.data;
-      if (data) {
-        setProfile(data as Profile);
-        try { localStorage.setItem('escrow_cached_profile', JSON.stringify(data)); } catch { }
-      } else {
+      let data = profileRes.data;
+      if (!data) {
         // Profile not created yet (trigger may not have fired) — create it
+        let parentUserId: string | null = null;
+        if (email) {
+          try {
+            const { data: empMatch } = await supabase
+              .from('employees')
+              .select('user_id')
+              .eq('email', email)
+              .maybeSingle();
+            if (empMatch?.user_id) {
+              parentUserId = empMatch.user_id;
+            }
+          } catch {}
+        }
         const { data: created } = await supabase
           .from('profiles')
-          .insert({ id: userId, role: 'admin' })
+          .insert({ id: userId, role: parentUserId ? 'member' : 'admin', parent_user_id: parentUserId })
           .select()
           .maybeSingle();
         if (created) {
-          setProfile(created as Profile);
-          try { localStorage.setItem('escrow_cached_profile', JSON.stringify(created)); } catch { }
+          data = created;
         }
+      }
+
+      if (data) {
+        setProfile(data as Profile);
+        try { localStorage.setItem('escrow_cached_profile', JSON.stringify(data)); } catch { }
       }
 
       // Check if user is superadmin strictly in database (user_roles table or profile.role)

@@ -624,80 +624,69 @@ export async function updateUserAcrossAllModules(payload: ERPUserUpdatePayload) 
 }
 
 /**
- * 7. AUTO INITIALIZE 2 DEFAULT LEDGER PARTIES FOR USER ACCOUNT
- * Ensures every registered account has at least 2 parties in Account Ledger (Take & Give)
+ * 7. AUTO INITIALIZE 2 DEFAULT LEDGER PARTIES — Exactly like the reference project's
+ * Supabase `handle_new_user()` trigger in supabase_advanced_ledger.sql:
+ *   - SYS-01: "Commission" (system_type: commission)
+ *   - SYS-02: Company name party (system_type: company)
+ * Only created if they don't already exist for this user.
  */
 export async function ensureDefaultLedgerParties(userId: string) {
   if (!userId) return;
   try {
-    const { data: existingParties } = await supabase
-      .from('parties')
-      .select('id, party_name, system_type')
-      .eq('user_id', userId);
+    // Fetch user's profile to get company name and check if user is a team member
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('company_name, parent_user_id, role')
+      .eq('id', userId)
+      .maybeSingle();
 
-    const partyNames = (existingParties || []).map(p => p.party_name?.toLowerCase());
-    const newPartiesToInsert: any[] = [];
-
-    // 1. Ensure Company Account exists (System Account for Ledger 3-Way Split)
-    if (!partyNames.includes('company account')) {
-      newPartiesToInsert.push({
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-comp-${Date.now()}`,
-        user_id: userId,
-        sr_no: 'C-01',
-        party_name: 'Company Account',
-        status: 'take',
-        commission_type: 'without',
-        commission_rate: 0,
-        system_type: 'company'
-      });
+    // If user is a team member of a company (has parent_user_id or member role), DO NOT create independent parties!
+    if (profileData?.parent_user_id || profileData?.role === 'member') {
+      return;
     }
 
-    // 2. Ensure Commission Account exists (System Account for Ledger Auto Commission)
-    if (!partyNames.includes('commission account')) {
-      newPartiesToInsert.push({
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-comm-${Date.now()}`,
+    const companyName = profileData?.company_name || 'My Company';
+
+    // Check which system parties already exist
+    const { data: existingParties } = await supabase
+      .from('parties')
+      .select('system_type')
+      .eq('user_id', userId)
+      .in('system_type', ['commission', 'company']);
+
+    const existingTypes = new Set((existingParties || []).map((p: any) => p.system_type));
+    const toInsert: any[] = [];
+
+    // SYS-01: Commission party
+    if (!existingTypes.has('commission')) {
+      toInsert.push({
         user_id: userId,
-        sr_no: 'C-02',
-        party_name: 'Commission Account',
-        status: 'take',
+        sr_no: 'SYS-01',
+        party_name: 'Commission',
+        status: 'give',
         commission_type: 'without',
         commission_rate: 0,
         system_type: 'commission'
       });
     }
 
-    // 3. Ensure Cash Account (Take)
-    if (!partyNames.includes('cash account (general)')) {
-      newPartiesToInsert.push({
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-cash-${Date.now()}`,
+    // SYS-02: Company party (named after user's company)
+    if (!existingTypes.has('company')) {
+      toInsert.push({
         user_id: userId,
-        sr_no: '1',
-        party_name: 'Cash Account (General)',
-        status: 'take',
-        commission_type: 'with',
-        commission_rate: 3.5,
-        system_type: 'normal'
-      });
-    }
-
-    // 4. Ensure General Market Supplier (Give)
-    if (!partyNames.includes('general market supplier')) {
-      newPartiesToInsert.push({
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-supplier-${Date.now()}`,
-        user_id: userId,
-        sr_no: '2',
-        party_name: 'General Market Supplier',
+        sr_no: 'SYS-02',
+        party_name: companyName,
         status: 'give',
-        commission_type: 'with',
-        commission_rate: 1.0,
-        system_type: 'normal'
+        commission_type: 'without',
+        commission_rate: 0,
+        system_type: 'company'
       });
     }
 
-    if (newPartiesToInsert.length > 0) {
-      await supabase.from('parties').insert(newPartiesToInsert);
+    if (toInsert.length > 0) {
+      await supabase.from('parties').insert(toInsert);
     }
   } catch (err) {
-    console.warn("Auto ledger parties initialization warning:", err);
+    console.warn('Auto ledger parties initialization warning:', err);
   }
 }

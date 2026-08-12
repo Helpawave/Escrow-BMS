@@ -16,6 +16,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
+import { ensureDefaultLedgerParties } from '@/utils/erpPosting';
 
 interface Party {
   id: string;
@@ -33,7 +34,7 @@ const ITEMS_PER_PAGE = 10;
 
 const PartyReport = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [parties, setParties] = useState<Party[]>(() => {
     try {
       const cached = localStorage.getItem('cached_parties_report');
@@ -195,8 +196,9 @@ const PartyReport = () => {
     if (!user) return;
     fetchParties();
 
+    const effectiveUserId = profile?.parent_user_id || user.id;
     const partiesChannel = supabase.channel('party-report-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'parties', filter: `user_id=eq.${user.id}` }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parties', filter: `user_id=eq.${effectiveUserId}` }, () => {
         fetchParties();
       })
       .subscribe();
@@ -204,15 +206,17 @@ const PartyReport = () => {
     return () => {
       supabase.removeChannel(partiesChannel);
     };
-  }, [user]);
+  }, [user, profile]);
 
   const fetchParties = async () => {
     if (!user) { setLoading(false); return; }
+    const effectiveUserId = profile?.parent_user_id || user.id;
     try {
+      await ensureDefaultLedgerParties(effectiveUserId);
       const { data, error } = await supabase
         .from('parties')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', effectiveUserId)
         .order('party_name', { ascending: true });
       if (error) throw error;
       const cleanData = data || [];
@@ -232,6 +236,22 @@ const PartyReport = () => {
   const handleEdit = (party: Party) => {
     setEditingParty(party);
     setEditFormData({ ...party });
+  };
+
+  const handleDeleteParty = async (party: Party) => {
+    const confirmed = window.confirm(`Are you sure you want to delete "${party.party_name}"? This action cannot be undone.`);
+    if (!confirmed) return;
+    try {
+      const { error } = await supabase
+        .from('parties')
+        .delete()
+        .eq('id', party.id);
+      if (error) throw error;
+      setParties(prev => prev.filter(p => p.id !== party.id));
+      setSelectedPartyIds(prev => { const n = new Set(prev); n.delete(party.id); return n; });
+    } catch (err: any) {
+      alert('Error deleting party: ' + err.message);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -470,7 +490,10 @@ const PartyReport = () => {
                           >
                             <Edit3 className="w-5 h-5" />
                           </button>
-                          <button className="p-2.5 text-rose-450 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all">
+                          <button 
+                            onClick={() => handleDeleteParty(p)}
+                            className="p-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
+                          >
                             <Trash2 className="w-5 h-5" />
                           </button>
                         </>

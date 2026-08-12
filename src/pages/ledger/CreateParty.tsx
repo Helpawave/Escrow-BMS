@@ -13,10 +13,12 @@ import {
   XCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { syncUserAcrossAllModules } from '@/utils/erpPosting';
 
 const CreateParty = () => {
   const navigate = useNavigate();
+  const { user: authUser, profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +33,12 @@ const CreateParty = () => {
 
   const fetchNextSrNo = async () => {
     try {
-      const { count, error } = await supabase
-        .from('parties')
-        .select('*', { count: 'exact', head: true });
+      const targetUserId = profile?.parent_user_id || authUser?.id;
+      let query = supabase.from('parties').select('*', { count: 'exact', head: true });
+      if (targetUserId) {
+        query = query.eq('user_id', targetUserId);
+      }
+      const { count, error } = await query;
         
       if (!error && count !== null) {
         setFormData(prev => ({ ...prev, srNo: String(count + 1) }));
@@ -48,7 +53,7 @@ const CreateParty = () => {
 
   useEffect(() => {
     fetchNextSrNo();
-  }, []);
+  }, [authUser, profile]);
 
   // Auto-update rate based on status
   useEffect(() => {
@@ -78,13 +83,15 @@ const CreateParty = () => {
       }
       if (!user) throw new Error("Please log in to add a party.");
 
+      const targetUserId = profile?.parent_user_id || user.id;
+
       let dbError = null;
       try {
         const res = await supabase
           .from('parties')
           .insert([{
             id: crypto.randomUUID(),
-            user_id: user.id,
+            user_id: targetUserId,
             sr_no: formData.srNo,
             party_name: formData.partyName,
             status: formData.status,
@@ -103,7 +110,7 @@ const CreateParty = () => {
           .from('parties')
           .insert([{
             id: crypto.randomUUID(),
-            user_id: user.id,
+            user_id: targetUserId,
             sr_no: formData.srNo || String(Date.now()),
             party_name: formData.partyName,
             status: formData.status

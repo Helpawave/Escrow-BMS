@@ -26,6 +26,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
+import { ensureDefaultLedgerParties } from '@/utils/erpPosting';
 
 // Component Imports
 import { EditTransactionModal } from '@/components/ledger/EditTransactionModal';
@@ -56,7 +57,7 @@ const formatTime = (dateStr?: string) => {
 const LedgerView = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user: authUser } = useAuth();
+  const { user: authUser, profile } = useAuth();
   
   // Parties state and caching logic
   const [parties, setParties] = useState<Party[]>(() => {
@@ -127,11 +128,13 @@ const LedgerView = () => {
   // DB Sync logic
   const fetchParties = async () => {
     if (!authUser) { setLoading(false); return; }
+    const effectiveUserId = profile?.parent_user_id || authUser.id;
     try {
+      await ensureDefaultLedgerParties(effectiveUserId);
       const { data, error } = await supabase
         .from('parties')
         .select('*')
-        .eq('user_id', authUser.id)
+        .eq('user_id', effectiveUserId)
         .order('party_name', { ascending: true });
       if (error) throw error;
       const cleanData = (data || []) as Party[];
