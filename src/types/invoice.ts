@@ -5,6 +5,7 @@ export type Client = {
   name: string;
   email?: string | null;
   phone?: string | null;
+  company_name?: string | null;
   address?: string | null;
   city?: string | null;
   state?: string | null;
@@ -40,6 +41,7 @@ export type Vendor = {
   name: string;
   email?: string | null;
   phone?: string | null;
+  company_name?: string | null;
   address?: string | null;
   gstin?: string | null;
   user_id?: string;
