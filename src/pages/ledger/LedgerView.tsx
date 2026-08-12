@@ -630,6 +630,12 @@ const LedgerView = () => {
       action: () => toggleSelectAllTns() 
     },
     { 
+      name: 'Add Party', 
+      icon: <Plus className="w-4 h-4" />, 
+      color: 'bg-blue-600 text-white shadow-md shadow-blue-200', 
+      action: () => navigate('/ledger/create/party') 
+    },
+    { 
       name: 'Exit', 
       icon: <XCircle className="w-4 h-4" />, 
       color: 'bg-orange-500 text-white shadow-md shadow-orange-200', 
@@ -738,6 +744,14 @@ const LedgerView = () => {
               >
                 <Calendar className="w-3.5 h-3.5" />
                 {submitting ? 'Settling...' : `Monday Final ${selectedPartyIds.size > 0 ? `(${selectedPartyIds.size})` : ''}`}
+              </button>
+              <button 
+                type="button"
+                onClick={() => navigate('/ledger/create/party')}
+                className="flex items-center gap-1.5 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100 dark:shadow-none rounded-xl font-bold text-[10px] tracking-widest uppercase transition-all whitespace-nowrap shrink-0 border border-blue-700"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Party
               </button>
               <button 
                 type="button"
