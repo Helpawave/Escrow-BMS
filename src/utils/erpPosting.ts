@@ -317,7 +317,7 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
           .maybeSingle();
 
         if (!existingClient) {
-          await supabase.from('clients').insert([{
+          const { error: cliErr } = await supabase.from('clients').insert([{
             id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cli-${Date.now()}`,
             user_id: userId,
             name: trimmedName,
@@ -331,6 +331,17 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
             postal_code: payload.postalCode || '',
             country: payload.country || 'India'
           }]);
+
+          if (cliErr) {
+            // Fallback retry with core fields if schema doesn't have optional columns
+            await supabase.from('clients').insert([{
+              id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cli-${Date.now()}`,
+              user_id: userId,
+              name: trimmedName,
+              email: trimmedEmail,
+              phone: payload.phone || ''
+            }]);
+          }
         }
       } catch (cErr) {
         console.warn("Universal Sync to Clients warning:", cErr);

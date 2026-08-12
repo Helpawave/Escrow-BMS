@@ -109,14 +109,30 @@ export const useLedgerTransactions = ({
 
   const fetchTransactions = async (partyId: string, showArchived: boolean = false) => {
     try {
-      const { data: tnsData, error: tnsError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('party_id', partyId)
-        .filter('is_finalized', showArchived ? 'eq' : 'neq', true)
-        .order('transaction_date', { ascending: true });
-        
-      if (tnsError) throw tnsError;
+      let tnsData: any[] | null = null;
+      let tnsError: any = null;
+
+      try {
+        const res = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('party_id', partyId)
+          .filter('is_finalized', showArchived ? 'eq' : 'neq', true)
+          .order('transaction_date', { ascending: true });
+        tnsData = res.data;
+        tnsError = res.error;
+      } catch (e) {
+        tnsError = e;
+      }
+
+      if (tnsError || !tnsData) {
+        const { data: fallbackData } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('party_id', partyId)
+          .order('transaction_date', { ascending: true });
+        tnsData = fallbackData || [];
+      }
       
       const currentTns = (tnsData || []) as Transaction[];
       const linkedIds = currentTns.map(t => t.linked_transaction_id).filter(Boolean) as string[];
@@ -817,7 +833,7 @@ export const useLedgerTransactions = ({
       const debitB = secondPartyType === 'DR' ? absAmt : 0;
       const newBalB = balB + creditB - debitB;
 
-      const { error: insertErr } = await supabase.from('transactions').insert([
+      let { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: chainId,
           user_id: authUser.id,
@@ -843,6 +859,34 @@ export const useLedgerTransactions = ({
           idempotency_key: idempotencyKey
         }
       ]);
+
+      if (insertErr) {
+        const resFb = await supabase.from('transactions').insert([
+          {
+            id: chainId,
+            user_id: authUser.id,
+            party_id: selectedParty.id,
+            linked_transaction_id: chainId,
+            remarks: remarksVal || '',
+            tns_type: firstPartyType,
+            credit: creditA,
+            debit: debitA,
+            balance: newBalA
+          },
+          {
+            id: generateUUID(),
+            user_id: authUser.id,
+            party_id: linkedPartyVal.id,
+            linked_transaction_id: chainId,
+            remarks: remarksVal || '',
+            tns_type: secondPartyType,
+            credit: creditB,
+            debit: debitB,
+            balance: newBalB
+          }
+        ]);
+        insertErr = resFb.error;
+      }
 
       if (insertErr) throw insertErr;
 
