@@ -13,10 +13,11 @@ export function useProducts({
   pageSize = 50, 
   searchTerm = "" 
 }: UseProductsProps = {}) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const targetUserId = profile?.parent_user_id || user?.id;
 
   return useQuery({
-    queryKey: ['products', user?.id, page, pageSize, searchTerm],
+    queryKey: ['products', targetUserId, page, pageSize, searchTerm],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
 
@@ -26,7 +27,7 @@ export function useProducts({
       let query = supabase
         .from('products')
         .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
       if (searchTerm) {

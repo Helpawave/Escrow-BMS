@@ -5,10 +5,11 @@ import { supabase } from "@/integrations/supabase/client";
 export type DateRangeFilter = number | 'all' | 'current_month' | { from: string; to: string };
 
 export function useDashboardStats(range: DateRangeFilter = 'current_month') {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const targetUserId = profile?.parent_user_id || user?.id;
 
   return useQuery({
-    queryKey: ['dashboard-stats', user?.id, range],
+    queryKey: ['dashboard-stats', targetUserId, range],
     queryFn: async () => {
       if (!user?.id) return null;
 
@@ -33,20 +34,20 @@ export function useDashboardStats(range: DateRangeFilter = 'current_month') {
         supabase
           .from('invoices')
           .select('id, status, total_amount, created_at, client_id')
-          .eq('user_id', user.id)
+          .eq('user_id', targetUserId)
           .order('created_at', { ascending: false }),
         supabase
           .from('expenses')
           .select('amount, created_at')
-          .eq('user_id', user.id),
+          .eq('user_id', targetUserId),
         supabase
           .from('clients')
           .select('id', { count: 'exact' })
-          .eq('user_id', user.id),
+          .eq('user_id', targetUserId),
         supabase
           .from('products')
           .select('id', { count: 'exact' })
-          .eq('user_id', user.id),
+          .eq('user_id', targetUserId),
       ]);
 
       const invoices = (invRes.data || []).filter((inv: any) => {

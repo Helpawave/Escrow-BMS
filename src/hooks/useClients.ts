@@ -25,17 +25,18 @@ interface UseClientsProps {
 }
 
 export function useClients({ page = 1, pageSize = 50, searchTerm = "" }: UseClientsProps = {}) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const targetUserId = profile?.parent_user_id || user?.id;
 
   return useQuery({
-    queryKey: ['clients', user?.id, page, pageSize, searchTerm],
+    queryKey: ['clients', targetUserId, page, pageSize, searchTerm],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
 
       let query = supabase
         .from('clients')
         .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
       if (searchTerm) {

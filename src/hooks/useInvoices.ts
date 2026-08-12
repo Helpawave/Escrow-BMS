@@ -11,17 +11,18 @@ interface UseInvoicesProps {
 }
 
 export function useInvoices({ page = 1, pageSize = 50, searchTerm = "", statusFilter = "all" }: UseInvoicesProps = {}) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const targetUserId = profile?.parent_user_id || user?.id;
 
   return useQuery({
-    queryKey: ['invoices', user?.id, page, pageSize, searchTerm, statusFilter],
+    queryKey: ['invoices', targetUserId, page, pageSize, searchTerm, statusFilter],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
 
       let query = supabase
         .from('invoices')
         .select('*, clients(id, name, email, phone)', { count: 'exact' })
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
       if (statusFilter !== 'all') {

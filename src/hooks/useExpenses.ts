@@ -11,17 +11,18 @@ interface UseExpensesProps {
 }
 
 export function useExpenses({ page = 1, pageSize = 50, searchTerm = "", category = "all" }: UseExpensesProps = {}) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const targetUserId = profile?.parent_user_id || user?.id;
 
   return useQuery({
-    queryKey: ['expenses', user?.id, page, pageSize, searchTerm, category],
+    queryKey: ['expenses', targetUserId, page, pageSize, searchTerm, category],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
 
       let query = supabase
         .from('expenses')
         .select('*', { count: 'exact' })
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
       if (category !== 'all') {
