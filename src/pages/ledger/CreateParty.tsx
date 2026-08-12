@@ -26,6 +26,7 @@ const CreateParty = () => {
   const [formData, setFormData] = useState({
     srNo: '',
     partyName: '',
+    phone: '',
     status: 'take', // take or give
     commissionType: 'with', // with or without
     commissionRate: '3.5' // default 3.5% for take
@@ -122,6 +123,7 @@ const CreateParty = () => {
       try {
         await syncUserAcrossAllModules({
           name: formData.partyName,
+          phone: formData.phone,
           email: ''
         });
       } catch (syncErr) {
@@ -132,6 +134,7 @@ const CreateParty = () => {
       setFormData({
         srNo: '',
         partyName: '',
+        phone: '',
         status: 'take',
         commissionType: 'with',
         commissionRate: '3.5'
@@ -206,6 +209,18 @@ const CreateParty = () => {
                   onChange={handleChange}
                   className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all font-medium"
                   placeholder="Enter full name"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider ml-1">Phone Number (Mobile)</label>
+                <input
+                  name="phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all font-medium"
+                  placeholder="Enter mobile/phone number"
                 />
               </div>
 

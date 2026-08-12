@@ -290,7 +290,14 @@ export interface ERPMemberSyncPayload {
 export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id;
+    if (!user) return;
+    let userId = user.id;
+    try {
+      const { data: prof } = await supabase.from('profiles').select('parent_user_id').eq('id', userId).maybeSingle();
+      if (prof?.parent_user_id) {
+        userId = prof.parent_user_id;
+      }
+    } catch {}
 
     const trimmedName = payload.name.trim();
     const trimmedEmail = payload.email.trim();

@@ -598,7 +598,45 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
       if (isPurchase) {
         // Handle Purchase Bill Creation
-        // Filter formData to avoid sending client_id to purchase_invoices
+        let finalVendorId = formData.vendor_id;
+
+        // Auto-register selected client as Vendor if not already present in vendors table
+        if (formData.vendor_id) {
+          const matchedClient = clients.find(c => c.id === formData.vendor_id);
+          const matchedVendor = vendors.find(v => v.id === formData.vendor_id || (matchedClient && v.name.toLowerCase() === matchedClient.name.toLowerCase()));
+
+          if (matchedVendor) {
+            finalVendorId = matchedVendor.id;
+          } else if (matchedClient) {
+            try {
+              const { data: newVend } = await supabase
+                .from('vendors')
+                .insert([{
+                  id: crypto.randomUUID(),
+                  user_id: activeUserId,
+                  name: matchedClient.name,
+                  email: matchedClient.email || '',
+                  phone: matchedClient.phone || '',
+                  company_name: matchedClient.company_name || matchedClient.name,
+                  address: matchedClient.address || '',
+                  city: matchedClient.city || '',
+                  state: matchedClient.state || '',
+                  postal_code: matchedClient.postal_code || '',
+                  country: matchedClient.country || 'India'
+                }])
+                .select('id')
+                .maybeSingle();
+
+              if (newVend?.id) {
+                finalVendorId = newVend.id;
+                queryClient.invalidateQueries({ queryKey: ['vendors'] });
+              }
+            } catch (vErr) {
+              console.warn("Auto vendor creation from client warning:", vErr);
+            }
+          }
+        }
+
         const { client_id, ...purchaseFormData } = formData;
 
         const { data: rawPurchaseData, error: purchaseError } = await supabase
@@ -606,7 +644,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           .insert([{
             id: crypto.randomUUID(),
             user_id: activeUserId,
-            vendor_id: formData.vendor_id,
+            vendor_id: finalVendorId,
             invoice_number: await generateInvoiceNumber(),
             issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
             due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
