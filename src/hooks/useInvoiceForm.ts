@@ -1049,7 +1049,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
             .from('invoices')
             .insert([{
               id: crypto.randomUUID(),
-              user_id: activeUserId,
+              user_id: targetUserId,
               client_id: formData.client_id,
               invoice_number: newInvoiceNumber,
               issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
