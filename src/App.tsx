@@ -346,6 +346,7 @@ export default function App() {
                           <Route path="/history" element={<DynamicHistoryRedirect />} />
                           <Route path="/admin" element={<SuperadminLogin />} />
                           <Route path="/admin/dashboard" element={<SuperadminLogin />} />
+                          <Route path="/superadmin" element={<Navigate to="/admin" replace />} />
 
                           {/* Static Redirects to prevent broken links from absolute routing in sub-modules */}
                           <Route path="/invoices" element={<Navigate to="/billing/invoices" replace />} />
