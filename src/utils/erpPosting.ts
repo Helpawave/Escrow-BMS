@@ -645,60 +645,13 @@ export async function updateUserAcrossAllModules(payload: ERPUserUpdatePayload) 
 export async function ensureDefaultLedgerParties(userId: string) {
   if (!userId) return;
   try {
-    // Fetch user's profile to get company name and check if user is a team member
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('company_name, parent_user_id, role')
-      .eq('id', userId)
-      .maybeSingle();
-
-    // If user is a team member of a company (has parent_user_id or member role), DO NOT create independent parties!
-    if (profileData?.parent_user_id || profileData?.role === 'member') {
-      return;
-    }
-
-    const companyName = profileData?.company_name || 'My Company';
-
-    // Check which system parties already exist
-    const { data: existingParties } = await supabase
+    // Clean up and delete any previously generated system parties
+    await supabase
       .from('parties')
-      .select('system_type')
+      .delete()
       .eq('user_id', userId)
-      .in('system_type', ['commission', 'company']);
-
-    const existingTypes = new Set((existingParties || []).map((p: any) => p.system_type));
-    const toInsert: any[] = [];
-
-    // SYS-01: Commission party
-    if (!existingTypes.has('commission')) {
-      toInsert.push({
-        user_id: userId,
-        sr_no: 'SYS-01',
-        party_name: 'Commission',
-        status: 'give',
-        commission_type: 'without',
-        commission_rate: 0,
-        system_type: 'commission'
-      });
-    }
-
-    // SYS-02: Company party (named after user's company)
-    if (!existingTypes.has('company')) {
-      toInsert.push({
-        user_id: userId,
-        sr_no: 'SYS-02',
-        party_name: companyName,
-        status: 'give',
-        commission_type: 'without',
-        commission_rate: 0,
-        system_type: 'company'
-      });
-    }
-
-    if (toInsert.length > 0) {
-      await supabase.from('parties').insert(toInsert);
-    }
+      .or('system_type.in.(commission,company,escrow),sr_no.in.(SYS-01,SYS-02)');
   } catch (err) {
-    console.warn('Auto ledger parties initialization warning:', err);
+    console.warn('System parties cleanup notice:', err);
   }
 }

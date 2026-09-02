@@ -140,7 +140,33 @@ export function AppLayout({ children }: AppLayoutProps) {
               );
             }
 
-            const active = location.pathname === item.route || (item.route.length > 5 && location.pathname.startsWith(item.route + '/'));
+            const isTabActive = (itemRoute: string) => {
+              if (itemRoute.includes('?')) {
+                const [path, search] = itemRoute.split('?');
+                return location.pathname === path && location.search.includes(search);
+              }
+              if (itemRoute === '/billing/create-invoice') {
+                return location.pathname === '/billing/create-invoice' && !location.search.includes('type=ledger');
+              }
+              if (itemRoute === '/ledger') {
+                return location.pathname === '/ledger' || location.pathname === '/ledger/' || location.pathname === '/ledger/ledger';
+              }
+              if (itemRoute === '/payroll' || itemRoute === '/payroll/payroll') {
+                return location.pathname === '/payroll' || location.pathname === '/payroll/' || location.pathname === '/payroll/payroll';
+              }
+              if (itemRoute === '/inventory' || itemRoute === '/inventory/products') {
+                return location.pathname === '/inventory' || location.pathname === '/inventory/' || location.pathname.startsWith('/inventory/products');
+              }
+              if (itemRoute === '/crm' || itemRoute === '/crm/tasks') {
+                return location.pathname === '/crm' || location.pathname === '/crm/' || location.pathname.startsWith('/crm/tasks');
+              }
+              if (itemRoute === '/calculation' || itemRoute === '/calculation/history') {
+                return location.pathname === '/calculation' || location.pathname === '/calculation/' || location.pathname.startsWith('/calculation/history');
+              }
+              return location.pathname === itemRoute || (itemRoute.length > 8 && location.pathname.startsWith(itemRoute + '/'));
+            };
+
+            const active = isTabActive(item.route);
             const displayLabel = t(item.labelKey) !== item.labelKey ? t(item.labelKey) : item.labelKey;
             return (
               <Link
