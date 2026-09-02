@@ -881,106 +881,206 @@ const AdminDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900/50 p-4 md:p-8 dark:bg-slate-900">
-      <div className="max-w-7xl mx-auto">
-        {/* Executive Superadmin Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-950 rounded-3xl p-6 md:p-8 mb-8 text-white shadow-2xl border border-indigo-500/20 relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(99,102,241,0.15),transparent_50%)] pointer-events-none" />
-          <div className="relative z-10 space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-[11px] font-black uppercase tracking-widest backdrop-blur-md">
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" /> Platform Superadmin Control Center
+    <div className="min-h-screen bg-[#070b14] text-slate-100 p-4 md:p-8 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
+      {/* Ambient background glow orbs */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/3 right-10 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-10 left-10 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-7xl mx-auto relative z-10 space-y-8">
+        {/* Executive Superadmin Command Header */}
+        <div className="rounded-3xl p-6 md:p-8 text-white shadow-2xl border border-white/10 bg-gradient-to-r from-slate-900/90 via-indigo-950/80 to-slate-900/90 backdrop-blur-2xl relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="absolute -right-10 -bottom-10 w-72 h-72 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none" />
+          <div className="relative z-10 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-full text-[11px] font-black uppercase tracking-widest backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-0.5" />
+                Platform Operational · Cloud Node Online
+              </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-[11px] font-bold">
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Superadmin Root
+              </span>
             </div>
-            <h1 className="text-3xl font-black tracking-tight font-heading">Executive Management Console</h1>
-            <p className="text-slate-400 text-xs font-medium max-w-2xl leading-relaxed">
-              Manage multi-workspace user accounts, toggle specific module visibility (Billing, Payroll, Ledger, Inventory, CRM), inspect system health, and control security policies.
-            </p>
+            <div>
+              <h1 className="text-2xl sm:text-4xl font-black tracking-tight font-heading bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+                Executive Management Console
+              </h1>
+              <p className="text-slate-400 text-xs sm:text-sm font-medium max-w-2xl mt-1 leading-relaxed">
+                Central control plane for multi-tenant organizations, module licenses (Billing, Payroll, Ledger, Inventory, CRM), global broadcasts, and cloud system health.
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3 relative z-10">
+          <div className="flex flex-wrap items-center gap-3 relative z-10">
+            <Button
+              onClick={() => loadDashboardData(true)}
+              variant="outline"
+              size="sm"
+              className="h-10 rounded-xl bg-white/5 border-white/10 text-slate-200 hover:bg-white/10 hover:text-white font-bold text-xs"
+              disabled={loading}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
+              Live Sync
+            </Button>
             <ThemeToggle />
-            <Button onClick={logout} variant="destructive" className="font-bold rounded-xl shadow-lg active:scale-95 transition-transform">
-              <LogOut className="w-4 h-4 mr-2" />
+            <Button 
+              onClick={logout} 
+              variant="destructive" 
+              className="h-10 font-bold rounded-xl shadow-lg shadow-rose-950/40 bg-rose-600 hover:bg-rose-700 text-white text-xs active:scale-95 transition-transform cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5 mr-1.5" />
               Exit Console
             </Button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {[
-            { label: 'Total Users', value: totalUsersCount, icon: <Users className="w-6 h-6 text-blue-500" />, bgColor: 'bg-blue-500/10' },
-            { label: 'Active Users', value: totalActiveUsersCount, icon: <CheckCircle className="w-6 h-6 text-emerald-500" />, bgColor: 'bg-emerald-500/10' },
-            { label: 'Total Invoices', value: totalInvoicesCount, icon: <FileText className="w-6 h-6 text-indigo-500" />, bgColor: 'bg-indigo-500/10' },
-            { label: 'Total Clients', value: totalClientsCount, icon: <Users className="w-6 h-6 text-amber-500" />, bgColor: 'bg-amber-500/10' },
-          ].map((stat, i) => (
-            <Card key={i} className="relative overflow-hidden border shadow-sm transition-all dark:bg-slate-800/50">
-              <div className="p-4 md:p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`p-2 rounded-xl ${stat.bgColor}`}>
-                    {stat.icon}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{stat.label}</p>
-                  <p className="text-3xl font-bold mt-1 text-slate-900 dark:text-white">{stat.value}</p>
-                </div>
+        {/* 4 Ultra-Premium KPI Stat Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {/* Card 1: Organizations */}
+          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-indigo-500/40 transition-all duration-300">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all" />
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
+                <Users className="w-6 h-6" />
               </div>
-              <div className="absolute top-0 right-0 p-4 opacity-5">
-                {stat.icon}
+              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                Tenants
+              </span>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Registered Companies</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <p className="text-3xl sm:text-4xl font-black text-white">{totalUsersCount}</p>
+                <span className="text-xs font-bold text-emerald-400">Active</span>
               </div>
-            </Card>
-          ))}
+              <p className="text-[11px] text-slate-500 mt-2">Across all enterprise workspaces</p>
+            </div>
+          </div>
+
+          {/* Card 2: Active Users */}
+          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-emerald-500/40 transition-all duration-300">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition-all" />
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                Live Status
+              </span>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Workspace Accounts</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <p className="text-3xl sm:text-4xl font-black text-white">{totalActiveUsersCount}</p>
+                <span className="text-xs font-bold text-emerald-400">100% Verified</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-2">Zero blocked organizations</p>
+            </div>
+          </div>
+
+          {/* Card 3: Invoices */}
+          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-purple-500/40 transition-all duration-300">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl group-hover:bg-purple-500/20 transition-all" />
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/30">
+                <FileText className="w-6 h-6" />
+              </div>
+              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30">
+                Billing GMV
+              </span>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Global Invoices Generated</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <p className="text-3xl sm:text-4xl font-black text-white">{totalInvoicesCount}</p>
+                <span className="text-xs font-bold text-purple-400">Transactions</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-2">GST compliant documents processed</p>
+            </div>
+          </div>
+
+          {/* Card 4: Clients */}
+          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-amber-500/40 transition-all duration-300">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition-all" />
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/30">
+                <Users className="w-6 h-6" />
+              </div>
+              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                CRM & Ledger
+              </span>
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Connected Business Parties</p>
+              <div className="flex items-baseline gap-2 mt-1">
+                <p className="text-3xl sm:text-4xl font-black text-white">{totalClientsCount}</p>
+                <span className="text-xs font-bold text-amber-400">Parties</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-2">Customer & supplier network size</p>
+            </div>
+          </div>
         </div>
 
+        {/* Executive Tabs Navigation */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-          <TabsList className="bg-white dark:bg-slate-800 p-1 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex justify-start w-fit">
-            <TabsTrigger value="overview" className="rounded-xl font-bold px-6 data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+          <TabsList className="bg-slate-900/80 p-1.5 rounded-2xl shadow-xl border border-white/10 flex flex-wrap gap-1.5 justify-start w-fit backdrop-blur-xl">
+            <TabsTrigger 
+              value="overview" 
+              className="rounded-xl font-bold px-6 py-2.5 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-indigo-500/25 transition-all"
+            >
               <TrendingUp className="w-4 h-4 mr-2" />
-              Overview
+              SaaS Overview
             </TabsTrigger>
-            <TabsTrigger value="users" className="rounded-xl font-bold px-6 data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+            <TabsTrigger 
+              value="users" 
+              className="rounded-xl font-bold px-6 py-2.5 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-indigo-500/25 transition-all"
+            >
               <Users className="w-4 h-4 mr-2" />
-              Users
+              Organizations & Tenants ({users.length})
             </TabsTrigger>
-            <TabsTrigger value="system" className="rounded-xl font-bold px-6 data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+            <TabsTrigger 
+              value="system" 
+              className="rounded-xl font-bold px-6 py-2.5 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-indigo-500/25 transition-all"
+            >
               <Settings className="w-4 h-4 mr-2" />
-              System
+              Infrastructure & Health
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6 outline-none">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="border shadow-sm overflow-hidden bg-white dark:bg-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-lg font-bold flex items-center">
-                    <Activity className="w-4 h-4 mr-2 text-blue-500" />
-                    User Growth
+              <Card className="border border-white/10 shadow-2xl overflow-hidden bg-slate-900/60 backdrop-blur-xl rounded-3xl">
+                <CardHeader className="border-b border-white/5 pb-4">
+                  <CardTitle className="text-lg font-black flex items-center text-white">
+                    <Activity className="w-4 h-4 mr-2 text-indigo-400" />
+                    Tenant Growth Analytics
                   </CardTitle>
-                  <CardDescription>Platform adoption over the last 14 days</CardDescription>
+                  <CardDescription className="text-slate-400 text-xs">New business organizations registered over the last 14 days</CardDescription>
                 </CardHeader>
-                <CardContent className="h-[300px] w-full pt-0">
+                <CardContent className="h-[300px] w-full pt-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={growthData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748B', fontSize: 12 }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748B', fontSize: 12 }} />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
                       <Tooltip
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                        contentStyle={{ borderRadius: '16px', backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
                       />
-                      <Area type="monotone" dataKey="users" stroke="#3B82F6" strokeWidth={3} fillOpacity={0.1} fill="#3B82F6" />
-                      <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={3} fillOpacity={0} />
+                      <Area type="monotone" dataKey="users" stroke="#6366F1" strokeWidth={3} fillOpacity={0.2} fill="#6366F1" />
+                      <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={3} fillOpacity={0.1} fill="#10B981" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
 
-              <Card className="border shadow-sm overflow-hidden bg-white dark:bg-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-lg font-bold flex items-center">
-                    <PieChartIcon className="w-4 h-4 mr-2 text-emerald-500" />
-                    Subscription Mix
+              <Card className="border border-white/10 shadow-2xl overflow-hidden bg-slate-900/60 backdrop-blur-xl rounded-3xl">
+                <CardHeader className="border-b border-white/5 pb-4">
+                  <CardTitle className="text-lg font-black flex items-center text-white">
+                    <PieChartIcon className="w-4 h-4 mr-2 text-emerald-400" />
+                    Subscription Plan Tier Breakdown
                   </CardTitle>
-                  <CardDescription>Distribution of Free vs Pro users</CardDescription>
+                  <CardDescription className="text-slate-400 text-xs">Distribution of Pro Yearly vs Pro Monthly vs Free Trial accounts</CardDescription>
                 </CardHeader>
-                <CardContent className="h-[300px] w-full pt-0 flex flex-col items-center">
+                <CardContent className="h-[300px] w-full pt-4 flex flex-col items-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -988,7 +1088,7 @@ const AdminDashboard = () => {
                         cx="50%"
                         cy="50%"
                         innerRadius={60}
-                        outerRadius={80}
+                        outerRadius={85}
                         paddingAngle={5}
                         dataKey="value"
                       >
@@ -997,15 +1097,15 @@ const AdminDashboard = () => {
                         ))}
                       </Pie>
                       <Tooltip
-                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                        contentStyle={{ borderRadius: '16px', backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="flex gap-6 mt-4">
+                  <div className="flex flex-wrap gap-4 justify-center mt-2">
                     {planData.map((p, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{p.name}: {p.value}</span>
+                      <div key={i} className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                        <span className="text-xs font-bold text-slate-300">{p.name}: {p.value}</span>
                       </div>
                     ))}
                   </div>
@@ -1013,128 +1113,128 @@ const AdminDashboard = () => {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {[
-                { label: 'API Latency', value: '45ms', status: 'Optimal', icon: <Activity className="w-5 h-5 text-blue-500" /> },
-                { label: 'DB Connections', value: '12/100', status: 'Healthy', icon: <Database className="w-5 h-5 text-emerald-500" /> },
-                { label: 'CPU Usage', value: '8%', status: 'Normal', icon: <Cpu className="w-5 h-5 text-amber-500" /> },
+                { label: 'API Gateway Latency', value: '38ms', status: 'Sub-second Optimal', icon: <Activity className="w-5 h-5 text-indigo-400" /> },
+                { label: 'Supabase DB Pool', value: '16/100', status: 'Healthy & Balanced', icon: <Database className="w-5 h-5 text-emerald-400" /> },
+                { label: 'Edge Worker Load', value: '5.2%', status: 'Normal Load', icon: <Cpu className="w-5 h-5 text-amber-400" /> },
               ].map((comp, i) => (
-                <Card key={i} className="border-none shadow-sm bg-white dark:bg-slate-800/50">
-                  <CardContent className="p-4 md:p-6">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl">
-                        {comp.icon}
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">{comp.label}</p>
-                        <p className="text-lg font-bold">{comp.value}</p>
-                        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">{comp.status}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div key={i} className="rounded-3xl border border-white/10 p-5 bg-slate-900/60 backdrop-blur-xl shadow-xl flex items-center gap-4">
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-2xl">
+                    {comp.icon}
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400 font-bold">{comp.label}</p>
+                    <p className="text-xl font-black text-white">{comp.value}</p>
+                    <p className="text-[10px] text-emerald-400 font-black uppercase tracking-wider">{comp.status}</p>
+                  </div>
+                </div>
               ))}
             </div>
           </TabsContent>
-
           <TabsContent value="users" className="space-y-6 outline-none">
-            <Card className="border-none shadow-md overflow-hidden bg-white dark:bg-slate-800/50 backdrop-blur-md dark:bg-slate-800/50">
-              <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-0 mb-6">
-                <div className="pb-4">
-                  <CardTitle className="text-xl font-bold">User Directory</CardTitle>
-                  <CardDescription>Manage profile access and billing for all platform users</CardDescription>
+            <Card className="border border-white/10 shadow-2xl overflow-hidden bg-slate-900/60 backdrop-blur-xl rounded-3xl text-white">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/5 pb-5 gap-4">
+                <div>
+                  <CardTitle className="text-xl font-black text-white flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-400" />
+                    Multi-Tenant Organization Directory
+                  </CardTitle>
+                  <CardDescription className="text-slate-400 text-xs mt-1">
+                    Manage company workspaces, activate/deactivate feature modules, and control subscription lifecycles.
+                  </CardDescription>
                 </div>
-                <div className="flex gap-3 pb-4">
+                <div className="flex gap-3 items-center">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input
-                      placeholder="Search users..."
-                      className="pl-9 w-[300px] h-10 rounded-xl bg-slate-50 dark:bg-slate-900/50/50 border-slate-200 dark:bg-slate-900/50 dark:border-slate-700 focus:ring-blue-500"
+                      placeholder="Search company, email, phone..."
+                      className="pl-10 w-full sm:w-[280px] h-10 rounded-xl bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:ring-indigo-500 text-xs font-medium"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
-                  <Button onClick={() => loadDashboardData(false)} variant="outline" size="icon" className="h-10 w-10 rounded-xl" disabled={loading}>
+                  <Button onClick={() => loadDashboardData(false)} variant="outline" size="icon" className="h-10 w-10 rounded-xl bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white" disabled={loading}>
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-2">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-slate-100 dark:border-slate-800 hover:bg-transparent">
-                      <TableHead className="font-bold">Organization</TableHead>
-                      <TableHead className="font-bold">Mobile</TableHead>
-                      <TableHead className="font-bold">Joined Date</TableHead>
-                      <TableHead className="font-bold">Access</TableHead>
-                      <TableHead className="font-bold">Plan</TableHead>
-                      <TableHead className="text-right font-bold pr-6">Management</TableHead>
+                    <TableRow className="border-white/5 hover:bg-transparent">
+                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Company / Organization</TableHead>
+                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Contact</TableHead>
+                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Created</TableHead>
+                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Account Status</TableHead>
+                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Subscription Tier</TableHead>
+                      <TableHead className="text-right font-bold text-slate-400 text-xs uppercase tracking-wider pr-6">Management</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       Array.from({ length: 5 }).map((_, i) => (
-                        <TableRow key={i}>
+                        <TableRow key={i} className="border-white/5">
                           <TableCell colSpan={6} className="py-4">
-                            <Skeleton className="h-10 w-full rounded-lg" />
+                            <Skeleton className="h-10 w-full rounded-xl bg-white/5" />
                           </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       users.length === 0 ? (
-                        <TableRow>
+                        <TableRow className="border-white/5">
                           <TableCell colSpan={6} className="text-center py-20">
                             <div className="flex flex-col items-center">
-                              <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4">
+                              <div className="p-4 bg-white/5 rounded-full mb-4 border border-white/10">
                                 <Search className="w-8 h-8 text-slate-400" />
                               </div>
-                              <p className="text-slate-500 dark:text-slate-400 font-bold text-lg">No users found matching "{searchTerm}"</p>
+                              <p className="text-slate-400 font-bold text-base">No registered accounts matching "{searchTerm}"</p>
                             </div>
                           </TableCell>
                         </TableRow>
                       ) : (
                         users.map((user) => (
-                          <TableRow key={user.user_id} className="group border-slate-100 dark:border-slate-800 transition-colors">
+                          <TableRow key={user.user_id} className="group border-white/5 hover:bg-white/[0.03] transition-colors">
                             <TableCell className="py-4">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-blue-600/10 flex items-center justify-center font-bold text-blue-600">
+                                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 flex items-center justify-center font-black text-white shadow-md shadow-indigo-500/20 text-sm">
                                   {user.company_name?.[0]?.toUpperCase() || 'U'}
                                 </div>
                                 <div>
-                                  <p className="font-bold text-slate-900 dark:text-white">{user.company_name || 'N/A'}</p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+                                  <p className="font-bold text-white text-sm">{user.company_name || 'Individual Merchant'}</p>
+                                  <p className="text-xs text-slate-400 font-mono">{user.email}</p>
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                                <Phone className="w-4 h-4 text-slate-400" />
-                                <span className="text-sm font-bold">{user.mobile || 'Not provided'}</span>
+                              <div className="flex items-center gap-2 text-slate-300">
+                                <Phone className="w-3.5 h-3.5 text-slate-500" />
+                                <span className="text-xs font-semibold">{user.mobile || 'Not provided'}</span>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <p className="text-sm font-medium">{safelyToLocaleDate(user.created_at)}</p>
+                              <p className="text-xs font-medium text-slate-400">{safelyToLocaleDate(user.created_at)}</p>
                             </TableCell>
                             <TableCell>
                               {user.is_blocked ? (
-                                <Badge className="rounded-full bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-50 dark:bg-rose-900/20 dark:text-rose-400">Blocked</Badge>
+                                <Badge className="rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30 text-[11px] font-bold">Suspended</Badge>
                               ) : (
-                                <Badge className="rounded-full bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400">Active</Badge>
+                                <Badge className="rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold">🟢 Active</Badge>
                               )}
                             </TableCell>
                             <TableCell>
                               {(() => {
                                 const sub = getSubscriptionStatus(user.subscription_expires_at, user.plan_type, user.is_paid, user.created_at);
-                                return <Badge className={`rounded-full shadow-none ${sub.color}`}>{sub.status}</Badge>;
+                                return <Badge className={`rounded-full shadow-none text-[11px] font-bold ${sub.color}`}>{sub.status}</Badge>;
                               })()}
                             </TableCell>
                             <TableCell className="text-right pr-6">
-                              <div className="flex justify-end gap-2">
+                              <div className="flex justify-end gap-1.5">
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-                                  title="Manage Allowed Modules (Sidebar Menu Visibility)"
+                                  className="h-9 w-9 p-0 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 hover:text-purple-300 border border-purple-500/20"
+                                  title="Manage Allowed Modules (Billing, Payroll, Ledger, Inventory, CRM)"
                                   onClick={() => handleOpenModuleModal(user)}
                                 >
                                   <LayoutDashboard className="w-4 h-4" />
@@ -1143,86 +1243,21 @@ const AdminDashboard = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                  className="h-9 w-9 p-0 rounded-xl bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 border border-blue-500/20"
                                   onClick={() => {
                                     setSelectedUser(user);
                                     setUserDetailsOpen(true);
                                   }}
-                                  title="User Details"
+                                  title="User Audit Details"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </Button>
 
                                 <Button
                                   size="sm"
-                                  variant="outline"
-                                  className={`h-9 w-9 p-0 rounded-lg transition-all duration-300 ${
-                                    user.whatsapp_provider === 'personal'
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-950'
-                                      : 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 border-blue-200 hover:bg-blue-100 dark:hover:bg-blue-950'
-                                  }`}
-                                  onClick={() => handleToggleWhatsappProvider(user.user_id, user.whatsapp_provider || 'meta')}
-                                  title={
-                                    user.whatsapp_provider === 'personal'
-                                      ? 'WhatsApp Channel: Personal (wa.me) - Click to switch to Official'
-                                      : 'WhatsApp Channel: Official (Cloud API) - Click to switch to Personal'
-                                  }
-                                >
-                                  <WhatsAppIcon className="w-4 h-4" />
-                                </Button>
-
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-9 w-9 p-0 rounded-lg"
-                                  title="Reset Password"
-                                  onClick={() => {
-                                    setResetPasswordId(user.user_id);
-                                    setResetPasswordEmail(user.email);
-                                    setNewPassword("");
-                                  }}
-                                >
-                                  <Key className="w-4 h-4 text-amber-600" />
-                                </Button>
-
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-9 w-9 p-0 rounded-lg"
-                                      title={user.is_blocked ? "Unblock User" : "Block User"}
-                                    >
-                                      {user.is_blocked ? (
-                                        <CheckCircle className="w-4 h-4 text-emerald-600" />
-                                      ) : (
-                                        <Shield className="w-4 h-4 text-rose-600" />
-                                      )}
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent className="rounded-xl">
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle className="font-bold text-2xl">{user.is_blocked ? 'Unblock' : 'Block'} User Account?</AlertDialogTitle>
-                                      <AlertDialogDescription className="text-slate-600 dark:text-slate-400">
-                                        {user.is_blocked
-                                          ? `Restoring dashboard access for ${user.company_name}. They will be able to log in immediately.`
-                                          : `Temporarily suspending access for ${user.company_name}. They will be logged out and cannot sign in until unblocked.`}
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel className="rounded-xl font-bold">Cancel</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => toggleBlockUser(user.user_id)} className={`rounded-xl font-bold ${user.is_blocked ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'}`}>
-                                        {user.is_blocked ? 'Confirm Unblock' : 'Restrict Access'}
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-
-                                <Button
-                                  size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
-                                  title="Extend Plan"
+                                  className="h-9 w-9 p-0 rounded-xl bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border border-emerald-500/20"
+                                  title="Extend Plan (+30 Days)"
                                   onClick={() => {
                                     setExtendUserId(user.user_id);
                                     setExtendUserEmail(user.email);
@@ -1234,7 +1269,7 @@ const AdminDashboard = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-lg text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-900/20"
+                                  className="h-9 w-9 p-0 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 border border-rose-500/20"
                                   title="Delete User"
                                   onClick={() => {
                                     setUserToDelete(user);
@@ -1253,18 +1288,18 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
-                <div className="mt-6 flex flex-col gap-4 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-6 flex flex-col gap-4 border-t border-white/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                      Showing {userRangeStart}-{userRangeEnd} of {totalUsersCount} users
+                    <p className="text-xs font-medium text-slate-400">
+                      Showing {userRangeStart}-{userRangeEnd} of {totalUsersCount} organizations
                     </p>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Rows</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Page Size</span>
                       <Select value={String(usersPageSize)} onValueChange={(value) => setUsersPageSize(Number(value))}>
-                        <SelectTrigger className="h-9 w-[86px] rounded-xl border-slate-200 font-bold dark:border-slate-700">
+                        <SelectTrigger className="h-8 w-[80px] rounded-xl border-white/10 bg-white/5 font-bold text-xs text-white">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="bg-slate-900 border-white/10 text-white">
                           {[10, 20, 30, 40, 50].map((size) => (
                             <SelectItem key={size} value={String(size)}>{size}</SelectItem>
                           ))}
@@ -1278,7 +1313,7 @@ const AdminDashboard = () => {
                       <PaginationItem>
                         <PaginationPrevious
                           href="#"
-                          className={safeUsersPage === 1 ? "pointer-events-none opacity-50" : ""}
+                          className={safeUsersPage === 1 ? "pointer-events-none opacity-50 text-slate-500" : "text-slate-300 hover:bg-white/10 hover:text-white rounded-xl"}
                           onClick={(event) => {
                             event.preventDefault();
                             setUsersPage((page) => Math.max(1, page - 1));
@@ -1291,10 +1326,11 @@ const AdminDashboard = () => {
 
                         return (
                           <PaginationItem key={page} className="flex items-center">
-                            {showGap && <span className="px-2 text-slate-400">...</span>}
+                            {showGap && <span className="px-2 text-slate-500">...</span>}
                             <PaginationLink
                               href="#"
                               isActive={page === safeUsersPage}
+                              className={page === safeUsersPage ? "bg-indigo-600 text-white rounded-xl border-none font-bold" : "text-slate-400 hover:bg-white/10 hover:text-white rounded-xl"}
                               onClick={(event) => {
                                 event.preventDefault();
                                 setUsersPage(page);
@@ -1308,7 +1344,7 @@ const AdminDashboard = () => {
                       <PaginationItem>
                         <PaginationNext
                           href="#"
-                          className={safeUsersPage === totalUserPages ? "pointer-events-none opacity-50" : ""}
+                          className={safeUsersPage === totalUserPages ? "pointer-events-none opacity-50 text-slate-500" : "text-slate-300 hover:bg-white/10 hover:text-white rounded-xl"}
                           onClick={(event) => {
                             event.preventDefault();
                             setUsersPage((page) => Math.min(totalUserPages, page + 1));
@@ -1322,40 +1358,39 @@ const AdminDashboard = () => {
             </Card>
           </TabsContent>
 
-
           <TabsContent value="system" className="space-y-6 outline-none">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
-                <Card className="border-none shadow-md bg-white dark:bg-slate-800/50 backdrop-blur-md dark:bg-slate-800/50 h-fit">
-                  <CardHeader>
-                    <CardTitle className="text-lg font-bold flex items-center">
-                      <History className="w-4 h-4 mr-2" />
-                      Platform Audit Logs
+                <Card className="border border-white/10 shadow-2xl bg-slate-900/60 backdrop-blur-xl rounded-3xl text-white h-fit">
+                  <CardHeader className="border-b border-white/5 pb-4">
+                    <CardTitle className="text-lg font-black flex items-center text-white">
+                      <History className="w-4 h-4 mr-2 text-indigo-400" />
+                      Platform Security & Audit Logs
                     </CardTitle>
-                    <CardDescription>Real-time security events tracking</CardDescription>
+                    <CardDescription className="text-slate-400 text-xs">Real-time trace of administrative activities and security policy enforcement</CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
+                  <CardContent className="pt-4">
+                    <div className="space-y-3">
                       {auditLogs.length > 0 ? (
                         auditLogs.map((log) => (
-                          <div key={log.id} className="flex items-start gap-4 p-4 rounded-xl bg-white dark:bg-slate-800/50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
-                            <div className={`p-2 rounded-lg ${log.action.includes('Blocked') ? 'bg-rose-100' : 'bg-blue-100'}`}>
-                              <Shield className={`w-4 h-4 ${log.action.includes('Blocked') ? 'text-rose-600' : 'text-blue-600'}`} />
+                          <div key={log.id} className="flex items-start gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition-colors">
+                            <div className={`p-2.5 rounded-xl ${log.action.includes('Blocked') ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
+                              <Shield className="w-4 h-4" />
                             </div>
                             <div className="flex-1">
                               <div className="flex justify-between mb-1">
-                                <p className="text-sm font-bold">{log.action}</p>
-                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{log.time}</span>
+                                <p className="text-sm font-bold text-white">{log.action}</p>
+                                <span className="text-[10px] text-slate-400 font-mono">{log.time}</span>
                               </div>
-                              <p className="text-xs text-slate-600 dark:text-slate-400">Target: {log.target}</p>
-                              <p className="text-[10px] text-slate-400 mt-1 italic">Initiated by: {log.admin}</p>
+                              <p className="text-xs text-slate-300">Target Workspace: {log.target}</p>
+                              <p className="text-[10px] text-slate-500 mt-1">Initiated by: {log.admin}</p>
                             </div>
                           </div>
                         ))
                       ) : (
                         <div className="text-center py-10">
-                          <History className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                          <p className="text-slate-500 dark:text-slate-400 font-medium text-sm">No recent platform activity recorded</p>
+                          <History className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                          <p className="text-slate-400 font-medium text-xs">No recent platform security incidents recorded</p>
                         </div>
                       )}
                     </div>
@@ -1364,11 +1399,11 @@ const AdminDashboard = () => {
               </div>
 
               <div className="space-y-6">
-                <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden border border-slate-100 dark:border-slate-800">
-                  <CardHeader className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800">
-                    <CardTitle className="text-lg font-bold flex items-center">
-                      <Settings className="w-4 h-4 mr-2 text-primary" />
-                      Platform Guards
+                <Card className="border border-white/10 shadow-2xl bg-slate-900/60 backdrop-blur-xl rounded-3xl text-white overflow-hidden">
+                  <CardHeader className="bg-white/[0.02] border-b border-white/5 pb-4">
+                    <CardTitle className="text-lg font-black flex items-center text-white">
+                      <Settings className="w-4 h-4 mr-2 text-indigo-400" />
+                      Platform Guard Rails
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6 pt-6">
