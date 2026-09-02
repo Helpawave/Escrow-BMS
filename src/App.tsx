@@ -42,6 +42,7 @@ const InventoryModule = React.lazy(() => import('@/pages/modules').then(m => ({ 
 const CrmModule = React.lazy(() => import('@/pages/modules').then(m => ({ default: m.CrmModule })));
 const UsersPage = React.lazy(() => import('@/pages/users/UsersPage'));
 const MembersPage = React.lazy(() => import('@/pages/users/MembersPage'));
+const AddStaffPage = React.lazy(() => import('@/pages/users/AddStaffPage'));
 const MyProfilePage = React.lazy(() => import('@/pages/MyProfilePage'));
 const ReportsPage = React.lazy(() => import('@/pages/ReportsPage'));
 
@@ -269,8 +270,10 @@ export default function App() {
                             <Route path="/settings" element={<Settings />} />
                             <Route path="/users" element={<UsersPage />} />
                             <Route path="/members" element={<MembersPage />} />
+                            <Route path="/members/add-staff" element={<AddStaffPage />} />
                             <Route path="/reports" element={<ReportsPage />} />
                             <Route path="/teams" element={<MembersPage />} />
+                            <Route path="/teams/add-staff" element={<AddStaffPage />} />
                             <Route path="/my-profile" element={<MyProfilePage />} />
 
                             {/* Protected Module Routes */}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { MODULES, type ModuleKey } from '@/lib/constants';
 import { cn } from '@/lib/utils';
@@ -101,6 +102,7 @@ const getStaffBackupKey = (ownerId: string) => `escrow_company_staff_backup_${ow
 
 export default function MembersPage() {
   const { user, profile, companyId: activeCompanyId, isStaff } = useAuth();
+  const navigate = useNavigate();
   const ownerId = profile?.parent_user_id || user?.id || '';
   const displayCompanyId = activeCompanyId || generateAccountId(ownerId);
 
@@ -116,18 +118,6 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
-
-  // Add Staff Modal States
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [addMode, setAddMode] = useState<'create' | 'link'>('create');
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [selectedRole, setSelectedRole] = useState('Accountant');
-  const [selectedModules, setSelectedModules] = useState<ModuleKey[]>(ROLE_PRESETS['Accountant'].modules);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Edit Staff Modal States
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
@@ -552,7 +542,7 @@ export default function MembersPage() {
               {!isStaff && (
                 <Button
                   size="lg"
-                  onClick={() => setShowAddModal(true)}
+                  onClick={() => navigate('/teams/add-staff')}
                   className="h-14 px-6 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-sm shadow-xl shadow-blue-500/25 transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                 >
                   <UserPlus className="w-5 h-5" />
@@ -658,7 +648,7 @@ export default function MembersPage() {
             </p>
             {staffList.length === 0 && !isStaff && (
               <Button
-                onClick={() => setShowAddModal(true)}
+                onClick={() => navigate('/teams/add-staff')}
                 className="h-11 px-6 rounded-xl font-bold bg-primary text-primary-foreground cursor-pointer"
               >
                 <UserPlus className="w-4 h-4 mr-2" />
@@ -795,196 +785,6 @@ export default function MembersPage() {
             ))}
           </div>
         )}
-
-        {/* ── Add Staff Modal ────────────────────────────────────────── */}
-        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-          <DialogContent className="sm:max-w-[560px] p-0 overflow-hidden rounded-3xl border-none shadow-2xl bg-background max-h-[90vh] flex flex-col">
-            <DialogHeader className="p-6 pb-4 bg-muted/10 border-b border-border/50 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-md">
-                  <UserPlus className="w-6 h-6" />
-                </div>
-                <div>
-                  <DialogTitle className="text-xl font-black text-foreground">Add New Staff Member</DialogTitle>
-                  <DialogDescription className="text-xs text-muted-foreground">
-                    Assign role and grant modular permissions for Company ID: <strong>{displayCompanyId}</strong>
-                  </DialogDescription>
-                </div>
-              </div>
-            </DialogHeader>
-
-            <div className="p-6 overflow-y-auto space-y-5 custom-scrollbar">
-              <Tabs value={addMode} onValueChange={(v) => setAddMode(v as 'create' | 'link')} className="w-full">
-                <TabsList className="grid grid-cols-2 h-11 p-1 bg-muted/40 rounded-xl">
-                  <TabsTrigger value="create" className="font-bold text-xs rounded-lg cursor-pointer">
-                    Create New Account
-                  </TabsTrigger>
-                  <TabsTrigger value="link" className="font-bold text-xs rounded-lg cursor-pointer">
-                    Link Existing / Google Account
-                  </TabsTrigger>
-                </TabsList>
-
-                <form id="add-staff-form" onSubmit={handleAddStaffSubmit} className="space-y-4 pt-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Full Name <span className="text-rose-500">*</span>
-                      </Label>
-                      <Input
-                        required
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        placeholder="e.g. Rahul Sharma"
-                        className="h-11 rounded-xl font-medium"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Mobile Number (Optional)
-                      </Label>
-                      <Input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 9876543210"
-                        className="h-11 rounded-xl font-medium"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Email Address <span className="text-rose-500">*</span>
-                    </Label>
-                    <Input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="e.g. staff@company.com"
-                      className="h-11 rounded-xl font-medium"
-                    />
-                  </div>
-
-                  {addMode === 'create' && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          Temporary Password <span className="text-rose-500">*</span>
-                        </Label>
-                        <button
-                          type="button"
-                          onClick={generateRandomPassword}
-                          className="text-[11px] font-black text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          <span>Generate Strong Password</span>
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <Input
-                          type={showPassword ? 'text' : 'password'}
-                          required
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="Min 6 characters"
-                          className="h-11 pr-10 rounded-xl font-medium"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
-                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Role Presets */}
-                  <div className="space-y-2 pt-1">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Select Role Preset
-                    </Label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {Object.keys(ROLE_PRESETS).map((key) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleRolePresetChange(key)}
-                          className={cn(
-                            "p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer",
-                            selectedRole === key
-                              ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-bold shadow-sm"
-                              : "border-border/60 hover:border-border text-muted-foreground"
-                          )}
-                        >
-                          <span className="text-xs font-black">{key}</span>
-                          <span className="text-[10px] opacity-70 mt-0.5 line-clamp-1">{ROLE_PRESETS[key].description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Module Permissions Checklist */}
-                  <div className="space-y-2 pt-2">
-                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Escrow BMS Module Access ({selectedModules.length} Enabled)
-                    </Label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {ESCROW_BMS_MODULES.map((mod) => {
-                        const isChecked = selectedModules.includes(mod.id);
-                        return (
-                          <div
-                            key={mod.id}
-                            onClick={() => handleToggleModule(mod.id)}
-                            className={cn(
-                              "p-3 rounded-xl border-2 flex items-center justify-between gap-2 cursor-pointer transition-all",
-                              isChecked
-                                ? "border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 text-blue-900 dark:text-blue-100"
-                                : "border-border/60 hover:border-border text-muted-foreground"
-                            )}
-                          >
-                            <div>
-                              <p className="text-xs font-black">{mod.label}</p>
-                              <p className="text-[10px] opacity-70 leading-tight">{mod.description}</p>
-                            </div>
-                            <div className={cn(
-                              "w-5 h-5 rounded-md flex items-center justify-center border transition-all",
-                              isChecked ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300 dark:border-slate-700"
-                            )}>
-                              {isChecked && <Check className="w-3.5 h-3.5" />}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </form>
-              </Tabs>
-            </div>
-
-            <DialogFooter className="p-4 bg-muted/5 border-t border-border/50 flex flex-row gap-3 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowAddModal(false)}
-                className="flex-1 h-11 font-bold rounded-xl cursor-pointer"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                form="add-staff-form"
-                disabled={isSubmitting}
-                className="flex-1 h-11 font-black rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20 cursor-pointer"
-              >
-                {isSubmitting ? 'Creating...' : 'Create Staff Member'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* ── Edit Staff Modal ───────────────────────────────────────── */}
         <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
