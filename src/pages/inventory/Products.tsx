@@ -204,6 +204,33 @@ export const Products = () => {
     toast.success("Export started");
   };
 
+  const getExpiryBadge = (expiryDate?: string) => {
+    if (!expiryDate) return null;
+    const now = new Date();
+    const exp = new Date(expiryDate);
+    const diffDays = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return (
+        <Badge variant="destructive" className="text-[9px] font-black px-1.5 py-0.5 whitespace-nowrap">
+          Expired ({expiryDate})
+        </Badge>
+      );
+    }
+    if (diffDays <= 30) {
+      return (
+        <Badge className="text-[9px] font-black px-1.5 py-0.5 bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-300 whitespace-nowrap">
+          Expires in {diffDays}d
+        </Badge>
+      );
+    }
+    return (
+      <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+        EXP: {expiryDate}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
