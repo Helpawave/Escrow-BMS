@@ -559,7 +559,14 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientFormData.name || !newClientFormData.phone) return;
+    if (!newClientFormData.name?.trim() || !newClientFormData.phone?.trim() || !newClientFormData.address?.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Validation Failed",
+        description: "Client name, phone number, and address are required."
+      });
+      return;
+    }
 
     setCreatingClient(true);
     try {

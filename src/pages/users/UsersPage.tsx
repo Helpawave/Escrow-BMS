@@ -186,6 +186,10 @@ export default function UsersPage() {
       toast.error('Please enter User / Client Name');
       return;
     }
+    if (!form.address.trim()) {
+      toast.error('Please enter Business / Street Address');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -775,10 +779,11 @@ export default function UsersPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Street Address
+                    Street Address *
                   </label>
                   <input
                     type="text"
+                    required
                     placeholder="Plot 42, Commercial Complex"
                     value={form.address}
                     onChange={(e) => setForm({ ...form, address: e.target.value })}

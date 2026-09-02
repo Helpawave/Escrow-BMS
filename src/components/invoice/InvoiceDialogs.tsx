@@ -307,6 +307,18 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="client-address" className="text-[10px] font-bold uppercase tracking-widest text-primary ml-1">Business Address *</Label>
+                <Textarea
+                  id="client-address"
+                  value={newClientFormData.address}
+                  onChange={(e) => setNewClientFormData({ ...newClientFormData, address: e.target.value })}
+                  placeholder="Full billing address (Street, Area, Building, City, State)"
+                  className="min-h-[80px] rounded-xl border-2 border-primary/20 focus-visible:ring-primary/20 font-medium bg-primary/5"
+                  required
+                />
+              </div>
+
               <Collapsible className="space-y-4">
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" className="w-full flex items-center justify-between p-4 h-auto rounded-xl bg-muted/20 hover:bg-muted/30 transition-all group">
@@ -314,7 +326,7 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                       <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center shadow-sm">
                         <Plus className="w-4 h-4 text-muted-foreground group-data-[state=open]:rotate-45 transition-transform" />
                       </div>
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Additional Details (Email, Address, GSTIN)</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Additional Details (Email, GSTIN)</span>
                     </div>
                   </Button>
                 </CollapsibleTrigger>
@@ -328,17 +340,6 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                       onChange={(e) => setNewClientFormData({ ...newClientFormData, email: e.target.value })}
                       placeholder="client@example.com"
                       className="h-12 rounded-xl border-2 focus-visible:ring-primary/20 font-bold"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="client-address" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Address</Label>
-                    <Textarea
-                      id="client-address"
-                      value={newClientFormData.address}
-                      onChange={(e) => setNewClientFormData({ ...newClientFormData, address: e.target.value })}
-                      placeholder="Full billing address"
-                      className="min-h-[100px] rounded-xl border-2 focus-visible:ring-primary/20 font-medium bg-muted/30"
                     />
                   </div>
 

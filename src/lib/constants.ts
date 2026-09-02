@@ -124,7 +124,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'Account Ledger', route: '/ledger', icon: Users },
     { labelKey: 'Balance Sheet', route: '/ledger/reports/balance-sheet', icon: FileText },
     { labelKey: 'Party Report', route: '/ledger/reports/parties', icon: ClipboardList },
-    { labelKey: 'Transfer Entry', route: '/ledger/transfer', icon: ArrowLeftRight },
   ],
   billing: [
     { labelKey: 'Create Invoice', route: '/billing/create-invoice', icon: FilePlus },

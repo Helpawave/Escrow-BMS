@@ -174,6 +174,7 @@ const ClientsPage = () => {
     const errors: string[] = [];
     if (!formData.name.trim()) errors.push("Client name is required.");
     if (!formData.phone.trim()) errors.push("Phone number is required.");
+    if (!formData.address.trim()) errors.push("Business address is required.");
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       errors.push("Please enter a valid email address.");
     }
@@ -532,9 +533,12 @@ const ClientsPage = () => {
                     <h3 className="font-semibold text-sm uppercase tracking-wider">Address Details</h3>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="address">Business Address</Label>
+                    <Label htmlFor="address">
+                      Business Address <span className="text-destructive font-bold">*</span>
+                    </Label>
                     <Textarea
                       id="address"
+                      required
                       placeholder="Street, Area, Building..."
                       className="resize-none min-h-[80px]"
                       value={formData.address}
