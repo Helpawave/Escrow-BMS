@@ -250,8 +250,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const roles = rolesRes.data;
       const fetchedRoles: string[] = roles ? roles.map((r: any) => r.role) : [];
       setUserRoles(fetchedRoles);
-      const hasSuperRole = fetchedRoles.includes('super_admin') || data?.role === 'super_admin';
+      const isDesignatedSuperadmin = email?.toLowerCase() === 'admin_bms@escrowbms.com';
+      const hasSuperRole = fetchedRoles.includes('super_admin') || data?.role === 'super_admin' || isDesignatedSuperadmin;
       setIsSuperAdmin(hasSuperRole);
+      try { localStorage.setItem('escrow_is_superadmin', hasSuperRole ? 'true' : 'false'); } catch {}
+
+      if (isDesignatedSuperadmin && data && data.role !== 'super_admin') {
+        supabase.from('profiles').update({ role: 'super_admin' }).eq('id', userId).then(() => {});
+      }
       
       // Auto-ensure default ledger parties
       ensureDefaultLedgerParties(userId).catch(() => {});
