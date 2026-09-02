@@ -206,35 +206,6 @@ export default function MembersPage() {
     }
   }, [staffList, ownerId]);
 
-  const generateRandomPassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%';
-    let generated = '';
-    for (let i = 0; i < 10; i++) {
-      generated += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setPassword(generated);
-  };
-
-  const handleRolePresetChange = (roleKey: string) => {
-    setSelectedRole(roleKey);
-    if (ROLE_PRESETS[roleKey] && roleKey !== 'Custom') {
-      setSelectedModules(ROLE_PRESETS[roleKey].modules);
-    }
-  };
-
-  const handleToggleModule = (moduleId: ModuleKey) => {
-    setSelectedModules(prev => {
-      const next = prev.includes(moduleId) ? prev.filter(id => id !== moduleId) : [...prev, moduleId];
-      const matchedPreset = Object.keys(ROLE_PRESETS).find(key => {
-        if (key === 'Custom') return false;
-        const presetModules = ROLE_PRESETS[key].modules;
-        return presetModules.length === next.length && presetModules.every(m => next.includes(m));
-      });
-      setSelectedRole(matchedPreset || 'Custom');
-      return next;
-    });
-  };
-
   const copyToClipboard = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedField(fieldName);
@@ -245,7 +216,7 @@ export default function MembersPage() {
   const shareCredentialsWhatsApp = () => {
     if (!createdCredentials) return;
     const company = profile?.company_name || 'Escrow BMS';
-    const isGoogle = addMode === 'link' || createdCredentials.password === '(Google Sign-In / Existing)';
+    const isGoogle = !createdCredentials.password || createdCredentials.password === '(Google Sign-In / Existing)';
     const modulesText = createdCredentials.modules.map(m => `• ${m.toUpperCase()}`).join('\n');
     
     let message = '';
@@ -274,95 +245,6 @@ export default function MembersPage() {
     
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
-  };
-
-  const handleAddStaffSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ownerId) return;
-
-    if (!fullName.trim() || !email.trim()) {
-      toast.error("Full name and email are required.");
-      return;
-    }
-
-    if (addMode === 'create' && (!password || password.length < 6)) {
-      toast.error("Please enter a password with at least 6 characters (or generate one).");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const generatedCode = generateStaffCode(staffList.length + 1);
-      const newStaffId = crypto.randomUUID();
-
-      const newMember: StaffMember = {
-        id: newStaffId,
-        staff_id: generatedCode,
-        company_owner_id: ownerId,
-        company_id: displayCompanyId,
-        name: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone.trim() || '',
-        role: selectedRole,
-        allowed_modules: selectedModules,
-        status: 'active',
-        temp_password: addMode === 'create' ? password : '(Google Sign-In / Existing)',
-        created_at: new Date().toISOString()
-      };
-
-      // 1. Try to save to Supabase company_staff table
-      try {
-        await supabase.from('company_staff').insert([{
-          id: newStaffId,
-          staff_id: generatedCode,
-          company_owner_id: ownerId,
-          company_id: displayCompanyId,
-          name: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone.trim() || null,
-          role: selectedRole,
-          permissions: selectedModules,
-          status: 'active',
-          temp_password: addMode === 'create' ? password : null
-        }]);
-      } catch (dbErr) {
-        console.warn('Could not insert to company_staff in DB (using local storage):', dbErr);
-      }
-
-      // 2. Update local state & backup
-      const updatedList = [newMember, ...staffList];
-      setStaffList(updatedList);
-      localStorage.setItem(getStaffBackupKey(ownerId), JSON.stringify(updatedList));
-
-      // 3. Show credentials modal
-      setCreatedCredentials({
-        name: newMember.name,
-        staffId: newMember.staff_id,
-        companyId: displayCompanyId,
-        email: newMember.email,
-        password: newMember.temp_password,
-        role: newMember.role,
-        modules: newMember.allowed_modules
-      });
-
-      setShowAddModal(false);
-      setShowCredentialsModal(true);
-
-      // Reset form
-      setFullName('');
-      setEmail('');
-      setPhone('');
-      setPassword('');
-      setSelectedRole('Accountant');
-      setSelectedModules(ROLE_PRESETS['Accountant'].modules);
-
-      toast.success(`Staff member "${newMember.name}" created successfully!`);
-    } catch (err: any) {
-      console.error('Error adding staff member:', err);
-      toast.error(err?.message || 'Failed to create staff member.');
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   const handleEditClick = (staff: StaffMember) => {
