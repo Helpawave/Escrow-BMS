@@ -612,7 +612,7 @@ function ROICalculator({ isDark, onStart }: { isDark: boolean; onStart: () => vo
 }
 
 export default function Landing() {
-  const { user } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
   const { language, setLanguage } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -626,7 +626,11 @@ export default function Landing() {
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  const go = () => navigate(user ? '/dashboard' : '/auth');
+  const go = () => {
+    if (user && isSuperAdmin) navigate('/admin');
+    else if (user) navigate('/dashboard');
+    else navigate('/auth');
+  };
 
   const isDark = theme === 'dark';
 
@@ -683,8 +687,10 @@ export default function Landing() {
                 </div>
               </>)}
             </div>
-            {user ? (
+            {user && !isSuperAdmin ? (
               <Link to="/dashboard" className="flex items-center gap-1.5 bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-blue-800 transition-all hover:shadow-lg hover:shadow-blue-200 active:scale-95">Dashboard <ArrowRight className="w-4 h-4" /></Link>
+            ) : user && isSuperAdmin ? (
+              <Link to="/admin" className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md active:scale-95">Superadmin Portal <ArrowRight className="w-4 h-4" /></Link>
             ) : (<>
               <Link to="/auth" className={`text-sm font-semibold px-3 py-2 transition-colors ${isDark ? 'text-gray-300 hover:text-white' : 'text-gray-700 hover:text-gray-900'}`}>Log in</Link>
               <button onClick={go} className="relative bg-blue-700 text-white text-sm font-bold px-5 py-2.5 rounded-xl overflow-hidden group hover:bg-blue-800 transition-all hover:shadow-xl hover:shadow-blue-200/60 active:scale-95">
