@@ -122,12 +122,13 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
   ],
   ledger: [
     { labelKey: 'Account Ledger', route: '/ledger', icon: Users },
-    { labelKey: 'Transfer Entry', route: '/ledger/transfer', icon: ArrowLeftRight },
     { labelKey: 'Balance Sheet', route: '/ledger/reports/balance-sheet', icon: FileText },
     { labelKey: 'Party Report', route: '/ledger/reports/parties', icon: ClipboardList },
+    { labelKey: 'Transfer Entry', route: '/ledger/transfer', icon: ArrowLeftRight },
   ],
   billing: [
     { labelKey: 'Create Invoice', route: '/billing/create-invoice', icon: FilePlus },
+    { labelKey: 'Ledger Billing', route: '/billing/create-invoice?type=ledger', icon: BookOpen },
     { labelKey: 'Sales Invoices', route: '/billing/invoices', icon: Receipt },
     { labelKey: 'Purchase Invoices', route: '/billing/purchase-invoices', icon: ShoppingBag },
     { labelKey: 'Payments', route: '/billing/payments', icon: CreditCard },
@@ -148,9 +149,8 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'Contacts', route: '/crm/contacts', icon: Contact },
   ],
   members: [
-    { labelKey: 'Clients', route: '/billing/clients', icon: Users },
+    { labelKey: 'Clients & Parties', route: '/billing/clients', icon: Users },
     { labelKey: 'Vendors', route: '/billing/vendors', icon: Truck },
-    { labelKey: 'Parties', route: '/ledger/create/party', icon: User },
     { labelKey: 'Employees', route: '/payroll/employees', icon: UserCog },
   ],
 };

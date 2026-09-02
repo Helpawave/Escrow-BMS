@@ -78,7 +78,7 @@ export const CommandPalette = () => {
           </CommandItem>
 
           <CommandItem
-            onSelect={() => runCommand(() => navigate("/ledger/transfer-entry"))}
+            onSelect={() => runCommand(() => navigate("/ledger/transfer"))}
             className="flex items-center gap-2 cursor-pointer font-medium"
           >
             <Receipt className="h-4 w-4 text-indigo-500" />

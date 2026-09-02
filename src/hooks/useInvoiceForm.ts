@@ -46,7 +46,19 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [invoiceStatus, setInvoiceStatus] = useState<string>('draft');
   const [invoiceCurrency, setInvoiceCurrency] = useState<string>('INR');
   const [currencySymbol, setCurrencySymbol] = useState<string>('₹');
-  const [isPurchase, setIsPurchase] = useState(() => searchParams.get('type') === 'purchase');
+
+  const initialBillingType = (
+    searchParams.get('type') === 'purchase'
+      ? 'purchase'
+      : (searchParams.get('type') === 'ledger' || searchParams.get('billingType') === 'ledger')
+      ? 'ledger'
+      : 'sales'
+  ) as 'sales' | 'purchase' | 'ledger';
+  const [billingType, setBillingType] = useState<'sales' | 'purchase' | 'ledger'>(initialBillingType);
+  const [ledgerParties, setLedgerParties] = useState<Array<{ id: string; party_name: string; status: 'take' | 'give'; balance: number; last_date?: string; phone?: string }>>([]);
+  const [selectedLedgerPartyId, setSelectedLedgerPartyId] = useState<string | null>(searchParams.get('partyId') || null);
+
+  const [isPurchase, setIsPurchase] = useState(() => initialBillingType === 'purchase');
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [invoiceLoading, setInvoiceLoading] = useState<boolean>(isEditing);
   const [clientSearchOpen, setClientSearchOpen] = useState(false);
@@ -242,6 +254,124 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   }, [user]);
 
+  const fetchLedgerPartiesWithBalance = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data: partiesData, error: pErr } = await supabase
+        .from('parties')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('party_name', { ascending: true });
+
+      if (pErr) throw pErr;
+      if (!partiesData || partiesData.length === 0) {
+        setLedgerParties([]);
+        return;
+      }
+
+      const partyIds = partiesData.map((p: any) => p.id);
+      const { data: latestTxns } = await supabase
+        .from('transactions')
+        .select('party_id, balance, transaction_date, created_at')
+        .eq('user_id', user.id)
+        .in('party_id', partyIds)
+        .order('transaction_date', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      const balMap = new Map<string, { balance: number; last_date?: string }>();
+      for (const txn of (latestTxns || [])) {
+        if (!balMap.has(txn.party_id)) {
+          balMap.set(txn.party_id, {
+            balance: Number(txn.balance || 0),
+            last_date: txn.transaction_date
+          });
+        }
+      }
+
+      const partiesWithBal = partiesData.map((p: any) => {
+        const info = balMap.get(p.id);
+        return {
+          id: p.id,
+          party_name: p.party_name,
+          status: (p.status || 'take') as 'take' | 'give',
+          balance: info?.balance ?? 0,
+          last_date: info?.last_date,
+          phone: p.phone
+        };
+      });
+
+      setLedgerParties(partiesWithBal);
+    } catch (err) {
+      console.error('Error fetching ledger parties for billing:', err);
+    }
+  }, [user]);
+
+  const handleLedgerPartySelect = useCallback(async (partyId: string, customAmount?: number) => {
+    setSelectedLedgerPartyId(partyId);
+    const party = ledgerParties.find(p => p.id === partyId);
+    if (!party) return;
+
+    // Match with client by name
+    let matchedClient = clients.find(c => c.name.toLowerCase() === party.party_name.toLowerCase());
+    
+    // If not found in clients, auto-create client on the fly for seamless invoice linkage
+    if (!matchedClient && user) {
+      try {
+        const { data: newClientData } = await supabase
+          .from('clients')
+          .insert([{
+            id: crypto.randomUUID(),
+            user_id: user.id,
+            name: party.party_name,
+            phone: party.phone || '',
+            email: ''
+          }])
+          .select()
+          .single();
+        if (newClientData) {
+          matchedClient = newClientData as unknown as Client;
+          setClients(prev => [...prev, matchedClient!]);
+        }
+      } catch (err) {
+        console.warn("Could not auto-link client for ledger billing:", err);
+      }
+    }
+
+    if (matchedClient) {
+      setFormData(prev => ({
+        ...prev,
+        client_id: matchedClient!.id,
+        notes: `Settlement bill against Account Ledger balance of ₹${Math.abs(party.balance).toLocaleString()} (${party.status === 'take' ? 'Receivable' : 'Payable'}).`
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        notes: `Settlement bill for party: ${party.party_name}. Account Ledger balance: ₹${Math.abs(party.balance).toLocaleString()}.`
+      }));
+    }
+
+    const billAmount = customAmount !== undefined ? customAmount : (Math.abs(party.balance) || 0);
+
+    setItems([
+      {
+        description: `Ledger Balance Settlement - ${party.party_name} (${party.status === 'take' ? 'Receivable' : 'Payable'})`,
+        quantity: 1,
+        rate: billAmount,
+        discount: 0,
+        tax_rate: 0,
+        amount: billAmount
+      }
+    ]);
+  }, [ledgerParties, clients, user]);
+
+  const handleSetBillingType = useCallback((type: 'sales' | 'purchase' | 'ledger') => {
+    setBillingType(type);
+    setIsPurchase(type === 'purchase');
+    if (type === 'ledger') {
+      fetchLedgerPartiesWithBalance();
+    }
+  }, [fetchLedgerPartiesWithBalance]);
+
   useEffect(() => {
     if (formData.client_id) {
       fetchBillableExpenses(formData.client_id);
@@ -256,8 +386,18 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       fetchVendors();
       fetchProducts();
       fetchUserSettings();
+      fetchLedgerPartiesWithBalance();
     }
-  }, [user, fetchClients, fetchProducts, fetchUserSettings, fetchVendors]);
+  }, [user, fetchClients, fetchProducts, fetchUserSettings, fetchVendors, fetchLedgerPartiesWithBalance]);
+
+  useEffect(() => {
+    if (billingType === 'ledger' && ledgerParties.length > 0) {
+      const targetPartyId = searchParams.get('partyId') || selectedLedgerPartyId;
+      if (targetPartyId) {
+        handleLedgerPartySelect(targetPartyId);
+      }
+    }
+  }, [billingType, ledgerParties, searchParams, selectedLedgerPartyId, handleLedgerPartySelect]);
 
   // Load existing invoice if editing
   useEffect(() => {
@@ -1157,7 +1297,9 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   return {
     clients, products, vendors, loading, saving, formData, setFormData,
     items, setItems, invoiceNumber, invoiceStatus, invoiceCurrency,
-    isPurchase, setIsPurchase, invoiceLoading, clientSearchOpen, setClientSearchOpen,
+    isPurchase, setIsPurchase, billingType, setBillingType: handleSetBillingType,
+    ledgerParties, selectedLedgerPartyId, handleLedgerPartySelect,
+    invoiceLoading, clientSearchOpen, setClientSearchOpen,
     newClientDialogOpen, setNewClientDialogOpen, newClientActiveTab, setNewClientActiveTab,
     isDetailsExpanded, setIsDetailsExpanded, newClientFormData, setNewClientFormData,
     creatingClient, hideCompanyDetails, setHideCompanyDetails, isScannerOpen, setIsScannerOpen,

@@ -176,7 +176,7 @@ const Dashboard = () => {
 
   const quickActions = [
     { name: 'Configure Settings', desc: 'Setup your business profile & preferences', icon: <Settings />, link: '/configure/company' },
-    { name: 'Create New Party', desc: 'Add new clients or business partners', icon: <PlusCircle />, link: '/create/party' },
+    { name: 'Create New Party', desc: 'Add new clients or business partners', icon: <PlusCircle />, link: '/billing/clients?action=new' },
     { name: 'Data Entry', desc: 'Record daily credit/debit transactions', icon: <Database />, link: '/ledger' },
     { name: 'View Reports', desc: 'Check balances and transaction history', icon: <BarChart3 />, link: '/reports/parties' },
   ];

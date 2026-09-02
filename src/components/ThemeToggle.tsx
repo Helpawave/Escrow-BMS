@@ -3,25 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useTheme } from "@/contexts/ThemeContext";
 
 export const ThemeToggle = () => {
-  // Add error boundary for theme context
-  let theme, toggleTheme;
-  
-  try {
-    const themeContext = useTheme();
-    theme = themeContext.theme;
-    toggleTheme = themeContext.toggleTheme;
-  } catch (error) {
-    // Fallback if theme context is not available
-    console.warn('ThemeContext not available, using localStorage fallback');
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    theme = savedTheme as 'light' | 'dark';
-    toggleTheme = () => {
-      const newTheme = theme === 'light' ? 'dark' : 'light';
-      localStorage.setItem('theme', newTheme);
-      document.documentElement.classList.toggle('dark', newTheme === 'dark');
-      window.location.reload(); // Force reload to apply changes
-    };
-  }
+  const { toggleTheme } = useTheme();
 
   return (
     <Button

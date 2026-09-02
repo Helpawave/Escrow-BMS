@@ -543,7 +543,7 @@ export default function Dashboard() {
               <Circle className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0" />
               <span>Add your first product item</span>
             </div>
-            <div className="flex items-center gap-2 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" onClick={() => navigate('/ledger/create/party')}>
+            <div className="flex items-center gap-2 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" onClick={() => navigate('/billing/clients')}>
               <Circle className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0" />
               <span>Add your first party / client</span>
             </div>

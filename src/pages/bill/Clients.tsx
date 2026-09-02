@@ -47,6 +47,7 @@ const ClientsPage = () => {
     name: '',
     email: '',
     phone: '',
+    status: 'take' as 'take' | 'give',
     address: '',
     city: '',
     state: '',
@@ -153,6 +154,13 @@ const ClientsPage = () => {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'new' || searchParams.get('create') === 'true') {
+      resetForm();
+      setDialogOpen(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (user) {
@@ -266,7 +274,8 @@ const ClientsPage = () => {
             phone: formData.phone,
             companyName: (formData as any).company_name || formData.name,
             gstin: formData.gstin,
-            address: formData.address
+            address: formData.address,
+            status: formData.status
           });
         } catch (syncErr) {
           console.warn("Auto party sync warning:", syncErr);
@@ -311,11 +320,23 @@ const ClientsPage = () => {
     }
   };
 
-  const handleEdit = (client: Client) => {
+  const handleEdit = async (client: Client) => {
+    let currentStatus: 'take' | 'give' = 'take';
+    try {
+      const { data: pData } = await supabase
+        .from('parties')
+        .select('status')
+        .eq('user_id', user?.id)
+        .ilike('party_name', client.name)
+        .maybeSingle();
+      if (pData?.status === 'give') currentStatus = 'give';
+    } catch {}
+
     setFormData({
       name: client.name || '',
       email: client.email || '',
       phone: client.phone || '',
+      status: currentStatus,
       address: client.address || '',
       city: client.city || '',
       state: client.state || '',
@@ -324,7 +345,6 @@ const ClientsPage = () => {
       gstin: client.gstin || '',
       hide_contact_details: client.hide_contact_details ?? false
     });
-    setEditingId(client.id);
     setEditingId(client.id);
     setDialogOpen(true);
   };
@@ -388,6 +408,7 @@ const ClientsPage = () => {
       name: '',
       email: '',
       phone: '',
+      status: 'take',
       address: '',
       city: '',
       state: '',
@@ -396,7 +417,6 @@ const ClientsPage = () => {
       gstin: '',
       hide_contact_details: false
     });
-    setEditingId(null);
     setEditingId(null);
   };
 
@@ -468,6 +488,39 @@ const ClientsPage = () => {
                         pattern="[0-9]{10}"
                         required
                       />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                        Account Status (Ledger Party Status)
+                      </Label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, status: 'take' })}
+                          className={cn(
+                            "py-2.5 px-4 rounded-xl font-bold text-xs border-2 transition-all flex items-center justify-center gap-2 cursor-pointer",
+                            formData.status === 'take'
+                              ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20"
+                              : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-blue-300 hover:text-blue-600"
+                          )}
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          <span>Take</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, status: 'give' })}
+                          className={cn(
+                            "py-2.5 px-4 rounded-xl font-bold text-xs border-2 transition-all flex items-center justify-center gap-2 cursor-pointer",
+                            formData.status === 'give'
+                              ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/20"
+                              : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-blue-300 hover:text-blue-600"
+                          )}
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          <span>Give</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

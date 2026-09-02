@@ -51,7 +51,6 @@ export function PayrollModule() {
 const LedgerDashboard = React.lazy(() => import('../ledger/Dashboard'));
 const LedgerView = React.lazy(() => import('../ledger/LedgerView'));
 const LedgerTransfer = React.lazy(() => import('../ledger/TransferEntry'));
-const LedgerCreateParty = React.lazy(() => import('../ledger/CreateParty'));
 const LedgerBalanceSheet = React.lazy(() => import('../ledger/BalanceSheet'));
 const LedgerProfitLoss = React.lazy(() => import('../ledger/ProfitLossReport'));
 const LedgerPartyReport = React.lazy(() => import('../ledger/PartyReport'));
@@ -67,7 +66,8 @@ export function LedgerModule() {
         <Route path="/" element={<LedgerView />} />
         <Route path="/ledger" element={<LedgerView />} />
         <Route path="/transfer" element={<LedgerTransfer />} />
-        <Route path="/create/party" element={<LedgerCreateParty />} />
+        <Route path="/transfer-entry" element={<Navigate to="/ledger/transfer" replace />} />
+        <Route path="/create/party" element={<Navigate to="/billing/clients" replace />} />
         <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
         <Route path="/configure/company" element={<Navigate to="/settings?tab=business" replace />} />
         <Route path="/reports/balance-sheet" element={<LedgerBalanceSheet />} />

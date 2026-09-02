@@ -106,8 +106,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    console.error('useTheme must be used within a ThemeProvider');
-    throw new Error('useTheme must be used within a ThemeProvider');
+    const savedTheme = typeof window !== 'undefined' ? (localStorage.getItem('theme') as Theme) || 'light' : 'light';
+    return {
+      theme: (savedTheme === 'dark' ? 'dark' : 'light') as Theme,
+      setTheme: () => {},
+      toggleTheme: () => {
+        if (typeof window !== 'undefined') {
+          const current = localStorage.getItem('theme') === 'dark' ? 'light' : 'dark';
+          localStorage.setItem('theme', current);
+          document.documentElement.classList.toggle('dark', current === 'dark');
+        }
+      },
+    };
   }
   return context;
 }

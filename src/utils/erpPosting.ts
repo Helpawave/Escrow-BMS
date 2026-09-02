@@ -271,6 +271,7 @@ export interface ERPUserSyncPayload {
   country?: string;
   isTeamMember?: boolean;
   role?: string;
+  status?: 'take' | 'give';
 }
 
 export interface ERPMemberSyncPayload {
@@ -358,24 +359,16 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
             .maybeSingle();
 
           if (!existingParty) {
+            const partyStatus = payload.status || 'take';
             await supabase.from('parties').insert([
               {
-                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-take-${Date.now()}`,
+                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${partyStatus}-${Date.now()}`,
                 user_id: userId,
                 sr_no: String(Math.floor(1000 + Math.random() * 9000)),
                 party_name: trimmedName,
-                status: 'take',
-                commission_type: 'with',
-                commission_rate: 3.5
-              },
-              {
-                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-give-${Date.now()}`,
-                user_id: userId,
-                sr_no: String(Math.floor(1000 + Math.random() * 9000)),
-                party_name: `${trimmedName} (Vendor / Give)`,
-                status: 'give',
-                commission_type: 'with',
-                commission_rate: 1.0
+                status: partyStatus,
+                commission_type: 'without',
+                commission_rate: 0
               }
             ]);
           }

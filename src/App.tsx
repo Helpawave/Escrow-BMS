@@ -363,7 +363,7 @@ export default function App() {
 
 
                           <Route path="/transfer" element={<Navigate to="/ledger/transfer" replace />} />
-                          <Route path="/create/party" element={<Navigate to="/ledger/create/party" replace />} />
+                          <Route path="/create/party" element={<Navigate to="/billing/clients" replace />} />
                           <Route path="/profile" element={<Navigate to="/settings?tab=profile" replace />} />
                           <Route path="/configure/company" element={<Navigate to="/settings?tab=business" replace />} />
                           <Route path="/reports/balance-sheet" element={<Navigate to="/ledger/reports/balance-sheet" replace />} />

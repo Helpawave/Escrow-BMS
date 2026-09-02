@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History } from "lucide-react";
+import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -789,15 +789,26 @@ const InvoicesPage = () => {
           <h1 className="text-xl md:text-3xl font-bold text-foreground">Invoices</h1>
           <p className="text-xs md:text-base text-muted-foreground mt-1">Create and manage your invoices</p>
         </div>
-        <Button
-          variant="default"
-          size="lg"
-          onClick={() => navigate('/create-invoice')}
-          className="w-full sm:w-auto h-11"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          <span className="text-sm md:text-base">Create Invoice</span>
-        </Button>
+        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => navigate('/billing/create-invoice?type=ledger')}
+            className="w-full sm:w-auto h-11 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 font-bold"
+          >
+            <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
+            <span className="text-sm md:text-base">Ledger Billing</span>
+          </Button>
+          <Button
+            variant="default"
+            size="lg"
+            onClick={() => navigate('/create-invoice')}
+            className="w-full sm:w-auto h-11"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            <span className="text-sm md:text-base">Create Invoice</span>
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">

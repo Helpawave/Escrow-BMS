@@ -81,14 +81,8 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   template = 'corporate',
   currencySymbol: propCurrencySymbol
 }) => {
-  let contextCurrencySymbol = '₹';
-  try {
-    const context = useCurrency();
-    contextCurrencySymbol = context.currencySymbol;
-  } catch (e) {
-    // Ignore error if used outside of provider
-  }
-  const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
+  const context = useCurrency();
+  const currencySymbol = propCurrencySymbol || context.currencySymbol || '₹';
   const getTemplateStyles = () => {
     switch (template) {
       case 'elegant':

@@ -15,6 +15,7 @@ const CreateInvoicePage = () => {
   const {
     loading, invoiceLoading, saving, clients, products, vendors,
     formData, setFormData, items, setItems, isPurchase, setIsPurchase,
+    billingType, setBillingType, ledgerParties, selectedLedgerPartyId, handleLedgerPartySelect,
     isEditing, clientSearchOpen, setClientSearchOpen, newClientDialogOpen,
     setNewClientDialogOpen, newVendorDialogOpen, setNewVendorDialogOpen,
     creatingVendor, newVendorFormData, setNewVendorFormData,
@@ -60,15 +61,18 @@ const CreateInvoicePage = () => {
           <div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
               {isEditing ? (
-                <>Edit {isPurchase ? 'Bill' : 'Invoice'}</>
+                <>Edit {billingType === 'ledger' ? 'Ledger Bill' : (isPurchase ? 'Bill' : 'Invoice')}</>
               ) : (
-                <>Create New {isPurchase ? 'Bill' : 'Invoice'}</>
+                <>Create {billingType === 'ledger' ? 'Ledger Bill' : (isPurchase ? 'Purchase Bill' : 'Sales Invoice')}</>
               )}
             </h1>
             <p className="text-slate-500 mt-1">
               {isEditing 
                 ? `Managing ${isPurchase ? 'purchase record' : 'invoice'} #${invoiceNumber}` 
-                : `Generate a professional ${isPurchase ? 'purchase bill' : 'invoice'} for your business`
+                : (billingType === 'ledger' 
+                    ? 'Generate an official settlement bill directly from Account Ledger party remaining balances' 
+                    : `Generate a professional ${isPurchase ? 'purchase bill' : 'invoice'} for your business`
+                  )
               }
             </p>
           </div>
@@ -88,7 +92,7 @@ const CreateInvoicePage = () => {
         </Alert>
       )}
 
-      {products.length === 0 && (
+      {billingType !== 'ledger' && products.length === 0 && (
         <Alert className="bg-blue-50 border-blue-200 text-blue-900 mb-6 shadow-sm">
           <AlertTriangle className="h-5 w-5 text-blue-600" />
           <AlertTitle className="font-bold">No Products or Services Found</AlertTitle>
@@ -119,12 +123,17 @@ const CreateInvoicePage = () => {
         )}
 
         <InvoiceHeader
+          billingType={billingType}
+          setBillingType={setBillingType}
           isPurchase={isPurchase}
           setIsPurchase={setIsPurchase}
           formData={formData}
           setFormData={setFormData}
           clients={clients}
           vendors={vendors}
+          ledgerParties={ledgerParties}
+          selectedLedgerPartyId={selectedLedgerPartyId}
+          onLedgerPartySelect={handleLedgerPartySelect}
           clientSearchOpen={clientSearchOpen}
           setClientSearchOpen={setClientSearchOpen}
           setNewClientDialogOpen={setNewClientDialogOpen}
@@ -139,6 +148,7 @@ const CreateInvoicePage = () => {
 
         <Card className="p-4 md:p-6 border-none shadow-xl shadow-indigo-100/20 overflow-hidden ring-1 ring-slate-200/60">
           <InvoiceItemsTable
+            billingType={billingType}
             items={items}
             setItems={setItems}
             removeItem={removeItem}
@@ -166,7 +176,11 @@ const CreateInvoicePage = () => {
           saving={saving}
           clients={clients}
           isEditing={isEditing}
-          submitLabel={isEditing ? 'Update Invoice' : 'Create Invoice'}
+          submitLabel={
+            isEditing 
+              ? 'Update Invoice' 
+              : (billingType === 'ledger' ? 'Generate Ledger Bill' : (isPurchase ? 'Create Purchase Bill' : 'Create Invoice'))
+          }
           navigate={navigate}
           onAddExpense={() => setExpenseSelectionOpen(true)}
         />

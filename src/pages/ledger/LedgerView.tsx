@@ -68,6 +68,7 @@ const LedgerView = () => {
       return [];
     }
   });
+  const [partyBalances, setPartyBalances] = useState<Map<string, number>>(new Map());
 
   const [loading, setLoading] = useState(() => {
     try {
@@ -139,6 +140,27 @@ const LedgerView = () => {
       if (error) throw error;
       const cleanData = (data || []) as Party[];
       setParties(cleanData);
+
+      // Fetch latest balance per party
+      if (cleanData.length > 0) {
+        const partyIds = cleanData.map(p => p.id);
+        const { data: latestTxns } = await supabase
+          .from('transactions')
+          .select('party_id, balance, transaction_date, created_at')
+          .eq('user_id', effectiveUserId)
+          .in('party_id', partyIds)
+          .order('transaction_date', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        const balMap = new Map<string, number>();
+        for (const txn of (latestTxns || [])) {
+          if (!balMap.has(txn.party_id)) {
+            balMap.set(txn.party_id, Number(txn.balance));
+          }
+        }
+        setPartyBalances(balMap);
+      }
+
       try {
         localStorage.setItem('cached_parties', JSON.stringify(cleanData));
       } catch {
@@ -630,10 +652,20 @@ const LedgerView = () => {
       action: () => toggleSelectAllTns() 
     },
     { 
+      name: 'Create Bill', 
+      icon: <FileText className="w-4 h-4" />, 
+      color: 'bg-indigo-600 text-white shadow-md shadow-indigo-200', 
+      action: () => {
+        if (selectedParty) {
+          navigate(`/billing/create-invoice?type=ledger&partyId=${selectedParty.id}`);
+        }
+      } 
+    },
+    { 
       name: 'Add Party', 
       icon: <Plus className="w-4 h-4" />, 
       color: 'bg-blue-600 text-white shadow-md shadow-blue-200', 
-      action: () => navigate('/ledger/create/party') 
+      action: () => navigate('/billing/clients?action=new') 
     },
     { 
       name: 'Exit', 
@@ -747,8 +779,8 @@ const LedgerView = () => {
               </button>
               <button 
                 type="button"
-                onClick={() => navigate('/ledger/create/party')}
-                className="flex items-center gap-1.5 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100 dark:shadow-none rounded-xl font-bold text-[10px] tracking-widest uppercase transition-all whitespace-nowrap shrink-0 border border-blue-700"
+                onClick={() => navigate('/billing/clients?action=new')}
+                className="flex items-center gap-1.5 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100 dark:shadow-none rounded-xl font-bold text-[10px] tracking-widest uppercase transition-all whitespace-nowrap shrink-0 border border-blue-700 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add Party
@@ -769,6 +801,7 @@ const LedgerView = () => {
                 <thead className="bg-slate-50 dark:bg-slate-950/30 sticky top-0 z-10 border-b border-slate-100 dark:border-slate-800">
                   <tr className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                     <th className="px-8 py-4">Party Name</th>
+                    <th className="px-8 py-4 text-right">Remaining Balance</th>
                     <th className="px-8 py-4 text-center">Monday Final</th>
                     <th className="px-8 py-4 text-center">
                        <div onClick={toggleSelectAllParties} className={`w-5 h-5 rounded border-2 mx-auto cursor-pointer transition-all flex items-center justify-center ${isAllFilteredSelected ? 'bg-blue-600 border-blue-600' : isSomeFilteredSelected ? 'border-blue-600' : 'border-slate-300 dark:border-slate-700'}`}>
@@ -779,19 +812,49 @@ const LedgerView = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-slate-800/40 text-sm font-medium">
-                  {paginatedParties.map((party) => (
-                    <tr key={party.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20 cursor-pointer transition-all group" onClick={() => handlePartySelect(party)}>
-                      <td className="px-8 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 w-8">{party.sr_no}</span>
-                          <span className="font-bold text-base text-slate-900 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{party.party_name}</span>
-                          {party.system_type !== 'normal' && <span className="text-[8px] bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full uppercase font-black">System</span>}
-                        </div>
-                      </td>
-                      <td className="px-8 py-3.5"><div className={`mx-auto w-24 py-1 rounded-lg text-[9px] font-black uppercase text-center flex items-center justify-center gap-1.5 ${((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-455' : 'bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-455'}`}>{ ((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}{((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? 'Yes' : 'No'}</div></td>
-                      <td className="px-8 py-3.5 text-center"><div onClick={(e) => togglePartySelection(party.id, e)} className={`w-6 h-6 rounded-lg border-2 mx-auto transition-all flex items-center justify-center ${selectedPartyIds.has(party.id) ? 'bg-blue-600 border-blue-600 shadow-md shadow-blue-100 dark:shadow-none' : 'border-slate-200 dark:border-slate-700 group-hover:border-blue-400'}`}><div className={`w-2 h-2 bg-white rounded-sm transition-opacity ${selectedPartyIds.has(party.id) ? 'opacity-100' : 'opacity-0'}`}></div></div></td>
-                    </tr>
-                  ))}
+                  {paginatedParties.map((party) => {
+                    const bal = partyBalances.get(party.id) ?? 0;
+                    const isCr = bal >= 0;
+                    return (
+                      <tr key={party.id} className="hover:bg-blue-50/40 dark:hover:bg-blue-950/20 cursor-pointer transition-all group" onClick={() => handlePartySelect(party)}>
+                        <td className="px-8 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 w-8">{party.sr_no}</span>
+                            <span className="font-bold text-base text-slate-900 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{party.party_name}</span>
+                            {party.system_type !== 'normal' && <span className="text-[8px] bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-full uppercase font-black">System</span>}
+                          </div>
+                        </td>
+                        <td className="px-8 py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            <div className="flex flex-col items-end">
+                              <span className={`font-mono font-bold text-sm ${isCr ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                ₹ {Math.abs(Math.round(bal)).toLocaleString('en-IN')}
+                              </span>
+                              <span className={`text-[9px] font-black uppercase tracking-wider ${isCr ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                                {isCr ? 'Credit (जमा)' : 'Debit (बाकी)'}
+                              </span>
+                            </div>
+                            {bal !== 0 && (
+                              <button
+                                type="button"
+                                title="Create Ledger Bill from Remaining Balance"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/billing/create-invoice?type=ledger&partyId=${party.id}`);
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg transition-all text-xs font-bold flex items-center gap-1 border border-indigo-200 dark:border-indigo-800 shrink-0 cursor-pointer shadow-xs"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span className="text-[10px]">Bill</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-8 py-3.5"><div className={`mx-auto w-24 py-1 rounded-lg text-[9px] font-black uppercase text-center flex items-center justify-center gap-1.5 ${((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-455' : 'bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-455'}`}>{ ((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}{((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? 'Yes' : 'No'}</div></td>
+                        <td className="px-8 py-3.5 text-center"><div onClick={(e) => togglePartySelection(party.id, e)} className={`w-6 h-6 rounded-lg border-2 mx-auto transition-all flex items-center justify-center ${selectedPartyIds.has(party.id) ? 'bg-blue-600 border-blue-600 shadow-md shadow-blue-100 dark:shadow-none' : 'border-slate-200 dark:border-slate-700 group-hover:border-blue-400'}`}><div className={`w-2 h-2 bg-white rounded-sm transition-opacity ${selectedPartyIds.has(party.id) ? 'opacity-100' : 'opacity-0'}`}></div></div></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

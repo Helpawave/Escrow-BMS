@@ -11,7 +11,8 @@ import {
   Save,
   RefreshCcw,
   CheckCircle2,
-  XCircle
+  XCircle,
+  FileText
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -43,6 +44,7 @@ const PartyReport = () => {
       return [];
     }
   });
+  const [partyBalances, setPartyBalances] = useState<Map<string, number>>(new Map());
 
   const [loading, setLoading] = useState(() => {
     try {
@@ -221,6 +223,27 @@ const PartyReport = () => {
       if (error) throw error;
       const cleanData = data || [];
       setParties(cleanData);
+
+      // Fetch latest balance per party
+      if (cleanData.length > 0) {
+        const partyIds = cleanData.map(p => p.id);
+        const { data: latestTxns } = await supabase
+          .from('transactions')
+          .select('party_id, balance, transaction_date, created_at')
+          .eq('user_id', effectiveUserId)
+          .in('party_id', partyIds)
+          .order('transaction_date', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        const balMap = new Map<string, number>();
+        for (const txn of (latestTxns || [])) {
+          if (!balMap.has(txn.party_id)) {
+            balMap.set(txn.party_id, Number(txn.balance));
+          }
+        }
+        setPartyBalances(balMap);
+      }
+
       try {
         localStorage.setItem('cached_parties_report', JSON.stringify(cleanData));
       } catch (e) {
@@ -433,13 +456,17 @@ const PartyReport = () => {
                 <th className="px-6 py-5">SR NO</th>
                 <th className="px-8 py-5">Party Name</th>
                 <th className="px-8 py-5">Status</th>
+                <th className="px-8 py-5 text-right">Remaining Balance</th>
                 <th className="px-8 py-5 text-center">Monday Final</th>
                 <th className="px-8 py-5 text-right">Commission Rate</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800 font-medium">
-              {paginatedParties.map((p) => (
+              {paginatedParties.map((p) => {
+                const bal = partyBalances.get(p.id) ?? 0;
+                const isCr = bal >= 0;
+                return (
                 <tr key={p.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors ${selectedPartyIds.has(p.id) ? 'bg-emerald-50/40 dark:bg-emerald-950/10' : ''}`}>
                   <td className="px-6 py-5 text-center">
                     {p.system_type === 'normal' ? (
@@ -471,6 +498,16 @@ const PartyReport = () => {
                       <span className="text-slate-300 dark:text-slate-600 font-bold">-</span>
                     )}
                   </td>
+                  <td className="px-8 py-5 text-right">
+                    <div className="flex flex-col items-end">
+                      <span className={`font-mono font-bold text-base ${isCr ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        ₹ {Math.abs(Math.round(bal)).toLocaleString('en-IN')}
+                      </span>
+                      <span className={`text-[9px] font-black uppercase tracking-wider ${isCr ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                        {isCr ? 'Credit (जमा)' : 'Debit (बाकी)'}
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-8 py-5 text-center">
                     <div className={`mx-auto w-24 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center justify-center gap-2 ${((p.monday_final as any) === true || (p.monday_final as any) === 'true') ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-450' : 'bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-450'}`}>
                       {((p.monday_final as any) === true || (p.monday_final as any) === 'true') ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
@@ -485,14 +522,21 @@ const PartyReport = () => {
                       {p.system_type === 'normal' && (
                         <>
                           <button 
+                            title="Create Ledger Bill from Remaining Balance"
+                            onClick={() => navigate(`/billing/create-invoice?type=ledger&partyId=${p.id}`)}
+                            className="p-2.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-xl transition-all cursor-pointer"
+                          >
+                            <FileText className="w-5 h-5" />
+                          </button>
+                          <button 
                             onClick={() => handleEdit(p)}
-                            className="p-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-xl transition-all"
+                            className="p-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-xl transition-all cursor-pointer"
                           >
                             <Edit3 className="w-5 h-5" />
                           </button>
                           <button 
                             onClick={() => handleDeleteParty(p)}
-                            className="p-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
+                            className="p-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all cursor-pointer"
                           >
                             <Trash2 className="w-5 h-5" />
                           </button>
@@ -501,10 +545,11 @@ const PartyReport = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+            })}
               {paginatedParties.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic">No parties found.</td>
+                  <td colSpan={8} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic">No parties found.</td>
                 </tr>
               )}
             </tbody>

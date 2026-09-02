@@ -55,7 +55,11 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 export const useCurrency = () => {
     const context = useContext(CurrencyContext);
     if (context === undefined) {
-        throw new Error('useCurrency must be used within a CurrencyProvider');
+        return {
+            currencySymbol: '₹',
+            setCurrencySymbol: () => {},
+            loading: false
+        };
     }
     return context;
 };
