@@ -9,6 +9,7 @@ export interface Party {
   commission_rate: number;
   monday_final: boolean;
   system_type: 'normal' | 'commission' | 'company';
+  balance?: number;
 }
 
 export interface Transaction {

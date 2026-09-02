@@ -74,7 +74,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     state: '', postal_code: '', country: 'India', gstin: '',
     company_name: '', opening_balance: 0, balance_type: 'to_receive',
     credit_limit: 0, payment_terms_days: 30, notes: '',
-    discount_percentage: 0, default_currency: 'INR'
+    discount_percentage: 0, default_currency: 'INR',
+    hide_contact_details: false
   });
   const [creatingClient, setCreatingClient] = useState(false);
   const [hideCompanyDetails, setHideCompanyDetails] = useState(false);
@@ -92,9 +93,9 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [newProductActiveTab, setNewProductActiveTab] = useState("basic");
   const [newProductFormData, setNewProductFormData] = useState({
-    name: '', description: '', price: 0, purchase_price: 0,
+    name: '', description: '', price: 0, sales_price: 0, purchase_price: 0,
     unit: 'pcs', category: '', hsn_code: '', sku: '',
-    tax_rate: 18, opening_stock: 0
+    tax_rate: 18, opening_stock: 0, discount: 0, type: 'Goods' as 'Goods' | 'Service'
   });
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [qrPrintStep, setQrPrintStep] = useState<'select' | 'preview'>('select');
