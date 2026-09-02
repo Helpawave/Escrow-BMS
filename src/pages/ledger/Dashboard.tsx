@@ -103,20 +103,26 @@ const Dashboard = () => {
         const todayEntries = todayTns?.length || 0;
         const todayVolume = Math.round(todayTns?.reduce((sum, t) => sum + Math.max(t.credit, t.debit), 0) || 0);
 
-        // Calculate Commission (Balance of the commission system party)
-        const commissionParty = allTns?.find((t: any) => t.parties?.system_type === 'commission');
-        const totalCommission = commissionParty ? Math.round(commissionParty.balance) : 0;
+        // Calculate Commission & Overall Balance from transactions
+        const partyBalanceSums = new Map<string, number>();
+        let commSum = 0;
 
-        // Calculate Overall Balance
-        const latestBalances = new Map();
-        allTns?.forEach(t => {
-          if (!latestBalances.has(t.party_id)) {
-            latestBalances.set(t.party_id, t.balance);
+        (allTns || []).forEach((t: any) => {
+          const delta = (Number(t.credit) || 0) - (Number(t.debit) || 0);
+          const current = partyBalanceSums.get(t.party_id) || 0;
+          partyBalanceSums.set(t.party_id, current + delta);
+
+          const rawParty = Array.isArray(t.parties) ? t.parties[0] : t.parties;
+          if (rawParty?.system_type === 'commission') {
+            commSum += delta;
           }
         });
 
         let totalBalance = 0;
-        latestBalances.forEach(bal => totalBalance += bal);
+        partyBalanceSums.forEach(bal => {
+          totalBalance += bal;
+        });
+        const totalCommission = Math.round(commSum);
 
         if (mounted) {
           const newStats = {
