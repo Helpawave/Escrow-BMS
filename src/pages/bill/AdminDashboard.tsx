@@ -119,6 +119,7 @@ const WhatsAppIcon = ({ className }: { className?: string }) => (
 
 const AdminDashboard = () => {
   const { isAdminAuthenticated, isInitializing, logout } = useAdmin();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -383,7 +384,20 @@ const AdminDashboard = () => {
 
   const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
-  const { toast } = useToast();
+  const isSuperAdminAccount = (user?: { email?: string | null; company_name?: string | null } | null, prof?: { role?: string | null; full_name?: string | null; email?: string | null } | null) => {
+    const email = (user?.email || prof?.email || '').toLowerCase().trim();
+    const company = (user?.company_name || '').toLowerCase().trim();
+    const fullName = (prof?.full_name || '').toLowerCase().trim();
+    const role = (prof?.role || '').toLowerCase().trim();
+
+    return (
+      email === 'admin_bms@escrowbms.com' ||
+      role === 'super_admin' ||
+      company.includes('superadmin') ||
+      fullName.includes('superadmin') ||
+      email.includes('admin_bms')
+    );
+  };
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -396,40 +410,41 @@ const AdminDashboard = () => {
       });
       if (adminData) {
         const userList = adminData as (RawUserData & { total_count: number })[];
-        // Extract total count from the first record if available
-        if (userList.length > 0) {
-          setTotalUsersCount(Number(userList[0].total_count));
-        } else {
-          setTotalUsersCount(0);
-        }
 
         // Merge profiles table to guarantee subscription_expires_at, is_paid, and plan_type are up to date!
         const { data: profs } = await supabase.from('profiles').select('*');
         const profMap = new Map((profs || []).map((p: any) => [p.id || p.user_id, p]));
 
-        const mappedUsers: UserData[] = userList.map(u => {
-          const prof: any = profMap.get(u.user_id) || {};
-          const expiresAt = prof.subscription_expires_at || u.subscription_expires_at || null;
-          const hasFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
-          const isPaid = !!(prof.is_paid || u.is_paid || hasFutureExpiry);
-          return {
-            user_id: u.user_id,
-            company_name: u.company_name || prof.company_name,
-            email: u.email || prof.email,
-            mobile: u.mobile || prof.mobile || null,
-            created_at: u.created_at || prof.created_at,
-            last_sign_in_at: u.last_sign_in_at,
-            last_invoice_created_at: u.last_invoice_created_at,
-            invoice_count: Number(u.invoice_count || 0),
-            client_count: Number(u.client_count || 0),
-            subscription_expires_at: expiresAt,
-            plan_type: prof.plan_type || u.plan_type || (hasFutureExpiry ? 'pro' : 'free'),
-            is_blocked: !!(prof.is_blocked || u.is_blocked),
-            is_paid: isPaid,
-            whatsapp_provider: u.whatsapp_provider || 'meta'
-          };
-        });
+        const mappedUsers: UserData[] = userList
+          .filter(u => {
+            const prof: any = profMap.get(u.user_id) || {};
+            return !isSuperAdminAccount(u, prof);
+          })
+          .map(u => {
+            const prof: any = profMap.get(u.user_id) || {};
+            const expiresAt = prof.subscription_expires_at || u.subscription_expires_at || null;
+            const hasFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
+            const isPaid = !!(prof.is_paid || u.is_paid || hasFutureExpiry);
+            return {
+              user_id: u.user_id,
+              company_name: u.company_name || prof.company_name,
+              email: u.email || prof.email,
+              mobile: u.mobile || prof.mobile || null,
+              created_at: u.created_at || prof.created_at,
+              last_sign_in_at: u.last_sign_in_at,
+              last_invoice_created_at: u.last_invoice_created_at,
+              invoice_count: Number(u.invoice_count || 0),
+              client_count: Number(u.client_count || 0),
+              subscription_expires_at: expiresAt,
+              plan_type: prof.plan_type || u.plan_type || (hasFutureExpiry ? 'pro' : 'free'),
+              is_blocked: !!(prof.is_blocked || u.is_blocked),
+              is_paid: isPaid,
+              whatsapp_provider: u.whatsapp_provider || 'meta'
+            };
+          });
         setUsers(mappedUsers);
+        setTotalUsersCount(mappedUsers.length);
+        setTotalActiveUsersCount(mappedUsers.filter(u => !u.is_blocked).length);
         return;
       }
     } catch (error) {
@@ -503,11 +518,22 @@ const AdminDashboard = () => {
 
   const fetchSystemStats = useCallback(async () => {
     try {
+      const { data: profs } = await supabase.from('profiles').select('*');
+      const nonAdminProfs = (profs || []).filter((p: any) => !isSuperAdminAccount(p, p));
+      
       const { data, error } = await (supabase as any).rpc('admin_get_stats');
-      if (error) throw error;
-      if (data) {
+      if (error) {
+        console.warn('admin_get_stats error:', error);
+      }
+      if (nonAdminProfs.length > 0) {
+        setTotalUsersCount(nonAdminProfs.length);
+        setTotalActiveUsersCount(nonAdminProfs.filter((p: any) => !p.is_blocked).length);
+      } else if (data) {
         setTotalUsersCount(Number(data.total_users || 0));
         setTotalActiveUsersCount(Number(data.active_users || 0));
+      }
+
+      if (data) {
         setTotalInvoicesCount(Number(data.total_invoices || 0));
         setTotalClientsCount(Number(data.total_clients || 0));
       }
