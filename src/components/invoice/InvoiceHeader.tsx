@@ -329,23 +329,38 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                           </CommandItem>
                         ))
                       ) : (
-                        clients.map((client) => (
+                        // Deduplicate clients by id
+                        Array.from(new Map(clients.map(c => [c.id || c.name, c])).values()).map((client) => (
                           <CommandItem
                             key={client.id}
-                            value={client.name}
+                            value={`${client.name} ${client.phone || ''} ${client.email || ''} ${client.company_name || ''}`}
                             onSelect={() => {
                               setFormData({ ...formData, client_id: client.id });
                               setClientSearchOpen(false);
                             }}
-                            className="cursor-pointer"
+                            className="cursor-pointer flex items-center justify-between py-2 px-3"
                           >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                formData.client_id === client.id ? "opacity-100" : "opacity-0"
-                              )}
-                            />
-                            {client.name}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Check
+                                className={cn(
+                                  "h-4 w-4 shrink-0",
+                                  formData.client_id === client.id ? "opacity-100 text-indigo-600" : "opacity-0"
+                                )}
+                              />
+                              <div className="truncate">
+                                <p className="font-bold text-sm text-foreground truncate">{client.name}</p>
+                                {(client.phone || client.email || client.company_name) && (
+                                  <p className="text-[11px] text-muted-foreground truncate">
+                                    {[client.company_name, client.phone, client.email].filter(Boolean).join(' • ')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            {client.gstin && (
+                              <span className="text-[10px] font-mono text-muted-foreground ml-2 shrink-0 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded">
+                                {client.gstin}
+                              </span>
+                            )}
                           </CommandItem>
                         ))
                       )}

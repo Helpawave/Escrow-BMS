@@ -7,7 +7,7 @@ import { Package, Scan, Trash2, Search, Plus, BookOpen } from "lucide-react";
 import { InvoiceItem } from '@/types/invoice';
 
 interface InvoiceItemsTableProps {
-  billingType?: 'sales' | 'purchase' | 'ledger';
+  billingType?: 'sales' | 'purchase' | 'ledger' | 'quotation';
   items: InvoiceItem[];
   setItems: (items: InvoiceItem[]) => void;
   removeItem: (index: number) => void;

@@ -33,7 +33,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     { description: '', quantity: 0, rate: 0, discount: 0, tax_rate: 0, amount: 0 }
   ]);
 
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const { invoiceId: paramsId } = useParams<{ invoiceId?: string }>();
@@ -46,6 +46,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [invoiceStatus, setInvoiceStatus] = useState<string>('draft');
   const [invoiceCurrency, setInvoiceCurrency] = useState<string>('INR');
   const [currencySymbol, setCurrencySymbol] = useState<string>('₹');
+
+  const targetUserId = profile?.parent_user_id || user?.id;
 
   const initialBillingType = (
     searchParams.get('type') === 'purchase'
@@ -70,7 +72,9 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [newClientFormData, setNewClientFormData] = useState({
     name: '', email: '', phone: '', address: '', city: '',
     state: '', postal_code: '', country: 'India', gstin: '',
-    hide_contact_details: false
+    company_name: '', opening_balance: 0, balance_type: 'to_receive',
+    credit_limit: 0, payment_terms_days: 30, notes: '',
+    discount_percentage: 0, default_currency: 'INR'
   });
   const [creatingClient, setCreatingClient] = useState(false);
   const [hideCompanyDetails, setHideCompanyDetails] = useState(false);
@@ -88,13 +92,9 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [newProductActiveTab, setNewProductActiveTab] = useState("basic");
   const [newProductFormData, setNewProductFormData] = useState({
-    name: '', type: 'product', category: '', sales_price: '',
-    price_with_tax: true, tax_rate: '18', unit: 'pcs',
-    opening_stock: '', description: '',
-    purchase_price: '', sku: '', discount: '',
-    hsn_code: '', barcode: '', alternative_unit: '',
-    as_of_date: new Date().toISOString().split('T')[0], low_stock_warning: false,
-    vendor_id: ''
+    name: '', description: '', price: 0, purchase_price: 0,
+    unit: 'pcs', category: '', hsn_code: '', sku: '',
+    tax_rate: 18, opening_stock: 0
   });
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [qrPrintStep, setQrPrintStep] = useState<'select' | 'preview'>('select');
@@ -154,11 +154,12 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   }, [items]);
 
   const fetchUserSettings = useCallback(async () => {
+    if (!targetUserId) return;
     try {
       const { data, error } = await supabase
         .from('user_settings')
         .select('hide_company_details')
-        .eq('user_id', user?.id)
+        .eq('user_id', targetUserId)
         .single();
       if (!error && data) {
         setHideCompanyDetails((data as unknown as { hide_company_details: boolean }).hide_company_details || false);
@@ -166,15 +167,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } catch (e) {
       console.error('Error fetching user settings:', e);
     }
-  }, [user]);
+  }, [targetUserId]);
 
   const fetchClients = useCallback(async () => {
-    if (!user) return;
+    if (!targetUserId) return;
     try {
       const { data, error } = await supabase
         .from('clients')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -187,15 +188,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         description: "Failed to load clients."
       });
     }
-  }, [user, toast]);
+  }, [targetUserId, toast]);
 
   const fetchVendors = useCallback(async () => {
-    if (!user) return;
+    if (!targetUserId) return;
     try {
       const { data, error } = await supabase
         .from('vendors')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -203,15 +204,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } catch (error) {
       console.error('Error fetching vendors:', error);
     }
-  }, [user]);
+  }, [targetUserId]);
 
   const fetchProducts = useCallback(async () => {
-    if (!user) return;
+    if (!targetUserId) return;
     try {
       const { data, error } = await supabase
         .from('products')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -226,7 +227,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } finally {
       setLoading(false);
     }
-  }, [user, toast]);
+  }, [targetUserId, toast]);
 
   const isUUID = (str?: string) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 
