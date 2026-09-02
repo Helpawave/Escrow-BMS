@@ -180,23 +180,20 @@ export default function AddStaffPage() {
         created_at: new Date().toISOString()
       };
 
-      // 1. Try to save to Supabase company_staff table
+      // 1. Try to save to Supabase employees table
       try {
-        await supabase.from('company_staff').insert([{
+        await supabase.from('employees').insert([{
           id: newStaffId,
-          staff_id: generatedCode,
-          company_owner_id: ownerId,
-          company_id: displayCompanyId,
+          user_id: ownerId,
           name: fullName.trim(),
           email: email.trim().toLowerCase(),
           phone: phone.trim() || null,
           role: selectedRole,
           permissions: selectedModules,
-          status: 'active',
-          temp_password: addMode === 'create' ? password : null
+          status: 'active'
         }]);
       } catch (dbErr) {
-        console.warn('Could not insert to company_staff in DB (using local storage):', dbErr);
+        console.warn('Could not insert to employees in DB (using local storage):', dbErr);
       }
 
       // 2. Update local state & backup

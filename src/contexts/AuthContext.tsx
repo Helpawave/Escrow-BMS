@@ -196,19 +196,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try { localStorage.setItem('escrow_cached_profile', JSON.stringify(data)); } catch { }
       }
 
-      // Check if user is a staff member
+      // Check if user is a staff member from profile or employees
       let staffData: any = null;
-      try {
-        const { data: staffMatch } = await supabase
-          .from('company_staff')
-          .select('*')
-          .or(`user_id.eq.${userId},email.eq.${email || ''}`)
-          .maybeSingle();
-        if (staffMatch) {
-          staffData = staffMatch;
+      if (data?.parent_user_id || data?.role === 'member') {
+        staffData = {
+          role: data?.role || 'member',
+          name: data?.full_name || '',
+          company_owner_id: data?.parent_user_id || '',
+          permissions: ['billing', 'ledger', 'inventory', 'payroll', 'crm', 'hisab']
+        };
+      }
+
+      if (!staffData && email) {
+        try {
+          const { data: empMatch } = await supabase
+            .from('employees')
+            .select('*')
+            .or(`user_id.eq.${userId},email.eq.${email}`)
+            .maybeSingle();
+          if (empMatch) {
+            staffData = {
+              ...empMatch,
+              company_owner_id: empMatch.user_id
+            };
+          }
+        } catch {
+          // Ignore
         }
-      } catch (err) {
-        console.warn('Error querying company_staff:', err);
       }
 
       // Check localStorage backup for staff records
@@ -216,7 +230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
-            if (key && key.startsWith('escrow_company_staff_backup')) {
+            if (key && (key.startsWith('escrow_company_staff_backup') || key.startsWith('escrow_employees_backup'))) {
               const stored = JSON.parse(localStorage.getItem(key) || '[]');
               const found = stored.find((s: any) => s.email?.toLowerCase() === email.toLowerCase());
               if (found) {

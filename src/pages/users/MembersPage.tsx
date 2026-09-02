@@ -152,16 +152,16 @@ export default function MembersPage() {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('company_staff')
+        .from('employees')
         .select('*')
-        .eq('company_owner_id', ownerId)
+        .eq('user_id', ownerId)
         .order('created_at', { ascending: false });
 
       if (!error && data && data.length > 0) {
         const mapped: StaffMember[] = data.map((item: any, idx: number) => ({
           id: item.id,
           staff_id: item.staff_id || generateStaffCode(item.id || idx),
-          company_owner_id: item.company_owner_id || ownerId,
+          company_owner_id: item.user_id || ownerId,
           company_id: item.company_id || displayCompanyId,
           name: item.name || item.full_name || 'Staff Member',
           email: item.email,
@@ -185,7 +185,7 @@ export default function MembersPage() {
         }
       }
     } catch (err) {
-      console.warn('Error querying company_staff table:', err);
+      console.warn('Error querying employees table:', err);
       const saved = localStorage.getItem(getStaffBackupKey(ownerId));
       if (saved) setStaffList(JSON.parse(saved));
     } finally {
@@ -273,7 +273,7 @@ export default function MembersPage() {
       // 1. Update in Supabase
       try {
         await supabase
-          .from('company_staff')
+          .from('employees')
           .update({
             name: editFullName.trim(),
             phone: editPhone.trim() || null,
@@ -305,7 +305,7 @@ export default function MembersPage() {
     try {
       try {
         await supabase
-          .from('company_staff')
+          .from('employees')
           .update({ status: newStatus })
           .eq('id', staff.id);
       } catch {}
@@ -330,7 +330,7 @@ export default function MembersPage() {
     try {
       try {
         await supabase
-          .from('company_staff')
+          .from('employees')
           .delete()
           .eq('id', staffToDelete.id);
       } catch {}
