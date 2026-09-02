@@ -58,6 +58,7 @@ import {
   Check,
   Download,
   ShieldCheck,
+  MessageSquare,
   Save,
   Settings as SettingsIcon,
   Plus,
@@ -118,6 +119,7 @@ interface UserSettings {
   default_payment_terms: string;
   invoice_template: string;
   hide_company_details: boolean;
+  whatsapp_provider?: string;
 }
 
 import { RazorpayResponse, RazorpayOptions } from "@/types/razorpay";
@@ -251,7 +253,8 @@ const SettingsPage = () => {
     default_currency: 'INR',
     default_payment_terms: 'Net 30',
     invoice_template: 'corporate',
-    hide_company_details: false
+    hide_company_details: false,
+    whatsapp_provider: 'meta'
   });
 
   const [loading, setLoading] = useState(true);
@@ -664,7 +667,8 @@ const SettingsPage = () => {
           default_currency: sData.default_currency || 'INR',
           default_payment_terms: sData.default_payment_terms || 'Net 30',
           invoice_template: sData.invoice_template || 'corporate',
-          hide_company_details: sData.hide_company_details ?? false
+          hide_company_details: sData.hide_company_details ?? false,
+          whatsapp_provider: sData.whatsapp_provider || 'meta'
         });
       }
     } catch (error) {
@@ -1700,6 +1704,51 @@ const SettingsPage = () => {
                       )}
                     >
                       On
+                    </button>
+                  </div>
+                </div>
+
+                {/* WhatsApp Delivery Channel */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-md border border-border bg-muted/20 gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="text-emerald-500">
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-bold">WhatsApp Delivery Method</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {settings.whatsapp_provider === 'personal'
+                          ? 'Personal WhatsApp: Opens pre-filled chat with PDF invoice download link in WhatsApp Web/App'
+                          : 'Official WhatsApp Cloud API: Automatically delivers invoice directly via Meta Cloud API'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex bg-background p-1 rounded-md border border-border shrink-0">
+                    <button
+                      onClick={() => {
+                        const next = { ...settings, whatsapp_provider: 'personal' };
+                        setSettings(next);
+                        void handleSettingsSave(next, { showToast: true });
+                      }}
+                      className={cn(
+                        "px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all",
+                        settings.whatsapp_provider === 'personal' ? "bg-emerald-600 text-white shadow-sm" : "text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      Personal Web/App
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = { ...settings, whatsapp_provider: 'meta' };
+                        setSettings(next);
+                        void handleSettingsSave(next, { showToast: true });
+                      }}
+                      className={cn(
+                        "px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest rounded-md transition-all",
+                        settings.whatsapp_provider !== 'personal' ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"
+                      )}
+                    >
+                      Meta Cloud API
                     </button>
                   </div>
                 </div>
