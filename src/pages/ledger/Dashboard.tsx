@@ -74,7 +74,7 @@ const Dashboard = () => {
             .gte('transaction_date', today.toISOString()),
           supabase
             .from('transactions')
-            .select('id, party_id, credit, debit, balance, remarks, transaction_date, parties(name, system_type)')
+            .select('id, party_id, credit, debit, balance, remarks, transaction_date, parties(party_name, system_type)')
             .eq('user_id', user.id)
             .order('transaction_date', { ascending: false })
         ]);
@@ -259,7 +259,7 @@ const Dashboard = () => {
                 <div key={t.id} className="px-8 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                   <div>
                     <p className="font-semibold text-sm text-slate-900 dark:text-slate-100">
-                      {t.parties?.name || 'Party Transaction'}
+                      {t.parties?.party_name || t.parties?.name || 'Party Transaction'}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
                       {t.remarks || 'Journal Entry'} · {new Date(t.transaction_date).toLocaleDateString()}

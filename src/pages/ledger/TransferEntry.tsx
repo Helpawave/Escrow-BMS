@@ -61,8 +61,6 @@ interface RightEntry {
   isCustom: boolean;
 }
 
-
-interface LeftEntry { id: string; partyId: string; partyName: string; amount: number; finalAmount: number; }
 const LeftSortableRow = memo(function LeftSortableRow({ entry, idx, onEdit, onDelete }: {
   entry: LeftEntry;
   idx: number;
