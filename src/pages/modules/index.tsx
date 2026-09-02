@@ -1,6 +1,5 @@
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
 
 // Providers
 import { FinanceProvider } from '@/contexts/FinanceContext';
@@ -16,8 +15,7 @@ function ModuleLoader() {
   );
 }
 
-// 1. Payroll Pages (Lazy Loaded)
-const PayrollIndex = React.lazy(() => import('../payroll/Index'));
+// 1. Payroll Pages
 const PayrollEmployees = React.lazy(() => import('../payroll/Employees'));
 const PayrollSalary = React.lazy(() => import('../payroll/Payroll'));
 const PayrollAttendance = React.lazy(() => import('../payroll/Attendance'));
@@ -26,6 +24,51 @@ const PayrollPayslips = React.lazy(() => import('../payroll/Payslips'));
 const PayrollReports = React.lazy(() => import('../payroll/Reports'));
 const PayrollNotifications = React.lazy(() => import('../payroll/Notifications'));
 const PayrollIntro = React.lazy(() => import('../payroll/Intro'));
+
+// 2. Ledger Pages
+const LedgerView = React.lazy(() => import('../ledger/LedgerView'));
+const LedgerTransfer = React.lazy(() => import('../ledger/TransferEntry'));
+const LedgerBalanceSheet = React.lazy(() => import('../ledger/BalanceSheet'));
+const LedgerProfitLoss = React.lazy(() => import('../ledger/ProfitLossReport'));
+const LedgerPartyReport = React.lazy(() => import('../ledger/PartyReport'));
+const LedgerTransactionReport = React.lazy(() => import('../ledger/TransactionReport'));
+const LedgerAdminLogin = React.lazy(() => import('../ledger/AdminLogin'));
+const LedgerAdminDashboard = React.lazy(() => import('../ledger/AdminDashboard'));
+
+// 3. Billing Pages
+const BillInvoices = React.lazy(() => import('../bill/Invoices'));
+const BillCreateInvoice = React.lazy(() => import('../bill/CreateInvoice'));
+const BillClients = React.lazy(() => import('../bill/Clients'));
+const BillVendors = React.lazy(() => import('../bill/Vendors'));
+const BillPurchaseInvoices = React.lazy(() => import('../bill/PurchaseInvoices'));
+const BillProducts = React.lazy(() => import('../bill/Products'));
+const BillPayments = React.lazy(() => import('../bill/Payments'));
+const BillExpenses = React.lazy(() => import('../bill/Expenses'));
+const BillReports = React.lazy(() => import('../bill/Reports'));
+const BillEInvoice = React.lazy(() => import('../bill/EInvoice'));
+const BillScanProduct = React.lazy(() => import('../bill/ScanProduct'));
+const BillAdminLogin = React.lazy(() => import('../bill/AdminLogin'));
+const BillAdminDashboard = React.lazy(() => import('../bill/AdminDashboard'));
+const BillBusinessSetup = React.lazy(() => import('../bill/BusinessSetup'));
+
+// 4. Hisab Pages
+const HisabHistory = React.lazy(() => import('../daily-hisab/user/History').then(m => ({ default: m.History })));
+const HisabAdminLogin = React.lazy(() => import('../daily-hisab/admin/AdminLogin').then(m => ({ default: m.AdminLogin })));
+const HisabAdminDashboard = React.lazy(() => import('../daily-hisab/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const HisabProfile = React.lazy(() => import('../daily-hisab/user/Profile').then(m => ({ default: (m as any).Profile || (m as any).default })));
+
+// 5. Inventory Pages
+const InventoryProducts = React.lazy(() => import('../inventory/Products').then(m => ({ default: m.Products })));
+const InventoryAddProduct = React.lazy(() => import('../inventory/AddProduct').then(m => ({ default: m.AddProduct })));
+const InventoryDetails = React.lazy(() => import('../inventory/ProductDetails').then(m => ({ default: m.ProductDetails })));
+const InventoryEdit = React.lazy(() => import('../inventory/EditProduct').then(m => ({ default: m.EditProduct })));
+const InventoryScan = React.lazy(() => import('../inventory/ScanPage').then(m => ({ default: m.ScanPage })));
+const InventoryHistory = React.lazy(() => import('../inventory/HistoryPage').then(m => ({ default: m.HistoryPage })));
+const InventoryReports = React.lazy(() => import('../inventory/Reports').then(m => ({ default: m.Reports })));
+const InventoryUsers = React.lazy(() => import('../inventory/Users').then(m => ({ default: m.Users })));
+
+// 6. CRM Root
+const CrmRoot = React.lazy(() => import('../crm/CrmRoot'));
 
 export function PayrollModule() {
   return (
@@ -46,18 +89,6 @@ export function PayrollModule() {
     </Suspense>
   );
 }
-
-// 2. Ledger Pages (Lazy Loaded)
-const LedgerDashboard = React.lazy(() => import('../ledger/Dashboard'));
-const LedgerView = React.lazy(() => import('../ledger/LedgerView'));
-const LedgerTransfer = React.lazy(() => import('../ledger/TransferEntry'));
-const LedgerBalanceSheet = React.lazy(() => import('../ledger/BalanceSheet'));
-const LedgerProfitLoss = React.lazy(() => import('../ledger/ProfitLossReport'));
-const LedgerPartyReport = React.lazy(() => import('../ledger/PartyReport'));
-const LedgerTransactionReport = React.lazy(() => import('../ledger/TransactionReport'));
-const LedgerProfile = React.lazy(() => import('../ledger/UserProfile'));
-const LedgerAdminLogin = React.lazy(() => import('../ledger/AdminLogin'));
-const LedgerAdminDashboard = React.lazy(() => import('../ledger/AdminDashboard'));
 
 export function LedgerModule() {
   return (
@@ -81,23 +112,6 @@ export function LedgerModule() {
     </Suspense>
   );
 }
-
-// 3. Billing Pages (Lazy Loaded)
-const BillDashboard = React.lazy(() => import('../bill/Dashboard'));
-const BillInvoices = React.lazy(() => import('../bill/Invoices'));
-const BillCreateInvoice = React.lazy(() => import('../bill/CreateInvoice'));
-const BillClients = React.lazy(() => import('../bill/Clients'));
-const BillVendors = React.lazy(() => import('../bill/Vendors'));
-const BillPurchaseInvoices = React.lazy(() => import('../bill/PurchaseInvoices'));
-const BillProducts = React.lazy(() => import('../bill/Products'));
-const BillPayments = React.lazy(() => import('../bill/Payments'));
-const BillExpenses = React.lazy(() => import('../bill/Expenses'));
-const BillReports = React.lazy(() => import('../bill/Reports'));
-const BillEInvoice = React.lazy(() => import('../bill/EInvoice'));
-const BillScanProduct = React.lazy(() => import('../bill/ScanProduct'));
-const BillAdminLogin = React.lazy(() => import('../bill/AdminLogin'));
-const BillAdminDashboard = React.lazy(() => import('../bill/AdminDashboard'));
-const BillBusinessSetup = React.lazy(() => import('../bill/BusinessSetup'));
 
 export function BillingModule() {
   return (
@@ -129,14 +143,6 @@ export function BillingModule() {
   );
 }
 
-// 4. Hisab Pages (Lazy Loaded)
-const HisabDashboard = React.lazy(() => import('../daily-hisab/user/Dashboard').then(m => ({ default: m.Dashboard })));
-const HisabHistory = React.lazy(() => import('../daily-hisab/user/History').then(m => ({ default: m.History })));
-const HisabAdminLogin = React.lazy(() => import('../daily-hisab/admin/AdminLogin').then(m => ({ default: m.AdminLogin })));
-const HisabAdminDashboard = React.lazy(() => import('../daily-hisab/admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
-
-const HisabProfile = React.lazy(() => import('../daily-hisab/user/Profile').then(m => ({ default: (m as any).Profile || (m as any).default })));
-
 export function HisabModule() {
   return (
     <FinanceProvider>
@@ -153,17 +159,6 @@ export function HisabModule() {
     </FinanceProvider>
   );
 }
-
-// 5. Inventory Pages (Lazy Loaded)
-const InventoryDashboard = React.lazy(() => import('../inventory/Dashboard').then(m => ({ default: m.Dashboard })));
-const InventoryProducts = React.lazy(() => import('../inventory/Products').then(m => ({ default: m.Products })));
-const InventoryAddProduct = React.lazy(() => import('../inventory/AddProduct').then(m => ({ default: m.AddProduct })));
-const InventoryDetails = React.lazy(() => import('../inventory/ProductDetails').then(m => ({ default: m.ProductDetails })));
-const InventoryEdit = React.lazy(() => import('../inventory/EditProduct').then(m => ({ default: m.EditProduct })));
-const InventoryScan = React.lazy(() => import('../inventory/ScanPage').then(m => ({ default: m.ScanPage })));
-const InventoryHistory = React.lazy(() => import('../inventory/HistoryPage').then(m => ({ default: m.HistoryPage })));
-const InventoryReports = React.lazy(() => import('../inventory/Reports').then(m => ({ default: m.Reports })));
-const InventoryUsers = React.lazy(() => import('../inventory/Users').then(m => ({ default: m.Users })));
 
 export function InventoryModule() {
   return (
@@ -189,9 +184,6 @@ export function InventoryModule() {
     </NotificationProvider>
   );
 }
-
-// 6. CRM Page (Lazy Loaded)
-const CrmRoot = React.lazy(() => import('../crm/CrmRoot'));
 
 export function CrmModule() {
   return (
