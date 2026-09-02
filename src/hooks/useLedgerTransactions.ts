@@ -98,13 +98,29 @@ export const useLedgerTransactions = ({
   }, [selectedParty?.id]);
 
   const getBalance = async (partyId: string) => {
-    const { data } = await supabase
-      .from('transactions')
-      .select('balance')
-      .eq('party_id', partyId)
-      .order('transaction_date', { ascending: false })
-      .limit(1);
-    return data?.[0]?.balance || 0;
+    try {
+      const { data: pData } = await supabase
+        .from('parties')
+        .select('balance')
+        .eq('id', partyId)
+        .maybeSingle();
+
+      if (pData && pData.balance !== undefined && pData.balance !== null) {
+        return Number(pData.balance) || 0;
+      }
+
+      const { data } = await supabase
+        .from('transactions')
+        .select('credit, debit')
+        .eq('party_id', partyId);
+      
+      if (data && data.length > 0) {
+        return data.reduce((sum, t) => sum + (Number(t.credit) || 0) - (Number(t.debit) || 0), 0);
+      }
+    } catch (e) {
+      console.warn("getBalance error:", e);
+    }
+    return 0;
   };
 
   const fetchTransactions = async (partyId: string, showArchived: boolean = false) => {
@@ -118,7 +134,8 @@ export const useLedgerTransactions = ({
           .select('*')
           .eq('party_id', partyId)
           .filter('is_finalized', showArchived ? 'eq' : 'neq', true)
-          .order('transaction_date', { ascending: true });
+          .order('transaction_date', { ascending: true })
+          .order('created_at', { ascending: true });
         tnsData = res.data;
         tnsError = res.error;
       } catch (e) {
@@ -162,9 +179,20 @@ export const useLedgerTransactions = ({
         }
       }
 
+      // Dynamically compute accurate live running balance on every transaction
+      let running = 0;
+      currentTns.forEach(t => {
+        if (t.is_settlement && t.balance !== undefined) {
+          running = Number(t.balance) || 0;
+        } else {
+          running += (Number(t.credit) || 0) - (Number(t.debit) || 0);
+          t.balance = running;
+        }
+      });
+
       setTransactions(currentTns);
       if (!showArchived) {
-        setClosingBalance(currentTns.length > 0 ? currentTns[currentTns.length - 1].balance : 0);
+        setClosingBalance(running);
       }
     } catch (err) {
       console.error('Error fetching transactions:', err);
@@ -229,30 +257,20 @@ export const useLedgerTransactions = ({
       if (!activeTns || activeTns.length === 0) return;
 
       let runningBalance = 0;
-      const updates = [];
-
       for (let i = 0; i < activeTns.length; i++) {
         const t = activeTns[i];
-        if (t.is_settlement) {
-          runningBalance = t.balance;
+        if (t.is_settlement && t.balance !== undefined) {
+          runningBalance = Number(t.balance) || 0;
         } else {
-          runningBalance = runningBalance + t.credit - t.debit;
-          if (t.balance !== runningBalance) {
-            updates.push({ id: t.id, balance: runningBalance });
-          }
+          runningBalance = runningBalance + (Number(t.credit) || 0) - (Number(t.debit) || 0);
         }
       }
 
-      if (updates.length > 0) {
-        await Promise.all(
-          updates.map(update =>
-            supabase
-              .from('transactions')
-              .update({ balance: update.balance })
-              .eq('id', update.id)
-          )
-        );
-      }
+      // Update party's balance in parties table directly
+      await supabase
+        .from('parties')
+        .update({ balance: runningBalance })
+        .eq('id', partyId);
     } catch (err) {
       console.error('Error recalculating balances:', err);
     }
@@ -489,7 +507,7 @@ export const useLedgerTransactions = ({
       const debitB = secondaryType === 'DR' ? absAmt : 0;
       const newBalB = balB + creditB - debitB;
 
-      const { error: insertErr } = await supabase.from('transactions').insert([
+      let { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: anchorId,
           user_id: authUser.id,
@@ -499,7 +517,6 @@ export const useLedgerTransactions = ({
           tns_type: primaryType,
           credit: creditA,
           debit: debitA,
-          balance: newBalA,
           transaction_date: tnsA.transaction_date,
           created_at: tnsA.created_at,
           is_modified: true
@@ -513,7 +530,6 @@ export const useLedgerTransactions = ({
           tns_type: secondaryType,
           credit: creditB,
           debit: debitB,
-          balance: newBalB,
           transaction_date: tnsA.transaction_date,
           created_at: tnsA.created_at,
           is_modified: true
@@ -521,6 +537,11 @@ export const useLedgerTransactions = ({
       ]);
 
       if (insertErr) throw insertErr;
+
+      await Promise.all([
+        supabase.from('parties').update({ balance: newBalA }).eq('id', selectedParty.id),
+        supabase.from('parties').update({ balance: newBalB }).eq('id', editFormData.linkedParty.id)
+      ]);
 
       await Promise.all(Array.from(affectedPartyIds).map(pId => recalculateBalances(pId)));
 
@@ -843,8 +864,7 @@ export const useLedgerTransactions = ({
           tns_type: firstPartyType,
           credit: creditA,
           debit: debitA,
-          balance: newBalA,
-          idempotency_key: idempotencyKey
+          transaction_date: new Date().toISOString()
         },
         {
           id: generateUUID(),
@@ -855,12 +875,12 @@ export const useLedgerTransactions = ({
           tns_type: secondPartyType,
           credit: creditB,
           debit: debitB,
-          balance: newBalB,
-          idempotency_key: idempotencyKey
+          transaction_date: new Date().toISOString()
         }
       ]);
 
       if (insertErr) {
+        console.warn("Primary transaction insert failed, retrying with minimal schema:", insertErr);
         const resFb = await supabase.from('transactions').insert([
           {
             id: chainId,
@@ -870,8 +890,7 @@ export const useLedgerTransactions = ({
             remarks: remarksVal || '',
             tns_type: firstPartyType,
             credit: creditA,
-            debit: debitA,
-            balance: newBalA
+            debit: debitA
           },
           {
             id: generateUUID(),
@@ -881,14 +900,22 @@ export const useLedgerTransactions = ({
             remarks: remarksVal || '',
             tns_type: secondPartyType,
             credit: creditB,
-            debit: debitB,
-            balance: newBalB
+            debit: debitB
           }
         ]);
         insertErr = resFb.error;
       }
 
       if (insertErr) throw insertErr;
+
+      try {
+        await Promise.all([
+          supabase.from('parties').update({ balance: newBalA }).eq('id', selectedParty.id),
+          supabase.from('parties').update({ balance: newBalB }).eq('id', linkedPartyVal.id)
+        ]);
+      } catch (pErr) {
+        console.warn("Could not update parties table balance directly:", pErr);
+      }
 
       await Promise.all([
         recalculateBalances(selectedParty.id),

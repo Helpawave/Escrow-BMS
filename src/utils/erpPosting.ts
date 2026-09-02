@@ -79,15 +79,14 @@ export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
 
     if (!partyId) return;
 
-    // Fetch latest balance for Party
-    const { data: lastTns } = await supabase
-      .from('transactions')
+    // Fetch latest balance for Party from parties table
+    const { data: partyData } = await supabase
+      .from('parties')
       .select('balance')
-      .eq('party_id', partyId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .eq('id', partyId)
+      .maybeSingle();
 
-    const prevBal = lastTns && lastTns.length > 0 ? Number(lastTns[0].balance) || 0 : 0;
+    const prevBal = partyData ? Number(partyData.balance) || 0 : 0;
     const isSales = payload.type === 'sales';
     const debit = isSales ? payload.amount : 0;
     const credit = isSales ? 0 : payload.amount;
@@ -104,9 +103,11 @@ export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
       tns_type: isSales ? 'DR' : 'CR',
       debit,
       credit,
-      balance: newBalance,
       transaction_date: payload.date || new Date().toISOString()
     }]);
+
+    // Update party balance in parties table
+    await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);
 
   } catch (err) {
     console.error("ERP Auto-Posting to Ledger Error:", err);
@@ -132,14 +133,13 @@ export async function postPaymentToLedger(payload: ERPPaymentPostingPayload) {
     if (!existingParties || existingParties.length === 0) return;
     const partyId = existingParties[0].id;
 
-    const { data: lastTns } = await supabase
-      .from('transactions')
+    const { data: partyData } = await supabase
+      .from('parties')
       .select('balance')
-      .eq('party_id', partyId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .eq('id', partyId)
+      .maybeSingle();
 
-    const prevBal = lastTns && lastTns.length > 0 ? Number(lastTns[0].balance) || 0 : 0;
+    const prevBal = partyData ? Number(partyData.balance) || 0 : 0;
     const isReceived = payload.type === 'received';
     const credit = isReceived ? payload.amount : 0;
     const debit = isReceived ? 0 : payload.amount;
@@ -156,9 +156,10 @@ export async function postPaymentToLedger(payload: ERPPaymentPostingPayload) {
       tns_type: isReceived ? 'CR' : 'DR',
       credit,
       debit,
-      balance: newBalance,
       transaction_date: payload.date || new Date().toISOString()
     }]);
+
+    await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);
   } catch (err) {
     console.error("ERP Payment Posting Error:", err);
   }
@@ -226,14 +227,13 @@ export async function postHisabToLedger(payload: ERPHisabPostingPayload) {
     if (!existingParties || existingParties.length === 0) return;
     const partyId = existingParties[0].id;
 
-    const { data: lastTns } = await supabase
-      .from('transactions')
+    const { data: partyData } = await supabase
+      .from('parties')
       .select('balance')
-      .eq('party_id', partyId)
-      .order('created_at', { ascending: false })
-      .limit(1);
+      .eq('id', partyId)
+      .maybeSingle();
 
-    const prevBal = lastTns && lastTns.length > 0 ? Number(lastTns[0].balance) || 0 : 0;
+    const prevBal = partyData ? Number(partyData.balance) || 0 : 0;
     const isIncome = payload.type === 'income';
     const credit = isIncome ? payload.amount : 0;
     const debit = isIncome ? 0 : payload.amount;
@@ -250,9 +250,10 @@ export async function postHisabToLedger(payload: ERPHisabPostingPayload) {
       tns_type: isIncome ? 'CR' : 'DR',
       credit,
       debit,
-      balance: newBalance,
       transaction_date: new Date().toISOString()
     }]);
+
+    await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);
   } catch (err) {
     console.error("ERP Hisab Posting Error:", err);
   }
