@@ -118,52 +118,52 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
       <div className="flex flex-wrap p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl gap-1.5 shadow-inner">
         <Button 
           type="button" 
-          variant={billingType === 'sales' ? "hero" : "ghost"} 
+          variant="ghost"
           onClick={() => handleTabChange('sales')}
           className={cn(
             "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
             billingType === 'sales' 
-              ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md shadow-slate-200/50 dark:shadow-none" 
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/25 font-black" 
+              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
           )}
         >
           <span>Sales Invoice</span>
         </Button>
         <Button 
           type="button" 
-          variant={billingType === 'quotation' ? "hero" : "ghost"} 
+          variant="ghost"
           onClick={() => handleTabChange('quotation')}
           className={cn(
-            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-black text-xs sm:text-sm transition-all cursor-pointer",
+            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
             billingType === 'quotation' 
-              ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-orange-500/20" 
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md shadow-orange-500/25 font-black" 
+              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
           )}
         >
           <span>Quotation / Estimate</span>
         </Button>
         <Button 
           type="button" 
-          variant={billingType === 'purchase' ? "hero" : "ghost"} 
+          variant="ghost"
           onClick={() => handleTabChange('purchase')}
           className={cn(
             "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
             billingType === 'purchase' 
-              ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md shadow-slate-200/50 dark:shadow-none" 
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/25 font-black" 
+              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
           )}
         >
           <span>Purchase Bill</span>
         </Button>
         <Button 
           type="button" 
-          variant={billingType === 'ledger' ? "hero" : "ghost"} 
+          variant="ghost"
           onClick={() => handleTabChange('ledger')}
           className={cn(
-            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer",
             billingType === 'ledger' 
-              ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20" 
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/25 font-black" 
+              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
           )}
         >
           <BookOpen className="w-4 h-4" />
