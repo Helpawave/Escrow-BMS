@@ -881,215 +881,173 @@ const AdminDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#070b14] text-slate-100 p-4 md:p-8 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
-      {/* Ambient background glow orbs */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute top-1/3 right-10 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-10 left-10 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="max-w-7xl mx-auto relative z-10 space-y-8">
-        {/* Executive Superadmin Command Header */}
-        <div className="rounded-3xl p-6 md:p-8 text-white shadow-2xl border border-white/10 bg-gradient-to-r from-slate-900/90 via-indigo-950/80 to-slate-900/90 backdrop-blur-2xl relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="absolute -right-10 -bottom-10 w-72 h-72 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none" />
-          <div className="relative z-10 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-full text-[11px] font-black uppercase tracking-widest backdrop-blur-md">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-0.5" />
-                Platform Operational · Cloud Node Online
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 selection:bg-indigo-600 selection:text-white">
+      <div className="max-w-7xl mx-auto space-y-8">
+        {/* Executive Admin Header */}
+        <div className="rounded-2xl p-6 md:p-8 text-white shadow-xl border border-slate-800 bg-slate-900 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-xs font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                All Systems Operational
               </span>
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full text-[11px] font-bold">
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Superadmin Root
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-md text-xs font-medium">
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Superadmin
               </span>
             </div>
             <div>
-              <h1 className="text-2xl sm:text-4xl font-black tracking-tight font-heading bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                Executive Management Console
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+                Platform Admin Dashboard
               </h1>
-              <p className="text-slate-400 text-xs sm:text-sm font-medium max-w-2xl mt-1 leading-relaxed">
-                Central control plane for multi-tenant organizations, module licenses (Billing, Payroll, Ledger, Inventory, CRM), global broadcasts, and cloud system health.
+              <p className="text-slate-400 text-sm font-normal max-w-2xl mt-1">
+                Manage business organizations, control feature module access (Billing, Payroll, Ledger, Inventory, CRM), and view platform metrics.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3 relative z-10">
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               onClick={() => loadDashboardData(true)}
               variant="outline"
               size="sm"
-              className="h-10 rounded-xl bg-white/5 border-white/10 text-slate-200 hover:bg-white/10 hover:text-white font-bold text-xs"
+              className="h-9 rounded-lg bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white font-medium text-xs"
               disabled={loading}
             >
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-              Live Sync
+              Refresh
             </Button>
             <ThemeToggle />
             <Button 
               onClick={logout} 
               variant="destructive" 
-              className="h-10 font-bold rounded-xl shadow-lg shadow-rose-950/40 bg-rose-600 hover:bg-rose-700 text-white text-xs active:scale-95 transition-transform cursor-pointer"
+              className="h-9 font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs cursor-pointer shadow-sm"
             >
               <LogOut className="w-3.5 h-3.5 mr-1.5" />
-              Exit Console
+              Sign Out
             </Button>
           </div>
         </div>
 
-        {/* 4 Ultra-Premium KPI Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* 4 Professional SaaS KPI Stat Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Card 1: Organizations */}
-          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-indigo-500/40 transition-all duration-300">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl group-hover:bg-blue-500/20 transition-all" />
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
-                <Users className="w-6 h-6" />
+          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-slate-400">Total Companies</span>
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                <Users className="w-4 h-4" />
               </div>
-              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                Tenants
-              </span>
             </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Registered Companies</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <p className="text-3xl sm:text-4xl font-black text-white">{totalUsersCount}</p>
-                <span className="text-xs font-bold text-emerald-400">Active</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-2">Across all enterprise workspaces</p>
-            </div>
+            <p className="text-2xl font-bold text-white tracking-tight">{totalUsersCount}</p>
+            <p className="text-xs text-slate-500 mt-1">Registered tenant accounts</p>
           </div>
 
           {/* Card 2: Active Users */}
-          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-emerald-500/40 transition-all duration-300">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition-all" />
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
-                <CheckCircle className="w-6 h-6" />
+          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-slate-400">Active Workspaces</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
               </div>
-              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                Live Status
-              </span>
             </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Workspace Accounts</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <p className="text-3xl sm:text-4xl font-black text-white">{totalActiveUsersCount}</p>
-                <span className="text-xs font-bold text-emerald-400">100% Verified</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-2">Zero blocked organizations</p>
-            </div>
+            <p className="text-2xl font-bold text-white tracking-tight">{totalActiveUsersCount}</p>
+            <p className="text-xs text-slate-500 mt-1">Verified & active accounts</p>
           </div>
 
           {/* Card 3: Invoices */}
-          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-purple-500/40 transition-all duration-300">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl group-hover:bg-purple-500/20 transition-all" />
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/30">
-                <FileText className="w-6 h-6" />
+          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-slate-400">Total Invoices</span>
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
+                <FileText className="w-4 h-4" />
               </div>
-              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30">
-                Billing GMV
-              </span>
             </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Global Invoices Generated</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <p className="text-3xl sm:text-4xl font-black text-white">{totalInvoicesCount}</p>
-                <span className="text-xs font-bold text-purple-400">Transactions</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-2">GST compliant documents processed</p>
-            </div>
+            <p className="text-2xl font-bold text-white tracking-tight">{totalInvoicesCount}</p>
+            <p className="text-xs text-slate-500 mt-1">Generated across all stores</p>
           </div>
 
           {/* Card 4: Clients */}
-          <div className="relative group overflow-hidden rounded-3xl p-6 bg-slate-900/60 border border-white/10 backdrop-blur-xl shadow-xl hover:border-amber-500/40 transition-all duration-300">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition-all" />
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/30">
-                <Users className="w-6 h-6" />
+          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-slate-400">Clients & Parties</span>
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+                <Users className="w-4 h-4" />
               </div>
-              <span className="text-[10px] font-black uppercase px-2 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                CRM & Ledger
-              </span>
             </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Connected Business Parties</p>
-              <div className="flex items-baseline gap-2 mt-1">
-                <p className="text-3xl sm:text-4xl font-black text-white">{totalClientsCount}</p>
-                <span className="text-xs font-bold text-amber-400">Parties</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-2">Customer & supplier network size</p>
-            </div>
+            <p className="text-2xl font-bold text-white tracking-tight">{totalClientsCount}</p>
+            <p className="text-xs text-slate-500 mt-1">Customer & supplier records</p>
           </div>
         </div>
 
-        {/* Executive Tabs Navigation */}
+        {/* Tab Navigation */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-          <TabsList className="bg-slate-900/80 p-1.5 rounded-2xl shadow-xl border border-white/10 flex flex-wrap gap-1.5 justify-start w-fit backdrop-blur-xl">
+          <TabsList className="bg-slate-900 p-1 rounded-xl shadow-sm border border-slate-800 flex flex-wrap gap-1 justify-start w-fit">
             <TabsTrigger 
               value="overview" 
-              className="rounded-xl font-bold px-6 py-2.5 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-indigo-500/25 transition-all"
+              className="rounded-lg font-semibold px-5 py-2 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-indigo-600 data-[state=active]:text-white transition-all"
             >
               <TrendingUp className="w-4 h-4 mr-2" />
-              SaaS Overview
+              Overview & Analytics
             </TabsTrigger>
             <TabsTrigger 
               value="users" 
-              className="rounded-xl font-bold px-6 py-2.5 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-indigo-500/25 transition-all"
+              className="rounded-lg font-semibold px-5 py-2 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-indigo-600 data-[state=active]:text-white transition-all"
             >
               <Users className="w-4 h-4 mr-2" />
-              Organizations & Tenants ({users.length})
+              Organizations ({users.length})
             </TabsTrigger>
             <TabsTrigger 
               value="system" 
-              className="rounded-xl font-bold px-6 py-2.5 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-600 data-[state=active]:to-blue-600 data-[state=active]:text-white data-[state=active]:shadow-lg data-[state=active]:shadow-indigo-500/25 transition-all"
+              className="rounded-lg font-semibold px-5 py-2 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-indigo-600 data-[state=active]:text-white transition-all"
             >
               <Settings className="w-4 h-4 mr-2" />
-              Infrastructure & Health
+              System Status
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6 outline-none">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="border border-white/10 shadow-2xl overflow-hidden bg-slate-900/60 backdrop-blur-xl rounded-3xl">
-                <CardHeader className="border-b border-white/5 pb-4">
-                  <CardTitle className="text-lg font-black flex items-center text-white">
+              <Card className="border border-slate-800 shadow-sm overflow-hidden bg-slate-900 rounded-2xl">
+                <CardHeader className="border-b border-slate-800 pb-4">
+                  <CardTitle className="text-base font-bold flex items-center text-white">
                     <Activity className="w-4 h-4 mr-2 text-indigo-400" />
-                    Tenant Growth Analytics
+                    User & Organization Growth
                   </CardTitle>
                   <CardDescription className="text-slate-400 text-xs">New business organizations registered over the last 14 days</CardDescription>
                 </CardHeader>
-                <CardContent className="h-[300px] w-full pt-4">
+                <CardContent className="h-[280px] w-full pt-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={growthData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
                       <Tooltip
-                        contentStyle={{ borderRadius: '16px', backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                        contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
                       />
-                      <Area type="monotone" dataKey="users" stroke="#6366F1" strokeWidth={3} fillOpacity={0.2} fill="#6366F1" />
-                      <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={3} fillOpacity={0.1} fill="#10B981" />
+                      <Area type="monotone" dataKey="users" stroke="#6366F1" strokeWidth={2.5} fillOpacity={0.15} fill="#6366F1" />
+                      <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={2.5} fillOpacity={0.1} fill="#10B981" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
 
-              <Card className="border border-white/10 shadow-2xl overflow-hidden bg-slate-900/60 backdrop-blur-xl rounded-3xl">
-                <CardHeader className="border-b border-white/5 pb-4">
-                  <CardTitle className="text-lg font-black flex items-center text-white">
+              <Card className="border border-slate-800 shadow-sm overflow-hidden bg-slate-900 rounded-2xl">
+                <CardHeader className="border-b border-slate-800 pb-4">
+                  <CardTitle className="text-base font-bold flex items-center text-white">
                     <PieChartIcon className="w-4 h-4 mr-2 text-emerald-400" />
-                    Subscription Plan Tier Breakdown
+                    Subscription Distribution
                   </CardTitle>
-                  <CardDescription className="text-slate-400 text-xs">Distribution of Pro Yearly vs Pro Monthly vs Free Trial accounts</CardDescription>
+                  <CardDescription className="text-slate-400 text-xs">Active plans across Pro Yearly, Pro Monthly, and Free Trial</CardDescription>
                 </CardHeader>
-                <CardContent className="h-[300px] w-full pt-4 flex flex-col items-center">
+                <CardContent className="h-[280px] w-full pt-4 flex flex-col items-center">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={planData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={60}
-                        outerRadius={85}
-                        paddingAngle={5}
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={4}
                         dataKey="value"
                       >
                         {planData.map((entry, index) => (
@@ -1097,15 +1055,15 @@ const AdminDashboard = () => {
                         ))}
                       </Pie>
                       <Tooltip
-                        contentStyle={{ borderRadius: '16px', backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
+                        contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
                       />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="flex flex-wrap gap-4 justify-center mt-2">
                     {planData.map((p, i) => (
-                      <div key={i} className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                        <span className="text-xs font-bold text-slate-300">{p.name}: {p.value}</span>
+                      <div key={i} className="flex items-center gap-2 px-2.5 py-1 bg-slate-800/80 rounded-md border border-slate-700/60">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                        <span className="text-xs font-medium text-slate-300">{p.name}: {p.value}</span>
                       </div>
                     ))}
                   </div>
@@ -1113,20 +1071,20 @@ const AdminDashboard = () => {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {[
-                { label: 'API Gateway Latency', value: '38ms', status: 'Sub-second Optimal', icon: <Activity className="w-5 h-5 text-indigo-400" /> },
-                { label: 'Supabase DB Pool', value: '16/100', status: 'Healthy & Balanced', icon: <Database className="w-5 h-5 text-emerald-400" /> },
-                { label: 'Edge Worker Load', value: '5.2%', status: 'Normal Load', icon: <Cpu className="w-5 h-5 text-amber-400" /> },
+                { label: 'API Gateway Latency', value: '38ms', status: 'Optimal', icon: <Activity className="w-4 h-4 text-indigo-400" /> },
+                { label: 'Database Connections', value: '16/100', status: 'Healthy', icon: <Database className="w-4 h-4 text-emerald-400" /> },
+                { label: 'Server Load', value: '5.2%', status: 'Normal', icon: <Cpu className="w-4 h-4 text-amber-400" /> },
               ].map((comp, i) => (
-                <div key={i} className="rounded-3xl border border-white/10 p-5 bg-slate-900/60 backdrop-blur-xl shadow-xl flex items-center gap-4">
-                  <div className="p-3 bg-white/5 border border-white/10 rounded-2xl">
+                <div key={i} className="rounded-2xl border border-slate-800 p-4 bg-slate-900 shadow-sm flex items-center gap-3.5">
+                  <div className="p-2.5 bg-slate-800 rounded-xl">
                     {comp.icon}
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400 font-bold">{comp.label}</p>
-                    <p className="text-xl font-black text-white">{comp.value}</p>
-                    <p className="text-[10px] text-emerald-400 font-black uppercase tracking-wider">{comp.status}</p>
+                    <p className="text-xs text-slate-400 font-medium">{comp.label}</p>
+                    <p className="text-lg font-bold text-white tracking-tight">{comp.value}</p>
+                    <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">{comp.status}</p>
                   </div>
                 </div>
               ))}
