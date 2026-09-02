@@ -100,12 +100,12 @@ const TransactionReport = () => {
       q = q.eq('is_finalized', true);
     }
     if (startDate) {
-      q = q.gte('transaction_date', startDate);
+      q = q.gte('created_at', startDate);
     }
     if (endDate) {
       const adjustedEndDate = new Date(endDate);
       adjustedEndDate.setHours(23, 59, 59, 999);
-      q = q.lte('transaction_date', adjustedEndDate.toISOString());
+      q = q.lte('created_at', adjustedEndDate.toISOString());
     }
     if (debouncedSearch) {
       q = q.ilike('remarks', `%${debouncedSearch}%`);
@@ -139,13 +139,15 @@ const TransactionReport = () => {
 
       // 1. Fetch current page transactions & count
       const { data, count, error } = await pageQ
-        .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
         .range((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE - 1);
 
       if (error) throw error;
 
-      const rawTns = (data || []) as any as Transaction[];
+      const rawTns = (data || []).map((t: any) => ({
+        ...t,
+        transaction_date: t.created_at || t.transaction_date || new Date().toISOString()
+      })) as any as Transaction[];
       setTotalEntries(count || 0);
 
       // 2. Resolve counterpart names for the current page transactions

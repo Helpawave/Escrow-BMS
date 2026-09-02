@@ -103,7 +103,7 @@ export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
       tns_type: isSales ? 'DR' : 'CR',
       debit,
       credit,
-      transaction_date: payload.date || new Date().toISOString()
+      created_at: payload.date || new Date().toISOString()
     }]);
 
     // Update party balance in parties table
@@ -156,7 +156,7 @@ export async function postPaymentToLedger(payload: ERPPaymentPostingPayload) {
       tns_type: isReceived ? 'CR' : 'DR',
       credit,
       debit,
-      transaction_date: payload.date || new Date().toISOString()
+      created_at: payload.date || new Date().toISOString()
     }]);
 
     await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);
@@ -250,7 +250,7 @@ export async function postHisabToLedger(payload: ERPHisabPostingPayload) {
       tns_type: isIncome ? 'CR' : 'DR',
       credit,
       debit,
-      transaction_date: new Date().toISOString()
+      created_at: new Date().toISOString()
     }]);
 
     await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);

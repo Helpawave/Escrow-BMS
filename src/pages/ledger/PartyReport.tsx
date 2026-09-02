@@ -226,21 +226,33 @@ const PartyReport = () => {
 
       // Fetch latest balance per party
       if (cleanData.length > 0) {
-        const partyIds = cleanData.map(p => p.id);
-        const { data: latestTxns } = await supabase
-          .from('transactions')
-          .select('party_id, balance, transaction_date, created_at')
-          .eq('user_id', effectiveUserId)
-          .in('party_id', partyIds)
-          .order('transaction_date', { ascending: false })
-          .order('created_at', { ascending: false });
-
         const balMap = new Map<string, number>();
-        for (const txn of (latestTxns || [])) {
-          if (!balMap.has(txn.party_id)) {
-            balMap.set(txn.party_id, Number(txn.balance));
+        cleanData.forEach(p => {
+          balMap.set(p.id, Number(p.balance) || 0);
+        });
+
+        try {
+          const partyIds = cleanData.map(p => p.id);
+          const { data: allTxns } = await supabase
+            .from('transactions')
+            .select('party_id, credit, debit')
+            .eq('user_id', effectiveUserId)
+            .in('party_id', partyIds);
+
+          if (allTxns && allTxns.length > 0) {
+            const sumMap = new Map<string, number>();
+            allTxns.forEach((txn: any) => {
+              const prev = sumMap.get(txn.party_id) || 0;
+              sumMap.set(txn.party_id, prev + (Number(txn.credit) || 0) - (Number(txn.debit) || 0));
+            });
+            sumMap.forEach((val, pId) => {
+              balMap.set(pId, val);
+            });
           }
+        } catch (txnErr) {
+          console.warn("Could not aggregate party transactions in PartyReport:", txnErr);
         }
+
         setPartyBalances(balMap);
       }
 
@@ -295,7 +307,7 @@ const PartyReport = () => {
           .select('*')
           .eq('party_id', editingParty.id)
           .neq('is_finalized', true)
-          .order('transaction_date', { ascending: true });
+          .order('created_at', { ascending: true });
 
         if (activeTns && activeTns.length > 0) {
           const closingBal = activeTns[activeTns.length - 1].balance;

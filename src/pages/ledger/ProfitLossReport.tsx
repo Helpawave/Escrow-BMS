@@ -72,12 +72,12 @@ const ProfitLossReport = () => {
       .eq('party_id', partyId);
 
     if (startDate) {
-      q = q.gte('transaction_date', startDate);
+      q = q.gte('created_at', startDate);
     }
     if (endDate) {
       const adjustedEndDate = new Date(endDate);
       adjustedEndDate.setHours(23, 59, 59, 999);
-      q = q.lte('transaction_date', adjustedEndDate.toISOString());
+      q = q.lte('created_at', adjustedEndDate.toISOString());
     }
     if (debouncedSearch) {
       q = q.ilike('remarks', `%${debouncedSearch}%`);
@@ -119,13 +119,15 @@ const ProfitLossReport = () => {
       if (!pageQ) return;
 
       const { data: pageData, count, error: pageErr } = await pageQ
-        .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
         .range((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE - 1);
 
       if (pageErr) throw pageErr;
 
-      const rawTns = (pageData || []) as any as CommissionTransaction[];
+      const rawTns = (pageData || []).map((t: any) => ({
+        ...t,
+        transaction_date: t.created_at || t.transaction_date || new Date().toISOString()
+      })) as CommissionTransaction[];
       setTotalEntries(count || 0);
 
       // Resolve partner names for this page's transactions

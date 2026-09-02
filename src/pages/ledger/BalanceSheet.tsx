@@ -84,24 +84,31 @@ const BalanceSheet = () => {
       }
 
       // Step 2: Fetch latest balance per party using a separate query
-      // Get most recent transaction balance for each party
       const partyIds = partiesData.map(p => p.id);
-      const { data: latestTxns, error: txnError } = await supabase
-        .from('transactions')
-        .select('party_id, balance, transaction_date, created_at')
-        .eq('user_id', user.id)
-        .in('party_id', partyIds)
-        .order('transaction_date', { ascending: false })
-        .order('created_at', { ascending: false });
-
-      if (txnError) throw txnError;
-
-      // Build a map: partyId → latest balance (first occurrence wins since sorted desc)
       const balanceMap = new Map<string, number>();
-      for (const txn of (latestTxns || [])) {
-        if (!balanceMap.has(txn.party_id)) {
-          balanceMap.set(txn.party_id, Number(txn.balance));
+      partiesData.forEach(p => {
+        balanceMap.set(p.id, Number((p as any).balance) || 0);
+      });
+
+      try {
+        const { data: allTxns } = await supabase
+          .from('transactions')
+          .select('party_id, credit, debit')
+          .eq('user_id', user.id)
+          .in('party_id', partyIds);
+
+        if (allTxns && allTxns.length > 0) {
+          const sumMap = new Map<string, number>();
+          allTxns.forEach((txn: any) => {
+            const prev = sumMap.get(txn.party_id) || 0;
+            sumMap.set(txn.party_id, prev + (Number(txn.credit) || 0) - (Number(txn.debit) || 0));
+          });
+          sumMap.forEach((val, pId) => {
+            balanceMap.set(pId, val);
+          });
         }
+      } catch (txnErr) {
+        console.warn("Could not aggregate party transactions in BalanceSheet:", txnErr);
       }
 
       // Combine parties with their latest balance

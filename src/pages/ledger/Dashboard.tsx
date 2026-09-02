@@ -69,14 +69,14 @@ const Dashboard = () => {
             .eq('user_id', user.id),
           supabase
             .from('transactions')
-            .select('credit, debit, transaction_date')
+            .select('credit, debit, created_at')
             .eq('user_id', user.id)
-            .gte('transaction_date', today.toISOString()),
+            .gte('created_at', today.toISOString()),
           supabase
             .from('transactions')
-            .select('id, party_id, credit, debit, balance, remarks, transaction_date, parties(party_name, system_type)')
+            .select('id, party_id, credit, debit, remarks, created_at, parties(party_name, system_type)')
             .eq('user_id', user.id)
-            .order('transaction_date', { ascending: false })
+            .order('created_at', { ascending: false })
         ]);
 
         if (profileRes.error) throw profileRes.error;
@@ -262,7 +262,7 @@ const Dashboard = () => {
                       {t.parties?.party_name || t.parties?.name || 'Party Transaction'}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {t.remarks || 'Journal Entry'} · {new Date(t.transaction_date).toLocaleDateString()}
+                      {t.remarks || 'Journal Entry'} · {new Date(t.created_at || t.transaction_date || Date.now()).toLocaleDateString()}
                     </p>
                   </div>
                   <div className="text-right">

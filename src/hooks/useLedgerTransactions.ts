@@ -135,7 +135,6 @@ export const useLedgerTransactions = ({
           .select('*')
           .eq('party_id', partyId)
           .filter('is_finalized', showArchived ? 'eq' : 'neq', true)
-          .order('transaction_date', { ascending: true })
           .order('created_at', { ascending: true });
         tnsData = res.data;
         tnsError = res.error;
@@ -148,7 +147,7 @@ export const useLedgerTransactions = ({
           .from('transactions')
           .select('*')
           .eq('party_id', partyId)
-          .order('transaction_date', { ascending: true });
+          .order('created_at', { ascending: true });
         tnsData = fallbackData || [];
       }
       
@@ -183,6 +182,7 @@ export const useLedgerTransactions = ({
       // Dynamically compute accurate live running balance on every transaction
       let running = 0;
       currentTns.forEach(t => {
+        t.transaction_date = t.created_at || (t as any).transaction_date || new Date().toISOString();
         if (t.is_settlement && t.balance !== undefined) {
           running = Number(t.balance) || 0;
         } else {
@@ -206,7 +206,6 @@ export const useLedgerTransactions = ({
         .from('transactions')
         .select('*')
         .eq('party_id', partyId)
-        .order('transaction_date', { ascending: true })
         .order('created_at', { ascending: true });
         
       if (error) throw error;
@@ -251,7 +250,6 @@ export const useLedgerTransactions = ({
         .select('*')
         .eq('party_id', partyId)
         .neq('is_finalized', true)
-        .order('transaction_date', { ascending: true })
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -294,7 +292,7 @@ export const useLedgerTransactions = ({
             .select('*')
             .eq('party_id', selectedParty.id)
             .neq('is_finalized', true)
-            .order('transaction_date', { ascending: true });
+            .order('created_at', { ascending: true });
 
           if (fErr) throw fErr;
           if (!latestTns || latestTns.length === 0) {
@@ -359,7 +357,7 @@ export const useLedgerTransactions = ({
               .select('*')
               .eq('party_id', pId)
               .neq('is_finalized', true)
-              .order('transaction_date', { ascending: true });
+              .order('created_at', { ascending: true });
 
             if (fetchErr) throw fetchErr;
 
@@ -569,8 +567,8 @@ export const useLedgerTransactions = ({
         .from('transactions')
         .select('credit, debit, tns_type')
         .eq('party_id', selectedParty.id)
-        .gte('transaction_date', `${dcFromDate}T00:00:00.000Z`)
-        .lte('transaction_date', `${dcToDate}T23:59:59.999Z`);
+        .gte('created_at', `${dcFromDate}T00:00:00.000Z`)
+        .lte('created_at', `${dcToDate}T23:59:59.999Z`);
         
       if (error) throw error;
       

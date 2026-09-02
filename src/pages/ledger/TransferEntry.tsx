@@ -349,22 +349,30 @@ const TransferEntry = () => {
       // Step 2: Fetch latest balance per party separately
       const partyIds = (partiesData || []).map(p => p.id);
       let balanceMap = new Map<string, number>();
+      (partiesData || []).forEach(p => {
+        balanceMap.set(p.id, Number((p as any).balance) || 0);
+      });
 
       if (partyIds.length > 0) {
-        const { data: latestTxns, error: txnError } = await supabase
-          .from('transactions')
-          .select('party_id, balance, transaction_date, created_at')
-          .eq('user_id', user.id)
-          .in('party_id', partyIds)
-          .order('transaction_date', { ascending: false })
-          .order('created_at', { ascending: false });
+        try {
+          const { data: allTxns } = await supabase
+            .from('transactions')
+            .select('party_id, credit, debit')
+            .eq('user_id', user.id)
+            .in('party_id', partyIds);
 
-        if (txnError) throw txnError;
-
-        for (const txn of (latestTxns || [])) {
-          if (!balanceMap.has(txn.party_id)) {
-            balanceMap.set(txn.party_id, Number(txn.balance));
+          if (allTxns && allTxns.length > 0) {
+            const sumMap = new Map<string, number>();
+            allTxns.forEach((txn: any) => {
+              const prev = sumMap.get(txn.party_id) || 0;
+              sumMap.set(txn.party_id, prev + (Number(txn.credit) || 0) - (Number(txn.debit) || 0));
+            });
+            sumMap.forEach((val, pId) => {
+              balanceMap.set(pId, val);
+            });
           }
+        } catch (txnErr) {
+          console.warn("Could not aggregate party transactions in TransferEntry:", txnErr);
         }
       }
 

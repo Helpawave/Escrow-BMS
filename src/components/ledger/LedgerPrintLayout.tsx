@@ -167,7 +167,7 @@ export const LedgerPrintLayout = ({
             {printTransactions.map((t) => (
               <tr key={t.id} className="no-page-break">
                 <td className="text-center text-slate-500 font-mono text-[9px]">
-                  {new Date(t.transaction_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {new Date(t.created_at || t.transaction_date || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </td>
                 <td>
                   {!t.is_settlement ? (

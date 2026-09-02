@@ -274,22 +274,34 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       }
 
       const partyIds = partiesData.map((p: any) => p.id);
-      const { data: latestTxns } = await supabase
-        .from('transactions')
-        .select('party_id, balance, transaction_date, created_at')
-        .eq('user_id', user.id)
-        .in('party_id', partyIds)
-        .order('transaction_date', { ascending: false })
-        .order('created_at', { ascending: false });
-
       const balMap = new Map<string, { balance: number; last_date?: string }>();
-      for (const txn of (latestTxns || [])) {
-        if (!balMap.has(txn.party_id)) {
-          balMap.set(txn.party_id, {
-            balance: Number(txn.balance || 0),
-            last_date: txn.transaction_date
+      partiesData.forEach((p: any) => {
+        balMap.set(p.id, { balance: Number(p.balance) || 0, last_date: undefined });
+      });
+
+      try {
+        const { data: latestTxns } = await supabase
+          .from('transactions')
+          .select('party_id, credit, debit, created_at')
+          .eq('user_id', user.id)
+          .in('party_id', partyIds)
+          .order('created_at', { ascending: false });
+
+        if (latestTxns && latestTxns.length > 0) {
+          const sumMap = new Map<string, { sum: number; last_date?: string }>();
+          latestTxns.forEach((txn: any) => {
+            const prev = sumMap.get(txn.party_id) || { sum: 0, last_date: txn.created_at };
+            sumMap.set(txn.party_id, {
+              sum: prev.sum + (Number(txn.credit) || 0) - (Number(txn.debit) || 0),
+              last_date: prev.last_date || txn.created_at
+            });
+          });
+          sumMap.forEach((val, pId) => {
+            balMap.set(pId, { balance: val.sum, last_date: val.last_date });
           });
         }
+      } catch (txnErr) {
+        console.warn("Could not aggregate transactions in useInvoiceForm:", txnErr);
       }
 
       const partiesWithBal = partiesData.map((p: any) => {
