@@ -83,12 +83,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const renderModuleSubNav = () => {
     let activeKey: string | null = null;
     if (location.pathname.startsWith('/ledger')) activeKey = 'ledger';
+    else if (location.pathname.startsWith('/billing/clients') || location.pathname.startsWith('/billing/vendors') || location.pathname.startsWith('/users') || location.pathname.startsWith('/members')) activeKey = 'members';
     else if (location.pathname.startsWith('/billing')) activeKey = 'billing';
     else if (location.pathname.startsWith('/inventory')) activeKey = 'inventory';
     else if (location.pathname.startsWith('/crm')) activeKey = 'crm';
     else if (location.pathname.startsWith('/calculation')) activeKey = 'hisab';
     else if (location.pathname.startsWith('/payroll')) activeKey = 'payroll';
-    else if (location.pathname.startsWith('/members')) activeKey = 'members';
 
     if (!activeKey) return null;
 
@@ -156,6 +156,15 @@ export function AppLayout({ children }: AppLayoutProps) {
               }
               if (itemRoute === '/billing/clients') {
                 return location.pathname === '/billing/clients' || location.pathname.startsWith('/billing/clients');
+              }
+              if (itemRoute === '/billing/vendors') {
+                return location.pathname === '/billing/vendors' || location.pathname.startsWith('/billing/vendors');
+              }
+              if (itemRoute === '/payroll/employees') {
+                return location.pathname === '/payroll/employees' || location.pathname.startsWith('/payroll/employees');
+              }
+              if (itemRoute === '/users/members') {
+                return location.pathname.startsWith('/users/members') || location.pathname === '/members' || location.pathname === '/users' || location.pathname.startsWith('/users/add-staff');
               }
               if (itemRoute === '/ledger') {
                 return location.pathname === '/ledger' || location.pathname === '/ledger/' || location.pathname === '/ledger/ledger';

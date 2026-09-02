@@ -133,7 +133,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'Payments', route: '/billing/payments', icon: CreditCard },
     { labelKey: 'Expenses', route: '/billing/expenses', icon: Wallet },
     { labelKey: 'E-Invoices', route: '/billing/e-invoice', icon: Zap },
-    { labelKey: 'Clients', route: '/billing/clients', icon: Users },
   ],
   hisab: [
     { labelKey: 'Daily Calculation Log', route: '/calculation/history', icon: History },
@@ -152,5 +151,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'Clients & Parties', route: '/billing/clients', icon: Users },
     { labelKey: 'Vendors', route: '/billing/vendors', icon: Truck },
     { labelKey: 'Employees', route: '/payroll/employees', icon: UserCog },
+    { labelKey: 'Staff Members', route: '/users/members', icon: Users },
   ],
 };
