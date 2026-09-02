@@ -38,9 +38,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download } from "lucide-react";
+import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download, Tag, Calendar, AlertTriangle, Printer } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProducts, Product } from "@/contexts/ProductsContext";
+import { BarcodeStickerModal, BarcodeProductInfo } from "@/components/inventory/BarcodeStickerModal";
 
 export const Products = () => {
   const { user, profile } = useAuth();
@@ -49,6 +50,7 @@ export const Products = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
+  const [stickerModalProduct, setStickerModalProduct] = useState<BarcodeProductInfo | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -238,14 +240,19 @@ export const Products = () => {
                 className="pl-10"
               />
             </div>
-            <div className="flex gap-2 sm:gap-4">
+            <div className="flex gap-2">
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="flex-1 sm:flex-none gap-2">
-                    <Filter className="h-4 w-4" />
-                    Filter
-                    {(filterConfig.type !== "all" || filterConfig.status !== "all" || filterConfig.taxPreference !== "all" || filterConfig.returnable !== "all") && (
-                      <Badge variant="secondary" className="h-5 px-1.5 ml-1">
+                  <Button variant="outline" className="flex-1 sm:flex-none">
+                    <Filter className="w-4 h-4 mr-1.5" />
+                    Filters
+                    {[
+                      filterConfig.type !== "all",
+                      filterConfig.status !== "all",
+                      filterConfig.taxPreference !== "all",
+                      filterConfig.returnable !== "all"
+                    ].filter(Boolean).length > 0 && (
+                      <Badge variant="secondary" className="ml-1.5 h-5 px-1.5">
                         {[
                           filterConfig.type !== "all",
                           filterConfig.status !== "all",
@@ -368,80 +375,136 @@ export const Products = () => {
                 <TableRow>
                   <TableHead className="min-w-[100px]">SKU / HSN</TableHead>
                   <TableHead className="min-w-[200px]">Product Name</TableHead>
-                  <TableHead className="hidden xl:table-cell max-w-[300px]">Description</TableHead>
+                  <TableHead className="hidden lg:table-cell">Batch & Expiry</TableHead>
                   <TableHead className="hidden sm:table-cell">Category</TableHead>
                   <TableHead className="hidden md:table-cell">Supplier</TableHead>
                   <TableHead>Price</TableHead>
-                  <TableHead>Qty</TableHead>
+                  <TableHead>Stock / Units</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((product) => (
-                  <TableRow key={product.id} className="hover:bg-muted/50">
-                    <TableCell className="font-mono font-medium text-sm">
-                      <div>
-                        <div className="font-bold text-slate-900 dark:text-white">{product.sku}</div>
-                        {product.hsn_code && (
-                          <div className="text-[10px] text-slate-500 font-sans font-medium">HSN: {product.hsn_code}</div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      <div>
-                        <div className="font-medium text-slate-900 dark:text-white">{product.name}</div>
-                        <div className="text-xs text-muted-foreground sm:hidden">
-                          {product.category} • {product.supplier}
+                {filteredProducts.map((product) => {
+                  const hasSecondaryUnit = product.secondary_unit && product.conversion_factor && product.conversion_factor > 0;
+                  const secondaryQuantity = hasSecondaryUnit ? (product.quantity / (product.conversion_factor || 1)).toFixed(1) : null;
+
+                  return (
+                    <TableRow key={product.id} className="hover:bg-muted/50">
+                      <TableCell className="font-mono font-medium text-sm">
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-white">{product.sku}</div>
+                          {product.hsn_code && (
+                            <div className="text-[10px] text-slate-500 font-sans font-medium">HSN: {product.hsn_code}</div>
+                          )}
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden xl:table-cell max-w-[300px] truncate text-muted-foreground" title={product.description}>
-                      {product.description || "-"}
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">{product.category}</TableCell>
-                    <TableCell className="hidden md:table-cell">{product.supplier}</TableCell>
-                    <TableCell className="font-medium">
-                      ₹{product.price}
-                    </TableCell>
-                    <TableCell className="font-bold">
-                      {product.quantity}
-                    </TableCell>
-                    <TableCell>
-                      {getStatusBadge(product.status, product.quantity)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => setViewProduct(product)} className="cursor-pointer">
-                            <Eye className="w-4 h-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => navigate(`/inventory/product/edit/${product.id}`, { state: { product } })} className="cursor-pointer">
-                            <Edit className="w-4 h-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive cursor-pointer" onClick={() => handleDeleteProduct(product.id)}>
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <div>
+                          <div className="font-medium text-slate-900 dark:text-white">{product.name}</div>
+                          <div className="text-xs text-muted-foreground sm:hidden">
+                            {product.category} • {product.supplier}
+                          </div>
+                          {/* Mobile batch badge */}
+                          {(product.batch_number || product.expiry_date) && (
+                            <div className="flex items-center gap-1.5 mt-1 lg:hidden">
+                              {product.batch_number && (
+                                <span className="font-mono text-[9px] px-1 bg-slate-100 dark:bg-slate-800 rounded">
+                                  B:{product.batch_number}
+                                </span>
+                              )}
+                              {getExpiryBadge(product.expiry_date)}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <div className="space-y-1">
+                          {product.batch_number && (
+                            <div className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                              B: {product.batch_number}
+                            </div>
+                          )}
+                          {getExpiryBadge(product.expiry_date) || (
+                            <span className="text-[11px] text-muted-foreground">-</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">{product.category}</TableCell>
+                      <TableCell className="hidden md:table-cell">{product.supplier}</TableCell>
+                      <TableCell className="font-medium">
+                        ₹{product.price}
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-foreground">
+                            {product.quantity} <span className="text-xs font-normal text-muted-foreground">{product.unit || 'pcs'}</span>
+                          </span>
+                          {hasSecondaryUnit && (
+                            <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                              ≈ {secondaryQuantity} {product.secondary_unit}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {getStatusBadge(product.status, product.quantity)}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setStickerModalProduct({
+                                name: product.name,
+                                sku: product.sku,
+                                barcode: product.barcode,
+                                price: product.price,
+                                batch_number: product.batch_number,
+                                expiry_date: product.expiry_date,
+                                companyName: profile?.company_name
+                              })}
+                              className="cursor-pointer"
+                            >
+                              <Printer className="w-4 h-4 mr-2 text-indigo-600" />
+                              Print Barcode Stickers
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setViewProduct(product)} className="cursor-pointer">
+                              <Eye className="w-4 h-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/inventory/product/edit/${product.id}`, { state: { product } })} className="cursor-pointer">
+                              <Edit className="w-4 h-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive cursor-pointer" onClick={() => handleDeleteProduct(product.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Barcode / Price Sticker Modal */}
+      <BarcodeStickerModal
+        open={!!stickerModalProduct}
+        onOpenChange={(open) => !open && setStickerModalProduct(null)}
+        product={stickerModalProduct}
+      />
 
       {/* Product Details Modal */}
       <Dialog open={!!viewProduct} onOpenChange={(open) => !open && setViewProduct(null)}>

@@ -774,6 +774,17 @@ export function AddProduct() {
                 />
               </div>
 
+              {/* Manufacturing Date */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">MFG Date (Optional)</Label>
+                <Input
+                  type="date"
+                  className="h-10 font-medium text-xs rounded-xl"
+                  value={(formData as any).mfg_date || ''}
+                  onChange={(e) => setFormData({ ...formData, mfg_date: e.target.value } as any)}
+                />
+              </div>
+
               {/* Expiry Date */}
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Expiry Date (Optional)</Label>
@@ -784,6 +795,49 @@ export function AddProduct() {
                   onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
                 />
               </div>
+
+              {/* Multi-Unit / Alternate Unit */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Alternate / Secondary Unit (Optional)</Label>
+                <Select
+                  value={(formData as any).secondary_unit || 'none'}
+                  onValueChange={(val) => setFormData({ ...formData, secondary_unit: val === 'none' ? '' : val } as any)}
+                >
+                  <SelectTrigger className="h-10 rounded-xl">
+                    <SelectValue placeholder="None (Single Unit)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (Single Unit)</SelectItem>
+                    <SelectItem value="box">Box (box)</SelectItem>
+                    <SelectItem value="carton">Carton (carton)</SelectItem>
+                    <SelectItem value="case">Case (case)</SelectItem>
+                    <SelectItem value="pack">Pack (pack)</SelectItem>
+                    <SelectItem value="bag">Bag (bag)</SelectItem>
+                    <SelectItem value="set">Set (set)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Conversion Factor */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Conversion Ratio (Units per Box/Pack)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 24"
+                  className="h-10 font-bold text-xs rounded-xl"
+                  value={(formData as any).conversion_factor || ''}
+                  onChange={(e) => setFormData({ ...formData, conversion_factor: e.target.value } as any)}
+                />
+              </div>
+
+              {/* Conversion Preview Badge */}
+              {(formData as any).secondary_unit && (formData as any).conversion_factor && (
+                <div className="flex items-center gap-2 p-3 bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl md:col-span-3">
+                  <span className="text-xs font-black text-indigo-700 dark:text-indigo-300">
+                    💡 Multi-Unit Rule: 1 {(formData as any).secondary_unit.toUpperCase()} = {(formData as any).conversion_factor} {formData.unit.toUpperCase()}
+                  </span>
+                </div>
+              )}
 
               {/* Low Stock Warning Switch */}
               <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl md:col-span-3">

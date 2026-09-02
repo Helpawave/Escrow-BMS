@@ -18,6 +18,14 @@ export interface Product {
     taxPreference: 'Taxable' | 'Non-Taxable';
     hsn_code?: string;
     barcode?: string;
+    unit?: string;
+    batch_number?: string;
+    mfg_date?: string;
+    expiry_date?: string;
+    secondary_unit?: string;
+    conversion_factor?: number;
+    created_at?: string;
+    last_moved_at?: string;
 }
 
 const initialProducts: Product[] = [];
