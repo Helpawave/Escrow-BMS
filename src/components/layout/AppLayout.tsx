@@ -145,8 +145,17 @@ export function AppLayout({ children }: AppLayoutProps) {
                 const [path, search] = itemRoute.split('?');
                 return location.pathname === path && location.search.includes(search);
               }
-              if (itemRoute === '/billing/create-invoice') {
-                return location.pathname === '/billing/create-invoice' && !location.search.includes('type=ledger');
+              if (itemRoute === '/billing/invoices') {
+                return location.pathname === '/billing/invoices' || location.pathname === '/billing' || location.pathname === '/billing/';
+              }
+              if (itemRoute === '/billing/quotations') {
+                return location.pathname === '/billing/quotations' || location.pathname === '/billing/quotations/';
+              }
+              if (itemRoute === '/billing/purchase-invoices') {
+                return location.pathname === '/billing/purchase-invoices' || location.pathname.startsWith('/billing/purchase-invoices');
+              }
+              if (itemRoute === '/billing/clients') {
+                return location.pathname === '/billing/clients' || location.pathname.startsWith('/billing/clients');
               }
               if (itemRoute === '/ledger') {
                 return location.pathname === '/ledger' || location.pathname === '/ledger/' || location.pathname === '/ledger/ledger';

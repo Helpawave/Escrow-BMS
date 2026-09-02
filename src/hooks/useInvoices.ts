@@ -25,7 +25,9 @@ export function useInvoices({ page = 1, pageSize = 50, searchTerm = "", statusFi
         .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
-      if (statusFilter !== 'all') {
+      if (statusFilter === 'sales_only') {
+        query = query.neq('status', 'quotation');
+      } else if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }
 

@@ -126,13 +126,13 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
     { labelKey: 'Party Report', route: '/ledger/reports/parties', icon: ClipboardList },
   ],
   billing: [
-    { labelKey: 'Create Invoice', route: '/billing/create-invoice', icon: FilePlus },
-    { labelKey: 'Ledger Billing', route: '/billing/create-invoice?type=ledger', icon: BookOpen },
     { labelKey: 'Sales Invoices', route: '/billing/invoices', icon: Receipt },
+    { labelKey: 'Quotations', route: '/billing/quotations', icon: FileText },
     { labelKey: 'Purchase Invoices', route: '/billing/purchase-invoices', icon: ShoppingBag },
     { labelKey: 'Payments', route: '/billing/payments', icon: CreditCard },
     { labelKey: 'Expenses', route: '/billing/expenses', icon: Wallet },
     { labelKey: 'E-Invoices', route: '/billing/e-invoice', icon: Zap },
+    { labelKey: 'Clients', route: '/billing/clients', icon: Users },
   ],
   hisab: [
     { labelKey: 'Daily Calculation Log', route: '/calculation/history', icon: History },

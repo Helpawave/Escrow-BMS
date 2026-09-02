@@ -51,16 +51,27 @@ import {
 } from "@/utils/invoice-service";
 import { Invoice, InvoiceItem, Client, UserSettings, ClientData, CompanyData, ItemData } from "@/types/invoice";
 
-const InvoicesPage = () => {
+interface InvoicesPageProps {
+  isQuotationMode?: boolean;
+}
+
+const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps = {}) => {
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const isQuotationTab = propQuotationMode ?? location.pathname.includes('/quotations');
+
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const initialInvoiceId = searchParams.get('id') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(isQuotationTab ? "quotation" : "sales_only");
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
+
+  useEffect(() => {
+    setStatusFilter(isQuotationTab ? "quotation" : "sales_only");
+  }, [isQuotationTab]);
 
   const { data, isLoading: loading, isFetching: searchLoading } = useInvoices({
     page: currentPage,
@@ -164,7 +175,6 @@ const InvoicesPage = () => {
   );
 
   const navigate = useNavigate();
-  const location = useLocation();
 
   const downloadInvoicePDF = useCallback(async (invoice: Invoice) => {
     try {
@@ -919,37 +929,48 @@ const InvoicesPage = () => {
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl md:text-3xl font-bold text-foreground">Invoices & Quotations</h1>
-          <p className="text-xs md:text-base text-muted-foreground mt-1">Create and manage tax invoices, ledger bills, and price quotations</p>
+          <h1 className="text-xl md:text-3xl font-bold text-foreground">
+            {isQuotationTab ? 'Quotations & Estimates' : 'Sales Invoices'}
+          </h1>
+          <p className="text-xs md:text-base text-muted-foreground mt-1">
+            {isQuotationTab
+              ? 'Create, manage, and convert price quotations into tax invoices'
+              : 'Create and manage GST tax invoices and client billing'}
+          </p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => navigate('/billing/create-invoice?type=quotation')}
-            className="w-full sm:w-auto h-11 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold"
-          >
-            <FileText className="w-4 h-4 mr-2 text-amber-600" />
-            <span className="text-sm md:text-base">Create Quotation</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => navigate('/billing/create-invoice?type=ledger')}
-            className="w-full sm:w-auto h-11 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 font-bold"
-          >
-            <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
-            <span className="text-sm md:text-base">Ledger Billing</span>
-          </Button>
-          <Button
-            variant="default"
-            size="lg"
-            onClick={() => navigate('/create-invoice')}
-            className="w-full sm:w-auto h-11"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            <span className="text-sm md:text-base">Create Invoice</span>
-          </Button>
+          {isQuotationTab ? (
+            <Button
+              variant="default"
+              size="lg"
+              onClick={() => navigate('/billing/create-invoice?type=quotation')}
+              className="w-full sm:w-auto h-11 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              <span className="text-sm md:text-base">Create Quotation</span>
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => navigate('/billing/create-invoice?type=ledger')}
+                className="w-full sm:w-auto h-11 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 font-bold"
+              >
+                <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
+                <span className="text-sm md:text-base">Ledger Billing</span>
+              </Button>
+              <Button
+                variant="default"
+                size="lg"
+                onClick={() => navigate('/billing/create-invoice')}
+                className="w-full sm:w-auto h-11 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                <span className="text-sm md:text-base">Create Invoice</span>
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -958,7 +979,7 @@ const InvoicesPage = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="Search by invoice/quotation number or client name..."
+            placeholder={isQuotationTab ? "Search by quotation number or client name..." : "Search by invoice number or client name..."}
             className="pl-10 h-11 bg-background border-border/50 rounded-xl"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -975,11 +996,18 @@ const InvoicesPage = () => {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="all">All Documents</option>
-            <option value="quotation">Quotations / Estimates</option>
-            <option value="draft">Draft Invoices</option>
-            <option value="sent">Sent Invoices</option>
-            <option value="paid">Paid Invoices</option>
+            {isQuotationTab ? (
+              <>
+                <option value="quotation">All Quotations</option>
+              </>
+            ) : (
+              <>
+                <option value="sales_only">All Invoices</option>
+                <option value="draft">Draft Invoices</option>
+                <option value="sent">Sent Invoices</option>
+                <option value="paid">Paid Invoices</option>
+              </>
+            )}
           </select>
         </div>
       </div>

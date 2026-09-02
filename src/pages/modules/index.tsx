@@ -119,6 +119,7 @@ export function BillingModule() {
       <Routes>
         <Route path="/" element={<Navigate to="/billing/invoices" replace />} />
         <Route path="/invoices" element={<BillInvoices />} />
+        <Route path="/quotations" element={<BillInvoices isQuotationMode={true} />} />
         <Route path="/invoices/:invoiceId/edit" element={<BillCreateInvoice />} />
         <Route path="/create-invoice" element={<BillCreateInvoice />} />
         <Route path="/clients" element={<BillClients />} />
