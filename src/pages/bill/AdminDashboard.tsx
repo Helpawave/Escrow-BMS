@@ -77,7 +77,10 @@ import {
   ShieldCheck,
   Lock,
   Sparkles,
-  Eye
+  Eye,
+  Menu,
+  X,
+  ChevronRight
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Separator } from '@/components/ui/separator';
@@ -123,6 +126,7 @@ const AdminDashboard = () => {
   const [resetPasswordEmail, setResetPasswordEmail] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
   const [activeTab, setActiveTab] = useState("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -880,226 +884,311 @@ const AdminDashboard = () => {
     return <Navigate to="/admin" replace />;
   }
 
+  const navItems = [
+    { id: 'overview', label: 'Overview & Analytics', icon: TrendingUp, desc: 'Platform metrics' },
+    { id: 'users', label: 'Organizations & Users', icon: Users, badge: users.length, desc: 'Multi-tenant directory' },
+    { id: 'system', label: 'System & Security', icon: Settings, desc: 'Logs & Guard rails' },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 selection:bg-indigo-600 selection:text-white">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Executive Admin Header */}
-        <div className="rounded-2xl p-6 md:p-8 text-white shadow-xl border border-slate-800 bg-slate-900 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-md text-xs font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                All Systems Operational
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-800 text-slate-300 border border-slate-700 rounded-md text-xs font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" /> Superadmin
-              </span>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-indigo-600 selection:text-white transition-colors duration-200 flex">
+      {/* Mobile Sidebar Overlay */}
+      {mobileNavOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
+      {/* Desktop & Mobile Left Sidebar */}
+      <aside className={`fixed top-0 bottom-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform duration-300 md:translate-x-0 ${
+        mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+      }`}>
+        <div className="flex flex-col flex-1 overflow-y-auto">
+          {/* Brand Header */}
+          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+                <img src="/logo.png" alt="Escrow BMS" className="w-6 h-6 object-contain" onError={(e) => { (e.target as any).style.display = 'none'; }} />
+              </div>
+              <div>
+                <h2 className="font-black text-sm tracking-tight text-slate-900 dark:text-white">Escrow BMS</h2>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Superadmin</span>
+                </div>
+              </div>
             </div>
+            <button 
+              onClick={() => setMobileNavOpen(false)}
+              className="md:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Navigation Links */}
+          <div className="p-3 space-y-1.5">
+            <p className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Navigation</p>
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setMobileNavOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all text-left ${
+                    active
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-400'}`} />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge !== undefined && (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      active ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Sidebar Footer Controls */}
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/50">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Theme</span>
+            <ThemeToggle />
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold truncate text-slate-800 dark:text-slate-200">Root Superadmin</p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">admin_bms@escrowbms.com</p>
+              </div>
+            </div>
+          </div>
+
+          <Button 
+            onClick={logout} 
+            variant="ghost" 
+            className="w-full justify-start text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl"
+          >
+            <LogOut className="w-3.5 h-3.5 mr-2" />
+            Exit Console
+          </Button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 md:pl-64 flex flex-col min-h-screen">
+        {/* Top Navbar */}
+        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 md:px-8 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileNavOpen(true)}
+              className="md:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-                Platform Admin Dashboard
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                {activeTab === 'overview' && 'Platform Overview & Analytics'}
+                {activeTab === 'users' && 'Multi-Tenant Organization Directory'}
+                {activeTab === 'system' && 'Infrastructure & Security Controls'}
               </h1>
-              <p className="text-slate-400 text-sm font-normal max-w-2xl mt-1">
-                Manage business organizations, control feature module access (Billing, Payroll, Ledger, Inventory, CRM), and view platform metrics.
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
+                {activeTab === 'overview' && 'Real-time metrics on user growth, activity, and subscriptions'}
+                {activeTab === 'users' && 'Manage business access, module licenses, and plan durations'}
+                {activeTab === 'system' && 'System audit logs, platform guards, and global broadcast'}
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+
+          <div className="flex items-center gap-3">
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              All Systems Operational
+            </span>
             <Button
               onClick={() => loadDashboardData(true)}
               variant="outline"
               size="sm"
-              className="h-9 rounded-lg bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white font-medium text-xs"
+              className="h-8 rounded-lg border-slate-200 dark:border-slate-700 font-semibold text-xs"
               disabled={loading}
             >
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <ThemeToggle />
-            <Button 
-              onClick={logout} 
-              variant="destructive" 
-              className="h-9 font-semibold rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs cursor-pointer shadow-sm"
-            >
-              <LogOut className="w-3.5 h-3.5 mr-1.5" />
-              Sign Out
+              Sync
             </Button>
           </div>
-        </div>
+        </header>
 
-        {/* 4 Professional SaaS KPI Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Card 1: Organizations */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-400">Total Companies</span>
-              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-                <Users className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{totalUsersCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Registered tenant accounts</p>
-          </div>
-
-          {/* Card 2: Active Users */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-400">Active Workspaces</span>
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-                <CheckCircle className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{totalActiveUsersCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Verified & active accounts</p>
-          </div>
-
-          {/* Card 3: Invoices */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-400">Total Invoices</span>
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-400">
-                <FileText className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{totalInvoicesCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Generated across all stores</p>
-          </div>
-
-          {/* Card 4: Clients */}
-          <div className="rounded-2xl p-5 bg-slate-900 border border-slate-800 shadow-sm hover:border-slate-700 transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-400">Clients & Parties</span>
-              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
-                <Users className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white tracking-tight">{totalClientsCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Customer & supplier records</p>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-          <TabsList className="bg-slate-900 p-1 rounded-xl shadow-sm border border-slate-800 flex flex-wrap gap-1 justify-start w-fit">
-            <TabsTrigger 
-              value="overview" 
-              className="rounded-lg font-semibold px-5 py-2 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-indigo-600 data-[state=active]:text-white transition-all"
-            >
-              <TrendingUp className="w-4 h-4 mr-2" />
-              Overview & Analytics
-            </TabsTrigger>
-            <TabsTrigger 
-              value="users" 
-              className="rounded-lg font-semibold px-5 py-2 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-indigo-600 data-[state=active]:text-white transition-all"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Organizations ({users.length})
-            </TabsTrigger>
-            <TabsTrigger 
-              value="system" 
-              className="rounded-lg font-semibold px-5 py-2 text-xs sm:text-sm text-slate-400 data-[state=active]:bg-indigo-600 data-[state=active]:text-white transition-all"
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              System Status
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-6 outline-none">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className="border border-slate-800 shadow-sm overflow-hidden bg-slate-900 rounded-2xl">
-                <CardHeader className="border-b border-slate-800 pb-4">
-                  <CardTitle className="text-base font-bold flex items-center text-white">
-                    <Activity className="w-4 h-4 mr-2 text-indigo-400" />
-                    User & Organization Growth
-                  </CardTitle>
-                  <CardDescription className="text-slate-400 text-xs">New business organizations registered over the last 14 days</CardDescription>
-                </CardHeader>
-                <CardContent className="h-[280px] w-full pt-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={growthData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
-                      />
-                      <Area type="monotone" dataKey="users" stroke="#6366F1" strokeWidth={2.5} fillOpacity={0.15} fill="#6366F1" />
-                      <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={2.5} fillOpacity={0.1} fill="#10B981" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card className="border border-slate-800 shadow-sm overflow-hidden bg-slate-900 rounded-2xl">
-                <CardHeader className="border-b border-slate-800 pb-4">
-                  <CardTitle className="text-base font-bold flex items-center text-white">
-                    <PieChartIcon className="w-4 h-4 mr-2 text-emerald-400" />
-                    Subscription Distribution
-                  </CardTitle>
-                  <CardDescription className="text-slate-400 text-xs">Active plans across Pro Yearly, Pro Monthly, and Free Trial</CardDescription>
-                </CardHeader>
-                <CardContent className="h-[280px] w-full pt-4 flex flex-col items-center">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={planData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={80}
-                        paddingAngle={4}
-                        dataKey="value"
-                      >
-                        {planData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="flex flex-wrap gap-4 justify-center mt-2">
-                    {planData.map((p, i) => (
-                      <div key={i} className="flex items-center gap-2 px-2.5 py-1 bg-slate-800/80 rounded-md border border-slate-700/60">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                        <span className="text-xs font-medium text-slate-300">{p.name}: {p.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { label: 'API Gateway Latency', value: '38ms', status: 'Optimal', icon: <Activity className="w-4 h-4 text-indigo-400" /> },
-                { label: 'Database Connections', value: '16/100', status: 'Healthy', icon: <Database className="w-4 h-4 text-emerald-400" /> },
-                { label: 'Server Load', value: '5.2%', status: 'Normal', icon: <Cpu className="w-4 h-4 text-amber-400" /> },
-              ].map((comp, i) => (
-                <div key={i} className="rounded-2xl border border-slate-800 p-4 bg-slate-900 shadow-sm flex items-center gap-3.5">
-                  <div className="p-2.5 bg-slate-800 rounded-xl">
-                    {comp.icon}
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400 font-medium">{comp.label}</p>
-                    <p className="text-lg font-bold text-white tracking-tight">{comp.value}</p>
-                    <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">{comp.status}</p>
-                  </div>
+        {/* Body Container */}
+        <main className="p-4 md:p-8 space-y-6 flex-1">
+          {/* 4 Professional SaaS KPI Stat Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Organizations */}
+            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Companies</span>
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                  <Users className="w-4 h-4" />
                 </div>
-              ))}
+              </div>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalUsersCount}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Registered tenant accounts</p>
             </div>
-          </TabsContent>
-          <TabsContent value="users" className="space-y-6 outline-none">
-            <Card className="border border-white/10 shadow-2xl overflow-hidden bg-slate-900/60 backdrop-blur-xl rounded-3xl text-white">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/5 pb-5 gap-4">
+
+            {/* Card 2: Active Users */}
+            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Workspaces</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle className="w-4 h-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalActiveUsersCount}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Verified active businesses</p>
+            </div>
+
+            {/* Card 3: Invoices */}
+            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Invoices</span>
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <FileText className="w-4 h-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalInvoicesCount}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Issued across all stores</p>
+            </div>
+
+            {/* Card 4: Clients */}
+            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Clients & Parties</span>
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <Users className="w-4 h-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalClientsCount}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Connected party records</p>
+            </div>
+          </div>
+
+          {/* Views based on activeTab */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 rounded-2xl">
+                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
+                      <Activity className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
+                      User & Organization Growth
+                    </CardTitle>
+                    <CardDescription className="text-xs">New business registrations over the last 14 days</CardDescription>
+                  </CardHeader>
+                  <CardContent className="h-[280px] w-full pt-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={growthData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94A3B8" opacity={0.2} />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
+                        <Tooltip
+                          contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
+                        />
+                        <Area type="monotone" dataKey="users" stroke="#6366F1" strokeWidth={2.5} fillOpacity={0.15} fill="#6366F1" />
+                        <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={2.5} fillOpacity={0.1} fill="#10B981" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 rounded-2xl">
+                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
+                      <PieChartIcon className="w-4 h-4 mr-2 text-emerald-600 dark:text-emerald-400" />
+                      Subscription Distribution
+                    </CardTitle>
+                    <CardDescription className="text-xs">Active plans across Pro Yearly, Pro Monthly, and Free Trial</CardDescription>
+                  </CardHeader>
+                  <CardContent className="h-[280px] w-full pt-4 flex flex-col items-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={planData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={80}
+                          paddingAngle={4}
+                          dataKey="value"
+                        >
+                          {planData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex flex-wrap gap-3 justify-center mt-2">
+                      {planData.map((p, i) => (
+                        <div key={i} className="flex items-center gap-2 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700">
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{p.name}: {p.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  { label: 'API Gateway Latency', value: '38ms', status: 'Optimal', icon: <Activity className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> },
+                  { label: 'Database Connections', value: '16/100', status: 'Healthy', icon: <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> },
+                  { label: 'Server Load', value: '5.2%', status: 'Normal', icon: <Cpu className="w-4 h-4 text-amber-600 dark:text-amber-400" /> },
+                ].map((comp, i) => (
+                  <div key={i} className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-900 shadow-sm flex items-center gap-3.5">
+                    <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                      {comp.icon}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{comp.label}</p>
+                      <p className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">{comp.value}</p>
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold uppercase tracking-wider">{comp.status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'users' && (
+            <Card className="border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 rounded-2xl">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-5 gap-4">
                 <div>
-                  <CardTitle className="text-xl font-black text-white flex items-center gap-2">
-                    <Users className="w-5 h-5 text-indigo-400" />
+                  <CardTitle className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                     Multi-Tenant Organization Directory
                   </CardTitle>
-                  <CardDescription className="text-slate-400 text-xs mt-1">
-                    Manage company workspaces, activate/deactivate feature modules, and control subscription lifecycles.
+                  <CardDescription className="text-xs mt-0.5">
+                    Manage company workspaces, feature module licenses, and plan durations.
                   </CardDescription>
                 </div>
                 <div className="flex gap-3 items-center">
@@ -1107,12 +1196,12 @@ const AdminDashboard = () => {
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input
                       placeholder="Search company, email, phone..."
-                      className="pl-10 w-full sm:w-[280px] h-10 rounded-xl bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:ring-indigo-500 text-xs font-medium"
+                      className="pl-10 w-full sm:w-[280px] h-9 rounded-xl bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs font-medium"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
-                  <Button onClick={() => loadDashboardData(false)} variant="outline" size="icon" className="h-10 w-10 rounded-xl bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white" disabled={loading}>
+                  <Button onClick={() => loadDashboardData(false)} variant="outline" size="icon" className="h-9 w-9 rounded-xl border-slate-200 dark:border-slate-700" disabled={loading}>
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
@@ -1120,64 +1209,64 @@ const AdminDashboard = () => {
               <CardContent className="pt-2">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-white/5 hover:bg-transparent">
-                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Company / Organization</TableHead>
-                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Contact</TableHead>
-                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Created</TableHead>
-                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Account Status</TableHead>
-                      <TableHead className="font-bold text-slate-400 text-xs uppercase tracking-wider">Subscription Tier</TableHead>
-                      <TableHead className="text-right font-bold text-slate-400 text-xs uppercase tracking-wider pr-6">Management</TableHead>
+                    <TableRow className="border-slate-100 dark:border-slate-800 hover:bg-transparent">
+                      <TableHead className="font-bold text-xs uppercase tracking-wider">Company / Organization</TableHead>
+                      <TableHead className="font-bold text-xs uppercase tracking-wider">Contact</TableHead>
+                      <TableHead className="font-bold text-xs uppercase tracking-wider">Created</TableHead>
+                      <TableHead className="font-bold text-xs uppercase tracking-wider">Account Status</TableHead>
+                      <TableHead className="font-bold text-xs uppercase tracking-wider">Subscription Tier</TableHead>
+                      <TableHead className="text-right font-bold text-xs uppercase tracking-wider pr-6">Management</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       Array.from({ length: 5 }).map((_, i) => (
-                        <TableRow key={i} className="border-white/5">
+                        <TableRow key={i} className="border-slate-100 dark:border-slate-800">
                           <TableCell colSpan={6} className="py-4">
-                            <Skeleton className="h-10 w-full rounded-xl bg-white/5" />
+                            <Skeleton className="h-10 w-full rounded-xl" />
                           </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       users.length === 0 ? (
-                        <TableRow className="border-white/5">
+                        <TableRow className="border-slate-100 dark:border-slate-800">
                           <TableCell colSpan={6} className="text-center py-20">
                             <div className="flex flex-col items-center">
-                              <div className="p-4 bg-white/5 rounded-full mb-4 border border-white/10">
+                              <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4">
                                 <Search className="w-8 h-8 text-slate-400" />
                               </div>
-                              <p className="text-slate-400 font-bold text-base">No registered accounts matching "{searchTerm}"</p>
+                              <p className="text-slate-500 dark:text-slate-400 font-bold text-base">No registered accounts matching "{searchTerm}"</p>
                             </div>
                           </TableCell>
                         </TableRow>
                       ) : (
                         users.map((user) => (
-                          <TableRow key={user.user_id} className="group border-white/5 hover:bg-white/[0.03] transition-colors">
+                          <TableRow key={user.user_id} className="group border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                             <TableCell className="py-4">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-600 flex items-center justify-center font-black text-white shadow-md shadow-indigo-500/20 text-sm">
+                                <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs border border-indigo-200 dark:border-indigo-800">
                                   {user.company_name?.[0]?.toUpperCase() || 'U'}
                                 </div>
                                 <div>
-                                  <p className="font-bold text-white text-sm">{user.company_name || 'Individual Merchant'}</p>
-                                  <p className="text-xs text-slate-400 font-mono">{user.email}</p>
+                                  <p className="font-bold text-slate-900 dark:text-white text-sm">{user.company_name || 'Individual Merchant'}</p>
+                                  <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">{user.email}</p>
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-2 text-slate-300">
-                                <Phone className="w-3.5 h-3.5 text-slate-500" />
+                              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+                                <Phone className="w-3.5 h-3.5 text-slate-400" />
                                 <span className="text-xs font-semibold">{user.mobile || 'Not provided'}</span>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <p className="text-xs font-medium text-slate-400">{safelyToLocaleDate(user.created_at)}</p>
+                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{safelyToLocaleDate(user.created_at)}</p>
                             </TableCell>
                             <TableCell>
                               {user.is_blocked ? (
-                                <Badge className="rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30 text-[11px] font-bold">Suspended</Badge>
+                                <Badge className="rounded-full bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900 text-[11px] font-bold">Suspended</Badge>
                               ) : (
-                                <Badge className="rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold">🟢 Active</Badge>
+                                <Badge className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900 text-[11px] font-bold">Active</Badge>
                               )}
                             </TableCell>
                             <TableCell>
@@ -1191,7 +1280,7 @@ const AdminDashboard = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 hover:text-purple-300 border border-purple-500/20"
+                                  className="h-8 w-8 p-0 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40"
                                   title="Manage Allowed Modules (Billing, Payroll, Ledger, Inventory, CRM)"
                                   onClick={() => handleOpenModuleModal(user)}
                                 >
@@ -1201,7 +1290,7 @@ const AdminDashboard = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-xl bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 border border-blue-500/20"
+                                  className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
                                   onClick={() => {
                                     setSelectedUser(user);
                                     setUserDetailsOpen(true);
@@ -1214,7 +1303,7 @@ const AdminDashboard = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-xl bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300 border border-emerald-500/20"
+                                  className="h-8 w-8 p-0 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
                                   title="Extend Plan (+30 Days)"
                                   onClick={() => {
                                     setExtendUserId(user.user_id);
@@ -1227,7 +1316,7 @@ const AdminDashboard = () => {
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  className="h-9 w-9 p-0 rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 border border-rose-500/20"
+                                  className="h-8 w-8 p-0 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                                   title="Delete User"
                                   onClick={() => {
                                     setUserToDelete(user);
@@ -1246,18 +1335,18 @@ const AdminDashboard = () => {
                     )}
                   </TableBody>
                 </Table>
-                <div className="mt-6 flex flex-col gap-4 border-t border-white/5 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-6 flex flex-col gap-4 border-t border-slate-100 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <p className="text-xs font-medium text-slate-400">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                       Showing {userRangeStart}-{userRangeEnd} of {totalUsersCount} organizations
                     </p>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Page Size</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Page Size</span>
                       <Select value={String(usersPageSize)} onValueChange={(value) => setUsersPageSize(Number(value))}>
-                        <SelectTrigger className="h-8 w-[80px] rounded-xl border-white/10 bg-white/5 font-bold text-xs text-white">
+                        <SelectTrigger className="h-8 w-[80px] rounded-lg border-slate-200 dark:border-slate-700 font-bold text-xs">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent className="bg-slate-900 border-white/10 text-white">
+                        <SelectContent>
                           {[10, 20, 30, 40, 50].map((size) => (
                             <SelectItem key={size} value={String(size)}>{size}</SelectItem>
                           ))}
@@ -1271,7 +1360,7 @@ const AdminDashboard = () => {
                       <PaginationItem>
                         <PaginationPrevious
                           href="#"
-                          className={safeUsersPage === 1 ? "pointer-events-none opacity-50 text-slate-500" : "text-slate-300 hover:bg-white/10 hover:text-white rounded-xl"}
+                          className={safeUsersPage === 1 ? "pointer-events-none opacity-50" : ""}
                           onClick={(event) => {
                             event.preventDefault();
                             setUsersPage((page) => Math.max(1, page - 1));
@@ -1284,11 +1373,11 @@ const AdminDashboard = () => {
 
                         return (
                           <PaginationItem key={page} className="flex items-center">
-                            {showGap && <span className="px-2 text-slate-500">...</span>}
+                            {showGap && <span className="px-2 text-slate-400">...</span>}
                             <PaginationLink
                               href="#"
                               isActive={page === safeUsersPage}
-                              className={page === safeUsersPage ? "bg-indigo-600 text-white rounded-xl border-none font-bold" : "text-slate-400 hover:bg-white/10 hover:text-white rounded-xl"}
+                              className={page === safeUsersPage ? "bg-indigo-600 text-white rounded-lg border-none font-bold" : ""}
                               onClick={(event) => {
                                 event.preventDefault();
                                 setUsersPage(page);
@@ -1302,7 +1391,7 @@ const AdminDashboard = () => {
                       <PaginationItem>
                         <PaginationNext
                           href="#"
-                          className={safeUsersPage === totalUserPages ? "pointer-events-none opacity-50 text-slate-500" : "text-slate-300 hover:bg-white/10 hover:text-white rounded-xl"}
+                          className={safeUsersPage === totalUserPages ? "pointer-events-none opacity-50" : ""}
                           onClick={(event) => {
                             event.preventDefault();
                             setUsersPage((page) => Math.min(totalUserPages, page + 1));
@@ -1314,41 +1403,41 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+          )}
 
-          <TabsContent value="system" className="space-y-6 outline-none">
+          {activeTab === 'system' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
-                <Card className="border border-white/10 shadow-2xl bg-slate-900/60 backdrop-blur-xl rounded-3xl text-white h-fit">
-                  <CardHeader className="border-b border-white/5 pb-4">
-                    <CardTitle className="text-lg font-black flex items-center text-white">
-                      <History className="w-4 h-4 mr-2 text-indigo-400" />
+                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 rounded-2xl h-fit">
+                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
+                      <History className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
                       Platform Security & Audit Logs
                     </CardTitle>
-                    <CardDescription className="text-slate-400 text-xs">Real-time trace of administrative activities and security policy enforcement</CardDescription>
+                    <CardDescription className="text-xs">Administrative actions and security policy events</CardDescription>
                   </CardHeader>
                   <CardContent className="pt-4">
                     <div className="space-y-3">
                       {auditLogs.length > 0 ? (
                         auditLogs.map((log) => (
-                          <div key={log.id} className="flex items-start gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition-colors">
-                            <div className={`p-2.5 rounded-xl ${log.action.includes('Blocked') ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-500/20 text-indigo-400'}`}>
+                          <div key={log.id} className="flex items-start gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                            <div className={`p-2.5 rounded-xl ${log.action.includes('Blocked') ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400'}`}>
                               <Shield className="w-4 h-4" />
                             </div>
                             <div className="flex-1">
                               <div className="flex justify-between mb-1">
-                                <p className="text-sm font-bold text-white">{log.action}</p>
+                                <p className="text-sm font-bold text-slate-900 dark:text-white">{log.action}</p>
                                 <span className="text-[10px] text-slate-400 font-mono">{log.time}</span>
                               </div>
-                              <p className="text-xs text-slate-300">Target Workspace: {log.target}</p>
-                              <p className="text-[10px] text-slate-500 mt-1">Initiated by: {log.admin}</p>
+                              <p className="text-xs text-slate-600 dark:text-slate-300">Target Workspace: {log.target}</p>
+                              <p className="text-[10px] text-slate-400 mt-1">Initiated by: {log.admin}</p>
                             </div>
                           </div>
                         ))
                       ) : (
                         <div className="text-center py-10">
-                          <History className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                          <p className="text-slate-400 font-medium text-xs">No recent platform security incidents recorded</p>
+                          <History className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+                          <p className="text-slate-500 dark:text-slate-400 font-medium text-xs">No recent platform security incidents recorded</p>
                         </div>
                       )}
                     </div>
@@ -1357,17 +1446,17 @@ const AdminDashboard = () => {
               </div>
 
               <div className="space-y-6">
-                <Card className="border border-white/10 shadow-2xl bg-slate-900/60 backdrop-blur-xl rounded-3xl text-white overflow-hidden">
-                  <CardHeader className="bg-white/[0.02] border-b border-white/5 pb-4">
-                    <CardTitle className="text-lg font-black flex items-center text-white">
-                      <Settings className="w-4 h-4 mr-2 text-indigo-400" />
+                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 rounded-2xl overflow-hidden">
+                  <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
+                      <Settings className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
                       Platform Guard Rails
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6 pt-6">
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <p className="text-sm font-bold">Maintenance Mode</p>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">Maintenance Mode</p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">Lock the platform for updates</p>
                       </div>
                       <AlertDialog open={showMaintenanceDialog} onOpenChange={setShowMaintenanceDialog}>
@@ -1409,7 +1498,7 @@ const AdminDashboard = () => {
 
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <p className="text-sm font-bold">Public Signups</p>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white">Public Signups</p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">Enable new user registration</p>
                       </div>
                       <AlertDialog open={showSignupsDialog} onOpenChange={setShowSignupsDialog}>
@@ -1446,9 +1535,9 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden relative border border-slate-100 dark:border-slate-800">
-                  <CardHeader className="bg-blue-600/5 dark:bg-blue-600/10 border-b border-blue-50 dark:border-blue-900/20">
-                    <CardTitle className="text-lg font-bold flex items-center text-blue-600 dark:text-blue-400">
+                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
+                  <CardHeader className="bg-blue-50/50 dark:bg-blue-950/20 border-b border-slate-100 dark:border-slate-800">
+                    <CardTitle className="text-base font-bold flex items-center text-blue-600 dark:text-blue-400">
                       <Megaphone className="w-4 h-4 mr-2" />
                       Platform Broadcast
                     </CardTitle>
@@ -1457,26 +1546,23 @@ const AdminDashboard = () => {
                     <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 font-medium">Send a notice to all logged-in users instantly.</p>
                     <Input
                       placeholder="Enter notice text..."
-                      className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 h-10 mb-3 focus-visible:ring-blue-600 focus-visible:ring-1"
+                      className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 h-10 mb-3"
                       value={broadcastMessage}
                       onChange={(e) => setBroadcastMessage(e.target.value)}
                     />
                     <Button
-                      className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold"
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold"
                       onClick={handlePublishBroadcast}
                       disabled={isPublishingBroadcast}
                     >
                       {isPublishingBroadcast ? 'Publishing...' : 'Publish Announcement'}
                     </Button>
                   </CardContent>
-                  <div className="absolute top-0 right-0 p-4 opacity-[0.03] dark:opacity-[0.05] pointer-events-none">
-                    <Megaphone className="w-24 h-24" />
-                  </div>
                 </Card>
               </div>
             </div>
-          </TabsContent>
-        </Tabs>
+          )}
+        </main>
       </div>
 
       {/* User Details Dialog */}
