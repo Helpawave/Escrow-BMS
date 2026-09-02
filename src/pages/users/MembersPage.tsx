@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { MODULES, type ModuleKey } from '@/lib/constants';
 import { cn } from '@/lib/utils';
@@ -508,8 +507,7 @@ export default function MembersPage() {
   }, [staffList]);
 
   return (
-    <AppLayout title="Team & Staff Management">
-      <div className="space-y-6 max-w-7xl mx-auto pb-12">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
         {/* Company ID & Header Card */}
         <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 md:p-8 text-white shadow-2xl relative overflow-hidden border border-indigo-900/40">
           <div className="absolute right-0 top-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -1191,6 +1189,5 @@ export default function MembersPage() {
           message={successInfo.message}
         />
       </div>
-    </AppLayout>
-  );
-}
+    );
+  }
