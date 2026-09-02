@@ -126,21 +126,23 @@ function SuperadminLogin() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 animate-fade-in">
         <div className="max-w-md w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-sm space-y-6 text-center">
-          <div className="w-12 h-12 bg-red-50 dark:bg-red-955/20 border border-red-100 dark:border-red-900/30 rounded-2xl flex items-center justify-center mx-auto text-red-500">
+          <div className="w-12 h-12 bg-amber-50 dark:bg-amber-955/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl flex items-center justify-center mx-auto text-amber-500">
             <ShieldAlert className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-black text-slate-900 dark:text-slate-50 font-heading">Access Denied</h2>
+          <h2 className="text-xl font-black text-slate-900 dark:text-slate-50 font-heading">Switch to Platform Superadmin</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Your account does not have Platform Superadmin privileges. Please log in with a superadmin account.
+            You are currently signed in with a company account (<strong>{user.email}</strong>). The Platform Superadmin panel is reserved exclusively for the platform owner.
           </p>
           <button
-            onClick={() => signOut()}
-            className="w-full h-11 bg-red-500 hover:bg-red-600 text-white font-bold text-xs rounded-xl shadow-lg active:scale-[0.98] transition-all"
+            onClick={async () => {
+              await signOut();
+            }}
+            className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-lg active:scale-[0.98] transition-all cursor-pointer"
           >
-            Sign Out & Try Again
+            Log Out & Sign In as Superadmin
           </button>
-          <a href="/" className="block text-xs font-bold text-slate-500 hover:text-slate-700 pt-2 border-t border-slate-100 dark:border-slate-800">
-            Back to Home Page
+          <a href="/dashboard" className="block text-xs font-bold text-slate-500 hover:text-slate-700 pt-2 border-t border-slate-100 dark:border-slate-800">
+            ← Return to Company Dashboard
           </a>
         </div>
       </div>
