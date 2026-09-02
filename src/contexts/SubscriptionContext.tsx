@@ -21,7 +21,7 @@ const ALL_MODULES: ModuleKey[] = ['payroll', 'ledger', 'billing', 'hisab', 'inve
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null);
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
-  const { profile, isSuperAdmin, loading: authLoading, isTrialActive } = useAuth();
+  const { profile, isSuperAdmin, loading: authLoading, isTrialActive, isStaff, staffPermissions } = useAuth();
   const [loading] = useState(false);
 
   // Define module lists for each plan
@@ -49,6 +49,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       baseModules = planModules[plan] || planModules['free'];
     }
 
+    // If user is a staff member, restrict directly to their assigned modular permissions
+    if (isStaff && Array.isArray(staffPermissions) && staffPermissions.length > 0) {
+      const normalizedStaffPerms = staffPermissions.map((m: string) => m === 'daily-hisab' ? 'hisab' : (m as ModuleKey));
+      return baseModules.filter(m => normalizedStaffPerms.includes(m));
+    }
+
     // Filter by allowed_modules set by Superadmin in profiles
     if (profile) {
       const allowedRaw = (profile as any).allowed_modules;
@@ -69,7 +75,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
     
     return baseModules;
-  }, [profile, isSuperAdmin, planModules, isTrialActive]);
+  }, [profile, isSuperAdmin, planModules, isTrialActive, isStaff, staffPermissions]);
 
   // Generate subscriptions list for compatibility
   const subscriptions = useMemo<Subscription[]>(() => {
