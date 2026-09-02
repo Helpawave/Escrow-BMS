@@ -9,7 +9,7 @@ interface AuthGuardProps {
 }
 
 export function AuthGuard({ children, redirectTo = '/auth' }: AuthGuardProps) {
-  const { user, loading } = useAuth();
+  const { user, isSuperAdmin, loading } = useAuth();
 
   if (loading) {
     return (
@@ -24,6 +24,10 @@ export function AuthGuard({ children, redirectTo = '/auth' }: AuthGuardProps) {
 
   if (!user) {
     return <Navigate to={redirectTo} replace />;
+  }
+
+  if (isSuperAdmin) {
+    return <Navigate to="/admin" replace />;
   }
 
   return <>{children}</>;

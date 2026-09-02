@@ -259,8 +259,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabase.from('profiles').update({ role: 'super_admin' }).eq('id', userId).then(() => {});
       }
       
-      // Auto-ensure default ledger parties
-      ensureDefaultLedgerParties(userId).catch(() => {});
+      // Auto-ensure default ledger parties only for regular business accounts
+      if (!hasSuperRole && !isDesignatedSuperadmin) {
+        ensureDefaultLedgerParties(userId).catch(() => {});
+      }
     } catch (e) {
       console.error('Error loading profile:', e);
     }
