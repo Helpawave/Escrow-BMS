@@ -80,11 +80,15 @@ const ProductsPage = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
 
   const { data, isLoading: loading, isFetching: searchLoading } = useProducts({
     page: currentPage,
     pageSize: ITEMS_PER_PAGE,
-    searchTerm: debouncedSearch
+    searchTerm: debouncedSearch,
+    categoryFilter,
+    typeFilter
   });
 
   const products = (data?.products || []) as unknown as Product[];
@@ -255,7 +259,7 @@ const ProductsPage = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, categoryFilter, typeFilter]);
 
   const filteredHsnCodes = useMemo(() => {
     if (!showHSNDialog || hsnCodesData.length === 0) return [];
@@ -1125,12 +1129,12 @@ const ProductsPage = () => {
         </div>
       </div>
 
-      <div className="flex flex-row items-center gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search products..."
-            className="pl-10 h-11 bg-background border-border/50 rounded-xl"
+            placeholder="Search products by name, SKU, category..."
+            className="pl-10 h-11 bg-background border-border/50 rounded-xl font-medium"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1140,6 +1144,35 @@ const ProductsPage = () => {
             </div>
           )}
         </div>
+
+        <div className="w-full sm:w-44">
+          <select
+            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+          >
+            <option value="all">All Categories</option>
+            <option value="general">General Items</option>
+            <option value="it">IT & Software</option>
+            <option value="hardware">Hardware</option>
+            <option value="consulting">Consulting</option>
+            <option value="retail">Retail</option>
+            <option value="others">Others</option>
+          </select>
+        </div>
+
+        <div className="w-full sm:w-36">
+          <select
+            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+          >
+            <option value="all">All Types</option>
+            <option value="product">Products</option>
+            <option value="service">Services</option>
+          </select>
+        </div>
+
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

@@ -49,6 +49,7 @@ import {
   Shield,
   ShieldCheck,
   ShieldAlert,
+  Trash2,
 } from "lucide-react";
 
 // Types

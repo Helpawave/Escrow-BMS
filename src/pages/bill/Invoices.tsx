@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen } from "lucide-react";
+import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen, Banknote, Smartphone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +29,8 @@ import { InvoiceTemplate } from "@/components/InvoiceTemplate";
 import { safelyToLocaleDate } from "@/utils/dateUtils";
 import { googleDriveAPI } from "@/utils/googleDriveAPI";
 import { SuccessModal } from "@/components/SuccessModal";
+import { DeleteConfirmation } from "@/components/DeleteConfirmation";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from "@/utils/invoicePDF";
 import { adjustStock, adjustStockBatch } from "@/utils/inventory";
 import { Textarea } from "@/components/ui/textarea";
@@ -102,9 +104,9 @@ const InvoicesPage = () => {
   const [smsInvoiceId, setSmsInvoiceId] = useState("");
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<{ id: string, invoiceNumber: string, status: string } | null>(null);
-  const [paidVerificationChecked, setPaidVerificationChecked] = useState(false);
-  const [paidVerificationChecked2, setPaidVerificationChecked2] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [markPaidDialogOpen, setMarkPaidDialogOpen] = useState(false);
+  const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<Invoice | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'upi' | null>('cash');
   const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
   const uploadingRef = useRef(false);
 
@@ -119,7 +121,7 @@ const InvoicesPage = () => {
     setCurrentPage(1);
   }, [debouncedSearch, statusFilter]);
 
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const { currencySymbol } = useCurrency();
 
@@ -264,6 +266,78 @@ const InvoicesPage = () => {
         variant: "destructive",
         title: "Error",
         description: "Failed to update invoice status."
+      });
+    }
+  };
+
+  const handleMarkAsPaid = async (invoice: Invoice, paymentMethod: 'cash' | 'upi' | 'pending' | null) => {
+    try {
+      if (!user?.id) throw new Error("User not authenticated");
+
+      // 1. Update invoice status to paid
+      const { error: invError } = await supabase
+        .from('invoices')
+        .update({ status: 'paid' })
+        .eq('id', invoice.id);
+
+      if (invError) throw invError;
+
+      // 2. Insert into payments table
+      const creatorName = profile?.company_name || user?.user_metadata?.full_name || 'Owner';
+      const isPending = !paymentMethod || paymentMethod === 'pending';
+      const actualMethod = isPending ? 'pending' : paymentMethod;
+      const paymentNotes = isPending
+        ? `Marked as paid (Mode of payment is pended) • Created by: ${creatorName}`
+        : `Marked as paid via ${paymentMethod === 'upi' ? 'UPI' : 'Cash'} • Created by: ${creatorName}`;
+
+      const { error: payError } = await supabase
+        .from('payments')
+        .insert([{
+          invoice_id: invoice.id,
+          amount: Number(invoice.total_amount || 0),
+          payment_date: new Date().toISOString().split('T')[0],
+          payment_method: actualMethod,
+          reference_number: '',
+          notes: paymentNotes,
+          user_id: user.id
+        }]);
+
+      if (payError) {
+        console.warn('Payment record insertion warning:', payError);
+      }
+
+      // Create notification for status update
+      await supabase.from('notifications').insert({
+        user_id: user.id,
+        title: isPending ? 'Mode of payment is pended' : 'Invoice Paid',
+        message: isPending 
+          ? `Invoice #${invoice.invoice_number} marked as Paid. Mode of payment is pended.`
+          : `Invoice #${invoice.invoice_number} marked as Paid via ${paymentMethod === 'upi' ? 'UPI' : 'Cash'}.`,
+        type: isPending ? 'warning' : 'info'
+      });
+
+      if (isPending) {
+        toast({
+          title: "Mode of payment is pended ⚠️",
+          description: `Invoice #${invoice.invoice_number} marked as paid. Payment recorded with pending mode — you can set the method in Payments.`
+        });
+      } else {
+        toast({
+          title: "Marked as Paid! ✅",
+          description: `Invoice #${invoice.invoice_number} settled via ${paymentMethod === 'upi' ? 'UPI' : 'Cash'}.`
+        });
+      }
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (error) {
+      console.error('Error marking invoice as paid:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to mark invoice as paid."
       });
     }
   };
@@ -711,9 +785,6 @@ const InvoicesPage = () => {
 
   const deleteInvoice = (invoiceId: string, invoiceNumber: string, status: string) => {
     setInvoiceToDelete({ id: invoiceId, invoiceNumber, status });
-    setPaidVerificationChecked(false);
-    setPaidVerificationChecked2(false);
-    setDeleteConfirmText("");
     setDeleteConfirmationOpen(true);
   };
 
@@ -987,9 +1058,13 @@ const InvoicesPage = () => {
                               Edit Invoice
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => { setStatusToConfirm({ id: invoice.id, status: 'paid' }); setStatusConfirmationOpen(true); }}
+                              onClick={() => {
+                                setInvoiceToMarkPaid(invoice);
+                                setSelectedPaymentMethod('cash');
+                                setMarkPaidDialogOpen(true);
+                              }}
                             >
-                              <CreditCard className="mr-2 h-4 w-4 text-muted-foreground" />
+                              <CreditCard className="mr-2 h-4 w-4 text-emerald-600" />
                               Mark as Paid
                             </DropdownMenuItem>
                           </>
@@ -1079,9 +1154,13 @@ const InvoicesPage = () => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => { setStatusToConfirm({ id: invoice.id, status: 'paid' }); setStatusConfirmationOpen(true); }}
+                        onClick={() => {
+                          setInvoiceToMarkPaid(invoice);
+                          setSelectedPaymentMethod('cash');
+                          setMarkPaidDialogOpen(true);
+                        }}
                         title="Mark as Paid"
-                        className="h-8 lg:h-9 px-2 lg:px-3 text-xs font-semibold text-emerald-700 bg-emerald-50/80 border-emerald-200 hover:bg-emerald-100"
+                        className="h-8 lg:h-9 px-2 lg:px-3 text-xs font-semibold text-emerald-700 bg-emerald-50/80 border-emerald-200 hover:bg-emerald-100 cursor-pointer"
                       >
                         <CreditCard className="w-3.5 h-3.5 lg:mr-1" />
                         <span className="hidden lg:inline">Mark Paid</span>
@@ -1261,109 +1340,123 @@ const InvoicesPage = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={statusConfirmationOpen} onOpenChange={setStatusConfirmationOpen}>
-        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4">
-            <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4">
-              <CreditCard className="w-6 h-6 text-emerald-600" />
+      {/* Mark as Paid Selection Popup Dialog */}
+      <Dialog open={markPaidDialogOpen} onOpenChange={setMarkPaidDialogOpen}>
+        <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background">
+          <DialogHeader className="p-6 pb-4 bg-muted/10 border-b border-border/50">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center mb-3">
+              <CreditCard className="w-6 h-6" />
             </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">Mark Invoice as Paid?</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              Are you sure you want to mark this invoice as <span className="text-emerald-600 font-black uppercase tracking-wider">PAID</span>? The Edit option will no longer be available after this.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
-            <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => statusToConfirm && updateInvoiceStatus(statusToConfirm.id, statusToConfirm.status)}
-              className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white transition-all"
-            >
-              Mark as Paid
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            <DialogTitle className="text-xl font-black text-foreground">
+              Mark Invoice as Paid
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground mt-1">
+              Invoice #{invoiceToMarkPaid?.invoice_number} • Amount: {currencySymbol}{Number(invoiceToMarkPaid?.total_amount || 0).toFixed(2)}
+            </DialogDescription>
+          </DialogHeader>
 
-      <AlertDialog open={deleteConfirmationOpen} onOpenChange={setDeleteConfirmationOpen}>
-        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4 border-b bg-rose-50/50">
-            <div className="w-12 h-12 bg-rose-500/10 rounded-xl flex items-center justify-center mb-4">
-              <Trash2 className="w-6 h-6 text-rose-600" />
-            </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight text-rose-950">
-              Confirm Deletion
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-rose-900/70 font-medium pt-2">
-              {invoiceToDelete?.status === 'paid' ? (
-                "This invoice is marked as PAID. Please verify before permanent deletion."
-              ) : (
-                <>
-                  Are you sure you want to delete invoice <span className="text-rose-950 font-black">#{invoiceToDelete?.invoiceNumber}</span>? This action is irreversible.
-                </>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Select Payment Method (Optional)
+              </Label>
+              {selectedPaymentMethod && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedPaymentMethod(null)}
+                  className="text-[11px] font-bold text-amber-600 hover:underline cursor-pointer"
+                >
+                  Clear Selection
+                </button>
               )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+            </div>
 
-          <div className="p-4 md:p-6 md:p-8 space-y-6">
-            {invoiceToDelete?.status === 'paid' && (
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <div
-                    className="flex items-center space-x-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
-                    onClick={() => setPaidVerificationChecked(!paidVerificationChecked)}
-                  >
-                    <Checkbox
-                      id="verify1"
-                      checked={paidVerificationChecked}
-                      className="rounded-lg border-2"
-                    />
-                    <Label htmlFor="verify1" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer group-hover:text-foreground">Permanent Deletion Acknowledged</Label>
-                  </div>
-
-                  <div
-                    className="flex items-center space-x-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-all cursor-pointer group"
-                    onClick={() => setPaidVerificationChecked2(!paidVerificationChecked2)}
-                  >
-                    <Checkbox
-                      id="verify2"
-                      checked={paidVerificationChecked2}
-                      className="rounded-lg border-2"
-                    />
-                    <Label htmlFor="verify2" className="text-xs font-bold text-slate-600 dark:text-slate-400 cursor-pointer group-hover:text-foreground">Financial Impact Verified</Label>
-                  </div>
-
-                  <div className="space-y-2 pt-2">
-                    <Label className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 ml-1">Type "DELETE" to confirm</Label>
-                    <Input
-                      placeholder="Type DELETE"
-                      value={deleteConfirmText}
-                      onChange={(e) => setDeleteConfirmText(e.target.value)}
-                      className="h-12 rounded-md bg-muted/50 border-border text-center font-bold tracking-widest focus-visible:ring-primary/20"
-                    />
-                  </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedPaymentMethod(prev => prev === 'cash' ? null : 'cash')}
+                className={`p-4 rounded-xl border-2 text-left flex flex-col gap-2 transition-all cursor-pointer active:scale-95 ${
+                  selectedPaymentMethod === 'cash'
+                    ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 shadow-md ring-2 ring-emerald-500/20'
+                    : 'border-border/60 hover:border-border text-muted-foreground hover:bg-muted/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Banknote className={`w-5 h-5 ${selectedPaymentMethod === 'cash' ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                  {selectedPaymentMethod === 'cash' && (
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+                  )}
                 </div>
+                <div>
+                  <p className="font-black text-sm text-foreground">Cash</p>
+                  <p className="text-[10px] opacity-70">Physical Cash Payment</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedPaymentMethod(prev => prev === 'upi' ? null : 'upi')}
+                className={`p-4 rounded-xl border-2 text-left flex flex-col gap-2 transition-all cursor-pointer active:scale-95 ${
+                  selectedPaymentMethod === 'upi'
+                    ? 'border-violet-600 bg-violet-50/70 dark:bg-violet-950/40 text-violet-900 dark:text-violet-100 shadow-md ring-2 ring-violet-500/20'
+                    : 'border-border/60 hover:border-border text-muted-foreground hover:bg-muted/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <Smartphone className={`w-5 h-5 ${selectedPaymentMethod === 'upi' ? 'text-violet-600' : 'text-muted-foreground'}`} />
+                  {selectedPaymentMethod === 'upi' && (
+                    <span className="w-2.5 h-2.5 rounded-full bg-violet-600"></span>
+                  )}
+                </div>
+                <div>
+                  <p className="font-black text-sm text-foreground">UPI / Online</p>
+                  <p className="text-[10px] opacity-70">GPay, PhonePe, QR</p>
+                </div>
+              </button>
+            </div>
+
+            {!selectedPaymentMethod && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+                <span>No mode selected. Invoice will be settled with <strong>Pending Payment Mode</strong> (you can set it in Payments anytime).</span>
               </div>
             )}
-
-            <AlertDialogFooter className="sm:justify-center gap-3">
-              <AlertDialogCancel className="flex-1 h-12 rounded-md border border-border font-semibold uppercase tracking-wider text-[10px] m-0">
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={confirmDeleteInvoice}
-                disabled={invoiceToDelete?.status === 'paid' && (!paidVerificationChecked || !paidVerificationChecked2 || deleteConfirmText !== 'DELETE')}
-                className={`flex-1 h-12 rounded-md font-bold uppercase tracking-wider text-[10px] shadow-sm transition-all
-                    ${invoiceToDelete?.status === 'paid'
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
-                    : 'bg-amber-600 hover:bg-amber-700 text-white'
-                  }`}
-              >
-                Delete Invoice
-              </AlertDialogAction>
-            </AlertDialogFooter>
           </div>
-        </AlertDialogContent>
-      </AlertDialog>
+
+          <DialogFooter className="p-4 bg-muted/5 border-t border-border/50 flex flex-row gap-3 shrink-0 sm:space-x-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMarkPaidDialogOpen(false)}
+              className="flex-1 h-11 font-bold rounded-xl cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (invoiceToMarkPaid) {
+                  await handleMarkAsPaid(invoiceToMarkPaid, selectedPaymentMethod);
+                  setMarkPaidDialogOpen(false);
+                  setInvoiceToMarkPaid(null);
+                }
+              }}
+              className="flex-1 h-11 font-black rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 cursor-pointer"
+            >
+              {selectedPaymentMethod ? `OK (Confirm ${selectedPaymentMethod.toUpperCase()})` : 'OK (Mode is Pended)'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmation
+        isOpen={deleteConfirmationOpen}
+        onOpenChange={setDeleteConfirmationOpen}
+        onConfirm={confirmDeleteInvoice}
+        title="Delete Invoice"
+        description={`Are you sure you want to delete invoice #${invoiceToDelete?.invoiceNumber || ''}? This action cannot be undone and will restore item stock.`}
+      />
 
       <SuccessModal
         isOpen={showSuccess}

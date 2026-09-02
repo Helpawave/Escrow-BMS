@@ -6,18 +6,22 @@ interface UseProductsProps {
   page?: number;
   pageSize?: number;
   searchTerm?: string;
+  categoryFilter?: string;
+  typeFilter?: string;
 }
 
 export function useProducts({ 
   page = 1, 
   pageSize = 50, 
-  searchTerm = "" 
+  searchTerm = "",
+  categoryFilter = "all",
+  typeFilter = "all"
 }: UseProductsProps = {}) {
   const { user, profile } = useAuth();
   const targetUserId = profile?.parent_user_id || user?.id;
 
   return useQuery({
-    queryKey: ['products', targetUserId, page, pageSize, searchTerm],
+    queryKey: ['products', targetUserId, page, pageSize, searchTerm, categoryFilter, typeFilter],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
 
@@ -32,6 +36,14 @@ export function useProducts({
 
       if (searchTerm) {
         query = query.or(`name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
+      }
+
+      if (categoryFilter && categoryFilter !== 'all') {
+        query = query.eq('category', categoryFilter);
+      }
+
+      if (typeFilter && typeFilter !== 'all') {
+        query = query.eq('type', typeFilter);
       }
 
       const { data, error, count } = await query.range(from, to);
