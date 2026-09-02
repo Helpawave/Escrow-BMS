@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen, Banknote, Smartphone } from "lucide-react";
+import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen, Banknote, Smartphone, ArrowRightCircle, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +33,7 @@ import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from "@/utils/invoicePDF";
 import { adjustStock, adjustStockBatch } from "@/utils/inventory";
+import { generateInvoiceNumber } from "@/utils/invoice-helpers";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -845,6 +846,67 @@ const InvoicesPage = () => {
     }
   };
 
+  const [convertingQuotationId, setConvertingQuotationId] = useState<string | null>(null);
+
+  const handleConvertToInvoice = async (quotation: Invoice) => {
+    try {
+      setConvertingQuotationId(quotation.id);
+
+      // 1. Fetch items for stock deduction
+      const { data: items, error: fetchError } = await supabase
+        .from('invoice_items')
+        .select('product_id, quantity')
+        .eq('invoice_id', quotation.id);
+
+      if (fetchError) throw fetchError;
+
+      // 2. Generate new Tax Invoice Number (INV-...)
+      const newInvNumber = await generateInvoiceNumber('INV');
+
+      // 3. Update invoice record to Tax Invoice (status: 'draft')
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update({
+          invoice_number: newInvNumber,
+          status: 'draft',
+          issue_date: new Date().toISOString().split('T')[0]
+        })
+        .eq('id', quotation.id);
+
+      if (updateError) throw updateError;
+
+      // 4. Atomic batch stock deduction for converted invoice
+      if (items && items.length > 0) {
+        const opId = crypto.randomUUID();
+        const validItems = (items as unknown as { product_id: string | null; quantity: number }[])
+          .filter(i => i.product_id && i.quantity > 0)
+          .map(i => ({ product_id: i.product_id!, quantity: i.quantity }));
+
+        if (validItems.length > 0) {
+          await adjustStockBatch(validItems, 'SALE', quotation.id, `${opId}:CONVERT`);
+        }
+      }
+
+      toast({
+        title: "Converted to Tax Invoice!",
+        description: `Quotation ${quotation.invoice_number} is now Tax Invoice ${newInvNumber}. Stock has been updated.`
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (err) {
+      console.error("Error converting quotation:", err);
+      toast({
+        variant: "destructive",
+        title: "Conversion Failed",
+        description: "Could not convert quotation to invoice."
+      });
+    } finally {
+      setConvertingQuotationId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -857,10 +919,19 @@ const InvoicesPage = () => {
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl md:text-3xl font-bold text-foreground">Invoices</h1>
-          <p className="text-xs md:text-base text-muted-foreground mt-1">Create and manage your invoices</p>
+          <h1 className="text-xl md:text-3xl font-bold text-foreground">Invoices & Quotations</h1>
+          <p className="text-xs md:text-base text-muted-foreground mt-1">Create and manage tax invoices, ledger bills, and price quotations</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => navigate('/billing/create-invoice?type=quotation')}
+            className="w-full sm:w-auto h-11 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 font-bold"
+          >
+            <FileText className="w-4 h-4 mr-2 text-amber-600" />
+            <span className="text-sm md:text-base">Create Quotation</span>
+          </Button>
           <Button
             variant="outline"
             size="lg"
@@ -887,7 +958,7 @@ const InvoicesPage = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="Search by invoice number or client name..."
+            placeholder="Search by invoice/quotation number or client name..."
             className="pl-10 h-11 bg-background border-border/50 rounded-xl"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -898,16 +969,17 @@ const InvoicesPage = () => {
             </div>
           )}
         </div>
-        <div className="w-full sm:w-48">
+        <div className="w-full sm:w-56">
           <select
-            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="all">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="paid">Paid</option>
+            <option value="all">All Documents</option>
+            <option value="quotation">Quotations / Estimates</option>
+            <option value="draft">Draft Invoices</option>
+            <option value="sent">Sent Invoices</option>
+            <option value="paid">Paid Invoices</option>
           </select>
         </div>
       </div>
@@ -1051,7 +1123,16 @@ const InvoicesPage = () => {
                           <Phone className={`mr-2 h-4 w-4 ${sharedInvoices[invoice.id]?.sms ? "text-emerald-600" : ""}`} />
                           Send via SMS {sharedInvoices[invoice.id]?.sms && "✓"}
                         </DropdownMenuItem>
-                        {invoice.status !== 'paid' ? (
+                        {invoice.status === 'quotation' && (
+                          <DropdownMenuItem
+                            onClick={() => handleConvertToInvoice(invoice)}
+                            className="text-amber-600 font-bold"
+                          >
+                            <Sparkles className="mr-2 h-4 w-4 text-amber-600" />
+                            Convert to Tax Invoice
+                          </DropdownMenuItem>
+                        )}
+                        {invoice.status !== 'paid' && invoice.status !== 'quotation' ? (
                           <>
                             <DropdownMenuItem onClick={() => navigate(`/invoices/${invoice.id}/edit`)}>
                               <Pencil className="mr-2 h-4 w-4" />
@@ -1068,6 +1149,11 @@ const InvoicesPage = () => {
                               Mark as Paid
                             </DropdownMenuItem>
                           </>
+                        ) : invoice.status === 'quotation' ? (
+                          <DropdownMenuItem onClick={() => navigate(`/invoices/${invoice.id}/edit`)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit Quotation
+                          </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem
                             disabled
@@ -1079,7 +1165,7 @@ const InvoicesPage = () => {
                         )}
                         <DropdownMenuItem onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)} className="text-destructive">
                           <Trash2 className="mr-2 h-4 w-4" />
-                          Delete Invoice
+                          Delete {invoice.status === 'quotation' ? 'Quotation' : 'Invoice'}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -1108,6 +1194,25 @@ const InvoicesPage = () => {
                   </div>
 
                   <div className="flex items-center gap-1 lg:gap-2">
+                    {/* Convert to Tax Invoice for Quotations */}
+                    {invoice.status === 'quotation' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleConvertToInvoice(invoice)}
+                        disabled={convertingQuotationId === invoice.id}
+                        className="h-8 lg:h-9 px-2.5 text-xs font-bold bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 cursor-pointer"
+                        title="Convert this Quotation into a Tax Invoice"
+                      >
+                        {convertingQuotationId === invoice.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-600" />
+                        )}
+                        <span>Convert to Invoice</span>
+                      </Button>
+                    )}
+
                     {/* Communication utilities (Email, SMS, WhatsApp) */}
                     {invoice.clients?.email && (
                       <Button
@@ -1149,8 +1254,8 @@ const InvoicesPage = () => {
                       <span className="hidden lg:inline">WhatsApp</span>
                     </Button>
 
-                    {/* Secondary: Mark as Paid */}
-                    {invoice.status !== 'paid' && (
+                    {/* Secondary: Mark as Paid (Only for actual invoices) */}
+                    {invoice.status !== 'paid' && invoice.status !== 'quotation' && (
                       <Button
                         variant="outline"
                         size="sm"

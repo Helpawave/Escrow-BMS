@@ -121,9 +121,14 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   const styles = getTemplateStyles();
   const hasGST = (invoice.tax_amount > 0) || items.some(item => (item.tax_rate || 0) > 0);
   const hasDiscount = items.some(item => (item.discount || 0) > 0);
+  const isQuotation = invoice.status === 'quotation' || invoice.invoice_number?.startsWith('QT');
+  const docTitle = isQuotation ? 'QUOTATION / ESTIMATE' : (hasGST ? 'TAX INVOICE' : 'INVOICE');
+  const docNumberLabel = isQuotation ? 'Quotation No.' : 'Invoice No.';
+  const docDateLabel = isQuotation ? 'Quotation Date' : 'Invoice Date';
+  const docDueDateLabel = isQuotation ? 'Valid Until' : 'Due Date';
 
   const StatusBadge = ({ className = "" }) => (
-    <div className={`text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 leading-none ${className}`}>
+    <div className={`text-[11px] font-bold uppercase tracking-[0.2em] ${isQuotation ? 'text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-200' : 'text-gray-500'} leading-none ${className}`}>
       {invoice.status}
     </div>
   );
@@ -143,7 +148,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             )}
           </div>
           <div className="text-right">
-            <h1 className="text-xl font-bold text-slate-900 uppercase tracking-tight">Tax Invoice</h1>
+            <h1 className="text-xl font-bold text-slate-900 uppercase tracking-tight">{docTitle}</h1>
             <div className={`mt-2 bg-slate-900 text-white text-[9px] px-2 py-0.5 w-fit font-bold uppercase tracking-wider rounded-sm inline-block`}>
               {invoice.status}
             </div>
@@ -195,12 +200,12 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         {/* Invoice Details */}
         <div className="flex justify-between items-center mb-8 bg-slate-50 p-4 rounded border border-slate-100">
           <div className="flex-1 space-y-1">
-            <p><span className="font-bold uppercase text-[9px] text-slate-400 mr-2">Invoice Number:</span> <span className="font-semibold">{invoice.invoice_number}</span></p>
-            <p><span className="font-bold uppercase text-[9px] text-slate-400 mr-2">Invoice Date:</span> <span className="font-semibold">{safelyFormatDate(invoice.issue_date, 'dd.MM.yyyy', 'N/A')}</span></p>
+            <p><span className="font-bold uppercase text-[9px] text-slate-400 mr-2">{docNumberLabel}</span> <span className="font-semibold">{invoice.invoice_number}</span></p>
+            <p><span className="font-bold uppercase text-[9px] text-slate-400 mr-2">{docDateLabel}</span> <span className="font-semibold">{safelyFormatDate(invoice.issue_date, 'dd.MM.yyyy', 'N/A')}</span></p>
           </div>
           {invoice.due_date && invoice.status !== 'paid' && (
             <div className="text-right">
-              <p><span className="font-bold uppercase text-[9px] text-slate-400 mr-2">Due Date:</span> <span className="font-semibold text-rose-600">{safelyFormatDate(invoice.due_date, 'dd.MM.yyyy', 'N/A')}</span></p>
+              <p><span className="font-bold uppercase text-[9px] text-slate-400 mr-2">{docDueDateLabel}:</span> <span className="font-semibold text-rose-600">{safelyFormatDate(invoice.due_date, 'dd.MM.yyyy', 'N/A')}</span></p>
             </div>
           )}
         </div>
@@ -340,7 +345,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </div>
           </div>
           <div className="text-right">
-            <h2 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400 mb-1">Invoice</h2>
+            <h2 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400 mb-1">{docTitle}</h2>
             <div className="text-xl font-bold text-black tabular-nums">#{invoice.invoice_number}</div>
             <div className={`mt-2 text-[9px] font-bold uppercase tracking-widest text-slate-500`}>
               {invoice.status}
@@ -542,7 +547,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
             <div className="text-right">
               <div className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2 uppercase">
-                TAX INVOICE
+                {docTitle}
               </div>
               {company.state && <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">{company.state}</p>}
               <div className="mb-4">
@@ -555,7 +560,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <div className="font-semibold">{safelyFormatDate(invoice.issue_date, 'dd MMM yyyy', 'N/A')}</div>
                 {invoice.due_date && invoice.status?.toLowerCase() !== 'paid' && (
                   <>
-                    <div className="text-slate-400 font-medium">Due:</div>
+                    <div className="text-slate-400 font-medium">{docDueDateLabel}:</div>
                     <div className="font-semibold">{safelyFormatDate(invoice.due_date, 'dd MMM yyyy', 'N/A')}</div>
                   </>
                 )}
@@ -705,7 +710,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </div>
           </div>
           <div className="text-right flex flex-col items-end pt-1">
-            <h2 className="text-2xl font-bold text-gray-800 uppercase tracking-widest">Tax Invoice</h2>
+            <h2 className="text-2xl font-bold text-gray-800 uppercase tracking-widest">{docTitle}</h2>
             {company.state && <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1 mb-2">{company.state}</p>}
             <StatusBadge />
           </div>
@@ -715,7 +720,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         <div className="grid grid-cols-2 gap-4 mb-4">
           {/* Bill To */}
           <div className="border border-gray-300 rounded overflow-hidden">
-            <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 font-bold text-blue-900 uppercase text-xs tracking-wider">Billed To</div>
+            <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 font-bold text-blue-900 uppercase text-xs tracking-wider">
+              {isQuotation ? 'Quotation For' : 'Billed To'}
+            </div>
             <div className="p-4 space-y-1">
               <div className="font-bold text-base">{client.name}</div>
               {!client.hide_contact_details && client.address && <p className="text-gray-600">{client.address}</p>}
@@ -732,12 +739,14 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
           {/* Invoice details */}
           <div className="border border-gray-300 rounded overflow-hidden">
-            <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 font-bold text-blue-900 uppercase text-xs tracking-wider">Invoice Details</div>
+            <div className="bg-gray-100 px-4 py-2 border-b border-gray-300 font-bold text-blue-900 uppercase text-xs tracking-wider">
+              {isQuotation ? 'Quotation Details' : 'Invoice Details'}
+            </div>
             <table className="w-full text-sm">
               <tbody className="divide-y divide-gray-200">
-                <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">Invoice No.</td><td className="py-2 px-4 font-bold">{invoice.invoice_number}</td></tr>
-                <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">Issue Date</td><td className="py-2 px-4">{safelyFormatDate(invoice.issue_date, 'dd/MM/yyyy', 'N/A')}</td></tr>
-                {invoice.due_date && invoice.status?.toLowerCase() !== 'paid' && <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">Due Date</td><td className="py-2 px-4">{safelyFormatDate(invoice.due_date, 'dd/MM/yyyy', 'N/A')}</td></tr>}
+                <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">{docNumberLabel}</td><td className="py-2 px-4 font-bold">{invoice.invoice_number}</td></tr>
+                <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">{docDateLabel}</td><td className="py-2 px-4">{safelyFormatDate(invoice.issue_date, 'dd/MM/yyyy', 'N/A')}</td></tr>
+                {invoice.due_date && invoice.status?.toLowerCase() !== 'paid' && <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">{docDueDateLabel}</td><td className="py-2 px-4">{safelyFormatDate(invoice.due_date, 'dd/MM/yyyy', 'N/A')}</td></tr>}
                 <tr><td className="py-2 px-4 font-semibold text-gray-600 bg-gray-50 bg-opacity-50">Currency</td><td className="py-2 px-4">{invoice.currency}</td></tr>
               </tbody>
             </table>
@@ -929,7 +938,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
           <div className="text-right pt-1">
             <div className="flex flex-col items-end">
-              <h2 className="text-2xl font-bold tracking-wider">TAX INVOICE</h2>
+              <h2 className="text-2xl font-bold tracking-wider">{docTitle}</h2>
               {company.state && <p className="text-sm font-bold text-gray-500 uppercase tracking-widest mt-1">{company.state}</p>}
             </div>
             <div className="text-lg mt-2">#{invoice.invoice_number}</div>
@@ -943,7 +952,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
       {/* Invoice Details */}
       <div className="grid grid-cols-2 gap-8 mb-8">
         <div>
-          <h3 className={`font-bold text-lg ${styles.accentColor} mb-3`}>Bill To:</h3>
+          <h3 className={`font-bold text-lg ${styles.accentColor} mb-3`}>
+            {isQuotation ? 'Quotation For:' : 'Bill To:'}
+          </h3>
           <div className={`p-4 border-l-4 ${styles.borderColor} bg-gray-50`}>
             <div className="font-bold text-base mb-2">{client.name}</div>
             {!client.hide_contact_details && client.email && <div>📧 {client.email}</div>}
@@ -963,15 +974,17 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
         <div>
-          <h3 className={`font-bold text-lg ${styles.accentColor} mb-3`}>Invoice Details:</h3>
+          <h3 className={`font-bold text-lg ${styles.accentColor} mb-3`}>
+            {isQuotation ? 'Quotation Details:' : 'Invoice Details:'}
+          </h3>
           <div className="space-y-2">
             <div className="flex justify-between">
-              <span className="font-medium">Issue Date:</span>
+              <span className="font-medium">{docDateLabel}:</span>
               <span>{safelyFormatDate(invoice.issue_date, 'dd MMM yyyy', 'N/A')}</span>
             </div>
             {invoice.due_date && invoice.status?.toLowerCase() !== 'paid' && (
               <div className="flex justify-between">
-                <span className="font-medium">Due Date:</span>
+                <span className="font-medium">{docDueDateLabel}:</span>
                 <span>{safelyFormatDate(invoice.due_date, 'dd MMM yyyy', 'N/A')}</span>
               </div>
             )}

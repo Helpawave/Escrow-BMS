@@ -42,8 +42,8 @@ export interface LedgerPartyOption {
 }
 
 interface InvoiceHeaderProps {
-  billingType?: 'sales' | 'purchase' | 'ledger';
-  setBillingType?: (type: 'sales' | 'purchase' | 'ledger') => void;
+  billingType?: 'sales' | 'purchase' | 'ledger' | 'quotation';
+  setBillingType?: (type: 'sales' | 'purchase' | 'ledger' | 'quotation') => void;
   isPurchase: boolean;
   setIsPurchase: (val: boolean) => void;
   formData: InvoiceFormData;
@@ -83,6 +83,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
   setNewVendorDialogOpen
 }) => {
   const isLedger = billingType === 'ledger';
+  const isQuotation = billingType === 'quotation';
 
   const purchaseVendorOptions = React.useMemo(() => {
     if (!isPurchase) return [];
@@ -103,7 +104,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
     return ledgerParties.find(p => p.id === selectedLedgerPartyId) || null;
   }, [isLedger, ledgerParties, selectedLedgerPartyId]);
 
-  const handleTabChange = (type: 'sales' | 'purchase' | 'ledger') => {
+  const handleTabChange = (type: 'sales' | 'purchase' | 'ledger' | 'quotation') => {
     if (setBillingType) {
       setBillingType(type);
     } else {
@@ -113,14 +114,14 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 3-Way Mode Toggle Tabs */}
-      <div className="flex p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl gap-1.5 shadow-inner">
+      {/* 4-Way Mode Toggle Tabs */}
+      <div className="flex flex-wrap p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl gap-1.5 shadow-inner">
         <Button 
           type="button" 
           variant={billingType === 'sales' ? "hero" : "ghost"} 
           onClick={() => handleTabChange('sales')}
           className={cn(
-            "flex-1 h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
+            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
             billingType === 'sales' 
               ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md shadow-slate-200/50 dark:shadow-none" 
               : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -130,10 +131,23 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
         </Button>
         <Button 
           type="button" 
+          variant={billingType === 'quotation' ? "hero" : "ghost"} 
+          onClick={() => handleTabChange('quotation')}
+          className={cn(
+            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-black text-xs sm:text-sm transition-all cursor-pointer",
+            billingType === 'quotation' 
+              ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-md shadow-orange-500/20" 
+              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+          )}
+        >
+          <span>Quotation / Estimate</span>
+        </Button>
+        <Button 
+          type="button" 
           variant={billingType === 'purchase' ? "hero" : "ghost"} 
           onClick={() => handleTabChange('purchase')}
           className={cn(
-            "flex-1 h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
+            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
             billingType === 'purchase' 
               ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-md shadow-slate-200/50 dark:shadow-none" 
               : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -146,7 +160,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
           variant={billingType === 'ledger' ? "hero" : "ghost"} 
           onClick={() => handleTabChange('ledger')}
           className={cn(
-            "flex-1 h-10 sm:h-11 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer",
             billingType === 'ledger' 
               ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/20" 
               : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
@@ -156,6 +170,21 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
           <span>Ledger Billing</span>
         </Button>
       </div>
+
+      {/* Quotation Estimate Notice Banner */}
+      {isQuotation && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200 dark:border-amber-800/60 p-4 rounded-2xl flex items-start gap-3 shadow-xs">
+          <Sparkles className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs text-amber-900 dark:text-amber-200">
+            <p className="font-bold text-sm text-amber-950 dark:text-amber-100 mb-0.5">
+              Quotation & Price Estimate Mode
+            </p>
+            <p className="opacity-90">
+              This creates an official price quotation for your prospective client. Inventory stock will <strong>NOT</strong> be deducted and no party ledger balance will be debited until converted.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Ledger Billing Information Guide */}
       {isLedger && (
@@ -229,7 +258,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                   <CommandInput placeholder={isLedger ? "Search party by name..." : (isPurchase ? "Search vendor or client..." : "Search client...")} />
                   <CommandList className="max-h-[220px] overflow-y-auto">
                     <CommandEmpty className="py-3 px-4 text-xs text-muted-foreground flex flex-col gap-2">
-                      {isLedger ? "No ledger parties found." : (isPurchase ? "No vendor/client found." : "No client found.")}
+                      <span>{isLedger ? "No ledger parties found." : (isPurchase ? "No vendor/client found." : "No client found.")}</span>
                       {!isLedger && (
                         <Button 
                           variant="outline" 
@@ -257,41 +286,35 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                               }
                               setClientSearchOpen(false);
                             }}
-                            className="cursor-pointer py-2.5 px-3 flex items-center justify-between"
+                            className="cursor-pointer flex items-center justify-between p-2.5"
                           >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Check
-                                className={cn(
-                                  "h-4 w-4 shrink-0",
-                                  selectedLedgerPartyId === party.id ? "opacity-100 text-blue-600" : "opacity-0"
-                                )}
-                              />
-                              <div className="truncate">
-                                <p className="font-bold text-xs text-slate-900 dark:text-white truncate">{party.party_name}</p>
-                                <p className="text-[10px] text-slate-400">Status: {party.status === 'take' ? 'Take' : 'Give'}</p>
+                            <div className="flex items-center gap-2">
+                              <BookOpen className="w-4 h-4 text-blue-600" />
+                              <div>
+                                <p className="font-bold text-sm text-foreground">{party.party_name}</p>
+                                {party.phone && <p className="text-[11px] text-muted-foreground">{party.phone}</p>}
                               </div>
                             </div>
-                            <span className={cn(
-                              "text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0 border",
-                              party.balance >= 0 
-                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800" 
-                                : "bg-rose-50 border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800"
-                            )}>
-                              ₹{Math.abs(party.balance).toLocaleString()}
-                            </span>
+                            <div className="text-right">
+                              <span className="font-black text-xs text-foreground block">
+                                ₹{Math.abs(party.balance).toLocaleString()}
+                              </span>
+                              <span className={cn(
+                                "text-[10px] font-bold uppercase",
+                                party.status === 'take' ? "text-blue-600" : "text-amber-600"
+                              )}>
+                                {party.status === 'take' ? 'Receivable' : 'Payable'}
+                              </span>
+                            </div>
                           </CommandItem>
                         ))
-                      ) : (
-                        (isPurchase ? purchaseVendorOptions : clients).map((entity) => (
+                      ) : isPurchase ? (
+                        purchaseVendorOptions.map((vendor) => (
                           <CommandItem
-                            key={entity.id}
-                            value={entity.name}
+                            key={vendor.id}
+                            value={vendor.name}
                             onSelect={() => {
-                              if (isPurchase) {
-                                setFormData({ ...formData, vendor_id: entity.id });
-                              } else {
-                                setFormData({ ...formData, client_id: entity.id });
-                              }
+                              setFormData({ ...formData, vendor_id: vendor.id });
                               setClientSearchOpen(false);
                             }}
                             className="cursor-pointer"
@@ -299,39 +322,44 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                             <Check
                               className={cn(
                                 "mr-2 h-4 w-4",
-                                (isPurchase ? formData.vendor_id === entity.id : formData.client_id === entity.id) ? "opacity-100" : "opacity-0"
+                                formData.vendor_id === vendor.id ? "opacity-100" : "opacity-0"
                               )}
                             />
-                            {entity.name}
+                            {vendor.name}
+                          </CommandItem>
+                        ))
+                      ) : (
+                        clients.map((client) => (
+                          <CommandItem
+                            key={client.id}
+                            value={client.name}
+                            onSelect={() => {
+                              setFormData({ ...formData, client_id: client.id });
+                              setClientSearchOpen(false);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                formData.client_id === client.id ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {client.name}
                           </CommandItem>
                         ))
                       )}
                     </CommandGroup>
                   </CommandList>
-                  {!isLedger && (
-                    <div className="border-t border-border p-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start text-primary hover:text-primary hover:bg-primary/5 cursor-pointer"
-                        onClick={() => {
-                          setClientSearchOpen(false);
-                          if (isPurchase) setNewVendorDialogOpen(true);
-                          else setNewClientDialogOpen(true);
-                        }}
-                      >
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        {isPurchase ? "Add New Vendor" : "Add New Client"}
-                      </Button>
-                    </div>
-                  )}
                 </Command>
               </PopoverContent>
             </Popover>
           </div>
 
           <div>
-            <Label htmlFor="issue_date" className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">Issue Date</Label>
+            <Label htmlFor="issue_date" className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">
+              {isQuotation ? "Quotation Date" : "Issue Date"}
+            </Label>
             <Input
               id="issue_date"
               type="date"
@@ -341,7 +369,9 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
             />
           </div>
           <div>
-            <Label htmlFor="due_date" className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">Due Date</Label>
+            <Label htmlFor="due_date" className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">
+              {isQuotation ? "Quote Valid Until" : "Due Date"}
+            </Label>
             <Input
               id="due_date"
               type="date"

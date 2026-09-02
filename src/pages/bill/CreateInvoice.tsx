@@ -61,17 +61,20 @@ const CreateInvoicePage = () => {
           <div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
               {isEditing ? (
-                <>Edit {billingType === 'ledger' ? 'Ledger Bill' : (isPurchase ? 'Bill' : 'Invoice')}</>
+                <>Edit {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation' : (isPurchase ? 'Bill' : 'Invoice'))}</>
               ) : (
-                <>Create {billingType === 'ledger' ? 'Ledger Bill' : (isPurchase ? 'Purchase Bill' : 'Sales Invoice')}</>
+                <>Create {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation / Price Estimate' : (isPurchase ? 'Purchase Bill' : 'Sales Invoice'))}</>
               )}
             </h1>
             <p className="text-slate-500 mt-1">
               {isEditing 
-                ? `Managing ${isPurchase ? 'purchase record' : 'invoice'} #${invoiceNumber}` 
+                ? `Managing ${billingType === 'quotation' ? 'quotation' : (isPurchase ? 'purchase record' : 'invoice')} #${invoiceNumber}` 
                 : (billingType === 'ledger' 
                     ? 'Generate an official settlement bill directly from Account Ledger party remaining balances' 
-                    : `Generate a professional ${isPurchase ? 'purchase bill' : 'invoice'} for your business`
+                    : (billingType === 'quotation'
+                        ? 'Generate a formal price quote / estimate for your customer (no stock deduction)'
+                        : `Generate a professional ${isPurchase ? 'purchase bill' : 'invoice'} for your business`
+                      )
                   )
               }
             </p>

@@ -33,6 +33,10 @@ const statusConfig = {
     label: "Pending",
     className: "bg-amber-500/10 text-amber-500 border-amber-500/20",
   },
+  quotation: {
+    label: "Quotation",
+    className: "bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30 font-bold",
+  },
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {

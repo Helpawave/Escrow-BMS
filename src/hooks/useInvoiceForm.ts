@@ -52,9 +52,11 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       ? 'purchase'
       : (searchParams.get('type') === 'ledger' || searchParams.get('billingType') === 'ledger')
       ? 'ledger'
+      : (searchParams.get('type') === 'quotation' || searchParams.get('billingType') === 'quotation')
+      ? 'quotation'
       : 'sales'
-  ) as 'sales' | 'purchase' | 'ledger';
-  const [billingType, setBillingType] = useState<'sales' | 'purchase' | 'ledger'>(initialBillingType);
+  ) as 'sales' | 'purchase' | 'ledger' | 'quotation';
+  const [billingType, setBillingType] = useState<'sales' | 'purchase' | 'ledger' | 'quotation'>(initialBillingType);
   const [ledgerParties, setLedgerParties] = useState<Array<{ id: string; party_name: string; status: 'take' | 'give'; balance: number; last_date?: string; phone?: string }>>([]);
   const [selectedLedgerPartyId, setSelectedLedgerPartyId] = useState<string | null>(searchParams.get('partyId') || null);
 
@@ -680,9 +682,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   };
 
-  const generateInvoiceNumber = useCallback(async () => {
-    return await genInvNum();
-  }, []);
+  const generateInvoiceNumber = useCallback(async (prefix?: string) => {
+    const activePrefix = prefix || (billingType === 'quotation' ? 'QT' : 'INV');
+    return await genInvNum(activePrefix);
+  }, [billingType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -724,19 +727,20 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     setSaving(true);
     const { subtotal, discountAmount, taxAmount, total } = getTotals();
     const currencySymbol = invoiceCurrency === 'INR' ? '₹' : (invoiceCurrency === 'USD' ? '$' : '€');
+    const isQuotation = billingType === 'quotation';
 
     try {
       if (total <= 0) {
         toast({
           variant: "destructive",
-          title: "Invalid Invoice",
-          description: "Total invoice amount must be greater than zero."
+          title: "Error",
+          description: "Total amount must be greater than zero."
         });
         setSaving(false);
         return;
       }
 
-      if (isPurchase) {
+      if (isPurchase && !isEditing) {
         // Handle Purchase Bill Creation
         let finalVendorId = formData.vendor_id;
 
@@ -785,7 +789,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
             id: crypto.randomUUID(),
             user_id: activeUserId,
             vendor_id: finalVendorId,
-            invoice_number: await generateInvoiceNumber(),
+            invoice_number: await generateInvoiceNumber('PUR'),
             issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
             due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
             total_amount: total,
@@ -932,7 +936,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
             discount_amount: discountAmount,
             tax_amount: taxAmount,
             total_amount: total,
-            status: invoiceStatus || 'draft',
+            status: isQuotation ? 'quotation' : (invoiceStatus || 'draft'),
             currency: invoiceCurrency || 'INR',
             hide_company_details: hideCompanyDetails,
             hide_contact_details: clients.find(c => c.id === formData.client_id)?.hide_contact_details || false
@@ -941,20 +945,22 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
         if (updateError) throw updateError;
 
-        // Stock Reconciliation for Edits (Atomic Batch Reversal & Application)
-        const editOpId = crypto.randomUUID();
-        const { data: oldItems } = await supabase
-          .from('invoice_items')
-          .select('product_id, quantity')
-          .eq('invoice_id', invoiceId);
+        if (!isQuotation) {
+          // Stock Reconciliation for Edits (Atomic Batch Reversal & Application)
+          const editOpId = crypto.randomUUID();
+          const { data: oldItems } = await supabase
+            .from('invoice_items')
+            .select('product_id, quantity')
+            .eq('invoice_id', invoiceId);
 
-        if (oldItems && oldItems.length > 0) {
-          await adjustStockBatch(
-            (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
-            'SALE_CANCEL',
-            invoiceId,
-            `${editOpId}:EDIT_REVERSAL`
-          );
+          if (oldItems && oldItems.length > 0) {
+            await adjustStockBatch(
+              (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
+              'SALE_CANCEL',
+              invoiceId,
+              `${editOpId}:EDIT_REVERSAL`
+            );
+          }
         }
 
         const { error: deleteError } = await supabase
@@ -982,19 +988,22 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
           if (insertError) throw insertError;
 
-          await adjustStockBatch(
-            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-            'SALE',
-            invoiceId,
-            `${editOpId}:EDIT_APPLY`
-          );
+          if (!isQuotation) {
+            const editOpId = crypto.randomUUID();
+            await adjustStockBatch(
+              items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+              'SALE',
+              invoiceId,
+              `${editOpId}:EDIT_APPLY`
+            );
+          }
         }
 
         setSuccessInfo({
-          title: "Invoice Updated",
+          title: isQuotation ? "Quotation Updated" : "Invoice Updated",
           message: invoiceNumber
-            ? `Invoice ${invoiceNumber} has been successfully updated.`
-            : "The invoice has been updated successfully."
+            ? `${isQuotation ? 'Quotation' : 'Invoice'} ${invoiceNumber} has been successfully updated.`
+            : `The ${isQuotation ? 'quotation' : 'invoice'} has been updated successfully.`
         });
 
         // Invalidate relevant queries
@@ -1011,7 +1020,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         let invoiceData = null;
 
         while (attempts < maxAttempts) {
-          const newInvoiceNumber = await generateInvoiceNumber();
+          const newInvoiceNumber = await generateInvoiceNumber(isQuotation ? 'QT' : 'INV');
 
           const { vendor_id, ...standardFormData } = formData;
 
@@ -1028,7 +1037,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
               discount_amount: discountAmount,
               tax_amount: taxAmount,
               total_amount: total,
-              status: 'draft',
+              status: isQuotation ? 'quotation' : 'draft',
               currency: 'INR',
               notes: formData.notes || '',
               terms: formData.terms || ''
@@ -1052,7 +1061,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         }
 
         if (!invoiceData) {
-          throw new Error("Failed to create invoice after retries.");
+          throw new Error("Failed to create document after retries.");
         }
 
         const formattedItems = items.map(item => ({
@@ -1073,30 +1082,37 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
           if (itemsError) throw itemsError;
 
-          const createOpId = crypto.randomUUID();
-          await adjustStockBatch(
-            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-            'SALE',
-            (invoiceData as Invoice).id,
-            `${createOpId}:CREATE`
-          );
+          // Only adjust stock for actual invoices (NOT for quotations)
+          if (!isQuotation) {
+            const createOpId = crypto.randomUUID();
+            await adjustStockBatch(
+              items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+              'SALE',
+              (invoiceData as Invoice).id,
+              `${createOpId}:CREATE`
+            );
+          }
         }
 
-        // ERP Auto-Posting: Sync invoice to Party Ledger statement
-        const clientObj = clients.find(c => c.id === formData.client_id);
-        if (clientObj?.name) {
-          await postInvoiceToLedger({
-            invoiceId: (invoiceData as Invoice).id,
-            invoiceNumber: (invoiceData as Invoice).invoice_number,
-            partyName: clientObj.name,
-            amount: total,
-            type: 'sales'
-          });
+        // ERP Auto-Posting: Sync invoice to Party Ledger statement (NOT for quotations)
+        if (!isQuotation) {
+          const clientObj = clients.find(c => c.id === formData.client_id);
+          if (clientObj?.name) {
+            await postInvoiceToLedger({
+              invoiceId: (invoiceData as Invoice).id,
+              invoiceNumber: (invoiceData as Invoice).invoice_number,
+              partyName: clientObj.name,
+              amount: total,
+              type: 'sales'
+            });
+          }
         }
 
         setSuccessInfo({
-          title: "Invoice Created",
-          message: `Invoice ${(invoiceData as Invoice).invoice_number} has been generated successfully.`
+          title: isQuotation ? "Quotation / Estimate Created" : "Invoice Created",
+          message: isQuotation
+            ? `Quotation ${(invoiceData as Invoice).invoice_number} has been generated successfully.`
+            : `Invoice ${(invoiceData as Invoice).invoice_number} has been generated successfully.`
         });
 
         // Invalidate relevant queries
