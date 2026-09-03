@@ -87,16 +87,32 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
 
   const purchaseVendorOptions = React.useMemo(() => {
     if (!isPurchase) return [];
-    const map = new Map<string, { id: string; name: string }>();
+    // Deduplicate strictly by trimmed lowercase name so no entity appears twice
+    const nameMap = new Map<string, { id: string; name: string }>();
+
+    // 1. Vendors take priority
     (vendors || []).forEach(v => {
-      if (v.id && v.name) map.set(v.id, { id: v.id, name: v.name });
-    });
-    (clients || []).forEach(c => {
-      if (c.id && c.name && !map.has(c.id)) {
-        map.set(c.id, { id: c.id, name: c.name });
+      if (v.id && v.name) {
+        const cleanName = v.name.trim();
+        const key = cleanName.toLowerCase();
+        if (!nameMap.has(key)) {
+          nameMap.set(key, { id: v.id, name: cleanName });
+        }
       }
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+    // 2. Clients only added if no vendor with the same name already exists
+    (clients || []).forEach(c => {
+      if (c.id && c.name) {
+        const cleanName = c.name.trim();
+        const key = cleanName.toLowerCase();
+        if (!nameMap.has(key)) {
+          nameMap.set(key, { id: c.id, name: cleanName });
+        }
+      }
+    });
+
+    return Array.from(nameMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [isPurchase, vendors, clients]);
 
   const selectedParty = React.useMemo(() => {
@@ -273,8 +289,8 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                           </CommandItem>
                         ))
                       ) : (
-                        // Deduplicate clients by id
-                        Array.from(new Map(clients.map(c => [c.id || c.name, c])).values()).map((client) => (
+                        // Deduplicate clients by name so no duplicates appear
+                        Array.from(new Map(clients.map(c => [(c.name ? c.name.trim().toLowerCase() : c.id), c])).values()).map((client) => (
                           <CommandItem
                             key={client.id}
                             value={`${client.name} ${client.phone || ''} ${client.email || ''} ${client.company_name || ''}`}
