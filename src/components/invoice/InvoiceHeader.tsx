@@ -88,7 +88,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
   const purchaseVendorOptions = React.useMemo(() => {
     if (!isPurchase) return [];
     // Deduplicate strictly by trimmed lowercase name so no entity appears twice
-    const nameMap = new Map<string, { id: string; name: string }>();
+    const nameMap = new Map<string, { id: string; name: string; isClient?: boolean }>();
 
     // 1. Vendors take priority
     (vendors || []).forEach(v => {
@@ -96,24 +96,45 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
         const cleanName = v.name.trim();
         const key = cleanName.toLowerCase();
         if (!nameMap.has(key)) {
-          nameMap.set(key, { id: v.id, name: cleanName });
+          nameMap.set(key, { id: v.id, name: cleanName, isClient: false });
         }
       }
     });
 
-    // 2. Clients only added if no vendor with the same name already exists
+    // 2. Clients that can be selected to issue a purchase bill (auto-converts to vendor)
     (clients || []).forEach(c => {
       if (c.id && c.name) {
         const cleanName = c.name.trim();
         const key = cleanName.toLowerCase();
         if (!nameMap.has(key)) {
-          nameMap.set(key, { id: c.id, name: cleanName });
+          nameMap.set(key, { id: c.id, name: cleanName, isClient: true });
         }
       }
     });
 
     return Array.from(nameMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [isPurchase, vendors, clients]);
+
+  // Strictly only show clients in sales bill creation - NEVER show any vendor
+  const salesClientOptions = React.useMemo(() => {
+    if (isPurchase) return [];
+    const vendorNames = new Set((vendors || []).map(v => (v.name || '').trim().toLowerCase()));
+    const vendorIds = new Set((vendors || []).map(v => v.id));
+
+    const clientMap = new Map<string, typeof clients[0]>();
+    (clients || []).forEach(c => {
+      if (c.id && c.name) {
+        const cleanName = c.name.trim();
+        const key = cleanName.toLowerCase();
+        // Disallow any party that exists in vendors
+        if (!vendorNames.has(key) && !vendorIds.has(c.id) && !clientMap.has(key)) {
+          clientMap.set(key, c);
+        }
+      }
+    });
+
+    return Array.from(clientMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [isPurchase, clients, vendors]);
 
   const selectedParty = React.useMemo(() => {
     if (!isLedger) return null;
@@ -277,20 +298,27 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                               setFormData({ ...formData, vendor_id: vendor.id });
                               setClientSearchOpen(false);
                             }}
-                            className="cursor-pointer"
+                            className="cursor-pointer flex items-center justify-between"
                           >
-                            <Check
-                              className={cn(
-                                "mr-2 h-4 w-4",
-                                formData.vendor_id === vendor.id ? "opacity-100" : "opacity-0"
-                              )}
-                            />
-                            {vendor.name}
+                            <div className="flex items-center">
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  formData.vendor_id === vendor.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <span className="font-medium text-foreground">{vendor.name}</span>
+                            </div>
+                            {vendor.isClient && (
+                              <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                Client
+                              </span>
+                            )}
                           </CommandItem>
                         ))
                       ) : (
-                        // Deduplicate clients by name so no duplicates appear
-                        Array.from(new Map(clients.map(c => [(c.name ? c.name.trim().toLowerCase() : c.id), c])).values()).map((client) => (
+                        // Strictly only clients rendered - zero vendors allowed in sale bill creation
+                        salesClientOptions.map((client) => (
                           <CommandItem
                             key={client.id}
                             value={`${client.name} ${client.phone || ''} ${client.email || ''} ${client.company_name || ''}`}

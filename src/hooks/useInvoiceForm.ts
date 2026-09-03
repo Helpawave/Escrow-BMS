@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Client, Product, Vendor, InvoiceItem, Invoice, PurchaseInvoice, Expense } from '@/types/invoice';
 import { adjustStock, adjustStockBatch } from '@/utils/inventory';
-import { postInvoiceToLedger } from '@/utils/erpPosting';
+import { postInvoiceToLedger, syncUserAcrossAllModules } from '@/utils/erpPosting';
 import { calculateItemAmount as calcItemAmount, generateInvoiceNumber as genInvNum } from '@/utils/invoice-helpers';
 import { type HSNCode } from '@/types/hsn';
 import { type InvoiceFormData } from '@/components/invoice/InvoiceHeader';
@@ -653,6 +653,20 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       // Invalidate queries to refresh lists
       queryClient.invalidateQueries({ queryKey: ['vendors'] });
 
+      // Sync to Account Ledger (parties table with status 'give')
+      try {
+        await syncUserAcrossAllModules({
+          name: newVendor.name,
+          email: newVendor.email || '',
+          phone: newVendor.phone || '',
+          companyName: newVendor.name,
+          status: 'give'
+        });
+        queryClient.invalidateQueries({ queryKey: ['parties'] });
+      } catch (pErr) {
+        console.warn("Auto party sync warning for new vendor:", pErr);
+      }
+
       // Use toast instead of success modal to avoid navigating away from create invoice
       toast({
         title: "Vendor Created",
@@ -784,6 +798,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         if (formData.vendor_id) {
           const matchedClient = clients.find(c => c.id === formData.vendor_id);
           const matchedVendor = vendors.find(v => v.id === formData.vendor_id || (matchedClient && v.name.toLowerCase() === matchedClient.name.toLowerCase()));
+          const vendorName = matchedVendor?.name || matchedClient?.name || '';
 
           if (matchedVendor) {
             finalVendorId = matchedVendor.id;
@@ -802,19 +817,85 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
                   city: matchedClient.city || '',
                   state: matchedClient.state || '',
                   postal_code: matchedClient.postal_code || '',
-                  country: matchedClient.country || 'India'
+                  country: matchedClient.country || 'India',
+                  gstin: matchedClient.gstin || ''
                 }])
                 .select('id')
                 .maybeSingle();
 
               if (newVend?.id) {
                 finalVendorId = newVend.id;
-                queryClient.invalidateQueries({ queryKey: ['vendors'] });
               }
             } catch (vErr) {
               console.warn("Auto vendor creation from client warning:", vErr);
             }
           }
+
+          // Once a purchase bill is made for a party:
+          // 1. Remove them from clients table so they no longer appear in Clients page or sale bill dropdown
+          if (matchedClient?.id) {
+            try {
+              await supabase
+                .from('clients')
+                .delete()
+                .eq('id', matchedClient.id)
+                .eq('user_id', activeUserId);
+            } catch (delErr) {
+              console.warn("Client removal after vendor conversion warning:", delErr);
+            }
+          }
+
+          // Also remove any duplicate client record with matching name
+          if (vendorName) {
+            try {
+              await supabase
+                .from('clients')
+                .delete()
+                .ilike('name', vendorName.trim())
+                .eq('user_id', activeUserId);
+            } catch (delErr) {
+              console.warn("Duplicate client cleanup warning:", delErr);
+            }
+          }
+
+          // 2. Ensure party is preserved in Account Ledger (parties table) with status 'give'
+          // All transactions, balances, and history remain intact!
+          if (vendorName) {
+            try {
+              const { data: existingParty } = await supabase
+                .from('parties')
+                .select('id, status')
+                .eq('user_id', activeUserId)
+                .ilike('party_name', vendorName.trim())
+                .maybeSingle();
+
+              if (existingParty) {
+                await supabase
+                  .from('parties')
+                  .update({ status: 'give' })
+                  .eq('id', existingParty.id);
+              } else {
+                await supabase
+                  .from('parties')
+                  .insert([{
+                    id: crypto.randomUUID(),
+                    user_id: activeUserId,
+                    party_name: vendorName.trim(),
+                    sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+                    status: 'give',
+                    commission_type: 'without',
+                    commission_rate: 0
+                  }]);
+              }
+            } catch (pErr) {
+              console.warn("Account ledger party update warning:", pErr);
+            }
+          }
+
+          // Invalidate cache queries so UI immediately updates
+          queryClient.invalidateQueries({ queryKey: ['clients'] });
+          queryClient.invalidateQueries({ queryKey: ['vendors'] });
+          queryClient.invalidateQueries({ queryKey: ['parties'] });
         }
 
         const { client_id, ...purchaseFormData } = formData;

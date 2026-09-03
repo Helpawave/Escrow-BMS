@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LayoutGrid, List as ListIcon } from "lucide-react";
 import { Client } from "@/types/invoice";
 import { useClients } from "@/hooks/useClients";
+import { useVendors } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 
@@ -39,8 +40,27 @@ const ClientsPage = () => {
     searchTerm: debouncedSearch
   });
 
-  const clients = data?.clients || [];
-  const totalCount = data?.totalCount || 0;
+  const { data: vendorsData } = useVendors({ pageSize: 500 });
+  const vendorNames = useMemo(() => {
+    const vList = (vendorsData as any)?.vendors || [];
+    return new Set(vList.map((v: any) => (v.name || '').trim().toLowerCase()));
+  }, [vendorsData]);
+
+  const vendorIds = useMemo(() => {
+    const vList = (vendorsData as any)?.vendors || [];
+    return new Set(vList.map((v: any) => v.id));
+  }, [vendorsData]);
+
+  const rawClients = data?.clients || [];
+  // Exclude clients that have become vendors (they belong exclusively to Vendors page)
+  const clients = useMemo(() => {
+    return rawClients.filter(c => {
+      const cleanName = (c.name || '').trim().toLowerCase();
+      return !vendorNames.has(cleanName) && !vendorIds.has(c.id);
+    });
+  }, [rawClients, vendorNames, vendorIds]);
+
+  const totalCount = clients.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
 
   const [formData, setFormData] = useState({
@@ -116,6 +136,30 @@ const ClientsPage = () => {
   const fetchClients = useCallback(async () => {
     queryClient.invalidateQueries({ queryKey: ['clients'] });
   }, [queryClient]);
+
+  // Auto-cleanup stale client records in database for parties converted to vendors
+  useEffect(() => {
+    if (vendorNames.size > 0 && rawClients.length > 0 && user?.id) {
+      const activeUserId = user.id;
+      const staleClientIds = rawClients
+        .filter(c => {
+          const cleanName = (c.name || '').trim().toLowerCase();
+          return vendorNames.has(cleanName) || vendorIds.has(c.id);
+        })
+        .map(c => c.id);
+
+      if (staleClientIds.length > 0) {
+        supabase
+          .from('clients')
+          .delete()
+          .in('id', staleClientIds)
+          .eq('user_id', activeUserId)
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ['clients'] });
+          });
+      }
+    }
+  }, [vendorNames, vendorIds, rawClients, user?.id, queryClient]);
 
   // Handle specific client navigation from global search
   useEffect(() => {

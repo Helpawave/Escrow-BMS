@@ -17,6 +17,7 @@ import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useVendors } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
+import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 
 export interface Vendor {
   id: string;
@@ -237,14 +238,31 @@ const VendorsPage = () => {
           insertedData = fbData;
         }
 
+        // Sync to Account Ledger (parties table with status 'give')
+        try {
+          await syncUserAcrossAllModules({
+            name: finalizedData.name,
+            email: finalizedData.email,
+            phone: formData.phone,
+            companyName: finalizedData.name,
+            gstin: formData.gstin,
+            address: formData.address,
+            status: 'give'
+          });
+          queryClient.invalidateQueries({ queryKey: ['parties'] });
+        } catch (syncErr) {
+          console.warn("Auto party sync warning for vendor:", syncErr);
+        }
+
         setSuccessInfo({
           title: 'Vendor Registered',
-          message: 'Success! New vendor has been added to your procurement list.'
+          message: 'Success! New vendor has been added to your procurement list and Account Ledger.'
         });
       }
 
       resetForm();
       queryClient.invalidateQueries({ queryKey: ['vendors'] });
+      queryClient.invalidateQueries({ queryKey: ['parties'] });
       setDialogOpen(false);
       setShowSuccess(true);
     } catch (error: unknown) {
