@@ -424,7 +424,7 @@ export default function MembersPage() {
               {!isStaff && (
                 <Button
                   size="lg"
-                  onClick={() => navigate('/teams/add-staff')}
+                  onClick={() => navigate('/members/add-staff')}
                   className="h-14 px-6 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-sm shadow-xl shadow-blue-500/25 transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                 >
                   <UserPlus className="w-5 h-5" />
@@ -530,7 +530,7 @@ export default function MembersPage() {
             </p>
             {staffList.length === 0 && !isStaff && (
               <Button
-                onClick={() => navigate('/teams/add-staff')}
+                onClick={() => navigate('/members/add-staff')}
                 className="h-11 px-6 rounded-xl font-bold bg-primary text-primary-foreground cursor-pointer"
               >
                 <UserPlus className="w-4 h-4 mr-2" />

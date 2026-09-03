@@ -354,6 +354,7 @@ export default function App() {
                           <Route path="/invoices" element={<Navigate to="/billing/invoices" replace />} />
                           <Route path="/invoices/:invoiceId/edit" element={<Navigate to="/billing/invoices/:invoiceId/edit" replace />} />
                           <Route path="/create-invoice" element={<Navigate to="/billing/create-invoice" replace />} />
+                          <Route path="/quotations" element={<Navigate to="/billing/quotations" replace />} />
                           <Route path="/clients" element={<Navigate to="/billing/clients" replace />} />
                           <Route path="/vendors" element={<Navigate to="/billing/vendors" replace />} />
                           <Route path="/purchase-invoices" element={<Navigate to="/billing/purchase-invoices" replace />} />
@@ -361,12 +362,16 @@ export default function App() {
                           <Route path="/payments" element={<Navigate to="/billing/payments" replace />} />
                           <Route path="/e-invoice" element={<Navigate to="/billing/e-invoice" replace />} />
 
-                          <Route path="/employees" element={<Navigate to="/payroll/employees" replace />} />
+                          <Route path="/products" element={<Navigate to="/inventory/products" replace />} />
+                          <Route path="/products/new" element={<Navigate to="/inventory/products/new" replace />} />
+                          <Route path="/add-product" element={<Navigate to="/inventory/products/new" replace />} />
+                          <Route path="/inventory/add-product" element={<Navigate to="/inventory/products/new" replace />} />
 
+                          <Route path="/employees" element={<Navigate to="/payroll/employees" replace />} />
+                          <Route path="/salary" element={<Navigate to="/payroll/payroll" replace />} />
                           <Route path="/attendance" element={<Navigate to="/payroll/attendance" replace />} />
                           <Route path="/leave" element={<Navigate to="/payroll/leave" replace />} />
                           <Route path="/payslips" element={<Navigate to="/payroll/payslips" replace />} />
-
 
                           <Route path="/transfer" element={<Navigate to="/ledger/transfer" replace />} />
                           <Route path="/create/party" element={<Navigate to="/billing/clients" replace />} />
@@ -378,7 +383,6 @@ export default function App() {
                           <Route path="/reports/transactions" element={<Navigate to="/ledger/reports/transactions" replace />} />
 
                           <Route path="/scan" element={<Navigate to="/inventory/scan" replace />} />
-                          <Route path="/users" element={<Navigate to="/inventory/users" replace />} />
 
                           <Route path="/leads" element={<Navigate to="/crm/leads" replace />} />
                           <Route path="/contacts" element={<Navigate to="/crm/contacts" replace />} />

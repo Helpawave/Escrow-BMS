@@ -229,11 +229,11 @@ export default function AddStaffPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate('/teams')}
+            onClick={() => navigate('/members')}
             className="h-10 px-3.5 rounded-xl font-bold border-2 hover:bg-muted/50 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4 mr-1.5" />
-            <span>Back to Teams</span>
+            <span>Back to Staff Directory</span>
           </Button>
 
           <div>
@@ -454,7 +454,7 @@ export default function AddStaffPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate('/teams')}
+              onClick={() => navigate('/members')}
               className="w-full sm:w-auto h-12 px-6 font-bold rounded-2xl border-2 cursor-pointer"
             >
               Cancel & Return
@@ -554,11 +554,11 @@ export default function AddStaffPage() {
             <Button
               onClick={() => {
                 setShowCredentialsModal(false);
-                navigate('/teams');
+                navigate('/members');
               }}
               className="w-full h-11 font-black rounded-xl bg-primary text-primary-foreground cursor-pointer"
             >
-              Go to Teams Directory
+              Go to Staff Directory
             </Button>
           </DialogFooter>
         </DialogContent>
