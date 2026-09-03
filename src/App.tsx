@@ -243,6 +243,7 @@ export default function App() {
                         <Routes>
                           {/* Public Landing Page & Company/Legal Pages */}
                           <Route path="/" element={<Landing />} />
+                          <Route path="/pricing" element={<Pricing />} />
                           <Route path="/about" element={<AboutUs />} />
                           <Route path="/contact" element={<ContactUs />} />
                           <Route path="/privacy" element={<PrivacyPolicy />} />
@@ -268,7 +269,6 @@ export default function App() {
                             }
                           >
                             <Route path="/dashboard" element={<Dashboard />} />
-                            <Route path="/pricing" element={<Pricing />} />
                             <Route path="/settings" element={<Settings />} />
                             <Route path="/users" element={<UsersPage />} />
                             <Route path="/members" element={<MembersPage />} />
