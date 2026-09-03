@@ -934,8 +934,8 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
           </h1>
           <p className="text-xs md:text-base text-muted-foreground mt-1">
             {isQuotationTab
-              ? 'Create, manage, and convert price quotations into tax invoices'
-              : 'Create and manage GST tax invoices and client billing'}
+              ? 'Manage price quotes and estimates for your clients'
+              : 'Manage customer sales invoices, receivables and payments'}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
@@ -950,26 +950,15 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
               <span className="text-sm md:text-base">Create Quotation</span>
             </Button>
           ) : (
-            <>
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={() => navigate('/billing/create-invoice?type=ledger')}
-                className="w-full sm:w-auto h-11 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 font-bold"
-              >
-                <BookOpen className="w-4 h-4 mr-2 text-blue-600" />
-                <span className="text-sm md:text-base">Ledger Billing</span>
-              </Button>
-              <Button
-                variant="default"
-                size="lg"
-                onClick={() => navigate('/billing/create-invoice')}
-                className="w-full sm:w-auto h-11 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                <span className="text-sm md:text-base">Create Invoice</span>
-              </Button>
-            </>
+            <Button
+              variant="default"
+              size="lg"
+              onClick={() => navigate('/billing/create-invoice')}
+              className="w-full sm:w-auto h-11 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              <span className="text-sm md:text-base">Create Sales Invoice</span>
+            </Button>
           )}
         </div>
       </div>
@@ -979,7 +968,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             type="text"
-            placeholder={isQuotationTab ? "Search by quotation number or client name..." : "Search by invoice number or client name..."}
+            placeholder={isQuotationTab ? "Search quotations by number, client name, email or phone..." : "Search invoices by number, client name, email or phone..."}
             className="pl-10 h-11 bg-background border-border/50 rounded-xl"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -1002,7 +991,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
               </>
             ) : (
               <>
-                <option value="sales_only">All Invoices</option>
+                <option value="sales_only">All Statuses</option>
                 <option value="draft">Draft Invoices</option>
                 <option value="sent">Sent Invoices</option>
                 <option value="paid">Paid Invoices</option>
@@ -1042,18 +1031,22 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
       ) : invoices.length === 0 ? (
         <Card className="p-4 md:p-6 md:p-8 text-center bg-card dark:bg-card">
           <FileText className="w-12 h-12 md:w-16 md:h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg md:text-xl font-semibold text-foreground mb-2">No Invoices Found</h3>
+          <h3 className="text-lg md:text-xl font-semibold text-foreground mb-2">
+            {isQuotationTab ? 'No Quotations Found' : 'No Sales Invoices Found'}
+          </h3>
           <p className="text-sm md:text-base text-muted-foreground mb-4">
-            {totalCount === 0 ? "Create your first invoice to start billing your clients." : "No invoices match your search criteria."}
+            {totalCount === 0 
+              ? (isQuotationTab ? "Start creating price quotes and estimates for your clients." : "Start issuing GST and tax invoices to your clients.") 
+              : (isQuotationTab ? "No quotations match your search criteria." : "No invoices match your search criteria.")}
           </p>
           {totalCount === 0 && (
             <Button
               variant="default"
-              onClick={() => navigate('/create-invoice')}
+              onClick={() => navigate(isQuotationTab ? '/billing/create-invoice?type=quotation' : '/create-invoice')}
               className="w-full sm:w-auto"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create Your First Invoice
+              {isQuotationTab ? 'Create First Quotation' : 'Create First Sales Invoice'}
             </Button>
           )}
         </Card>
