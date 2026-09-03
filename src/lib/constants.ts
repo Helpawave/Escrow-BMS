@@ -127,7 +127,6 @@ export const MODULE_MENUS: Record<ModuleKey, MenuItemDefinition[]> = {
   ],
   billing: [
     { labelKey: 'Sales Invoices', route: '/billing/invoices', icon: Receipt },
-    { labelKey: 'Ledger Billing', route: '/billing/create-invoice?type=ledger', icon: BookOpen },
     { labelKey: 'Quotations', route: '/billing/quotations', icon: FileText },
     { labelKey: 'Purchase Invoices', route: '/billing/purchase-invoices', icon: ShoppingBag },
     { labelKey: 'Payments', route: '/billing/payments', icon: CreditCard },

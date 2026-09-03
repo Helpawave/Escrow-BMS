@@ -101,16 +101,6 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Ledger Billing Shortcut Button */}
-          <button
-            onClick={() => navigate('/billing/create-invoice?type=ledger')}
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition-all cursor-pointer active:scale-95"
-            title="Create Ledger Bill from Remaining Balance"
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Ledger Billing</span>
-          </button>
-
           {/* Company Pill */}
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span className="font-bold truncate max-w-[140px]">

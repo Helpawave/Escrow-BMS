@@ -114,62 +114,6 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 4-Way Mode Toggle Tabs */}
-      <div className="flex flex-wrap p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-2xl gap-1.5 shadow-inner">
-        <Button 
-          type="button" 
-          variant="ghost"
-          onClick={() => handleTabChange('sales')}
-          className={cn(
-            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
-            billingType === 'sales' 
-              ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/25 font-black" 
-              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
-          )}
-        >
-          <span>Sales Invoice</span>
-        </Button>
-        <Button 
-          type="button" 
-          variant="ghost"
-          onClick={() => handleTabChange('quotation')}
-          className={cn(
-            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
-            billingType === 'quotation' 
-              ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md shadow-orange-500/25 font-black" 
-              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
-          )}
-        >
-          <span>Quotation / Estimate</span>
-        </Button>
-        <Button 
-          type="button" 
-          variant="ghost"
-          onClick={() => handleTabChange('purchase')}
-          className={cn(
-            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer",
-            billingType === 'purchase' 
-              ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/25 font-black" 
-              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
-          )}
-        >
-          <span>Purchase Bill</span>
-        </Button>
-        <Button 
-          type="button" 
-          variant="ghost"
-          onClick={() => handleTabChange('ledger')}
-          className={cn(
-            "flex-1 min-w-[120px] h-10 sm:h-11 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer",
-            billingType === 'ledger' 
-              ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/25 font-black" 
-              : "text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white"
-          )}
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>Ledger Billing</span>
-        </Button>
-      </div>
 
       {/* Quotation Estimate Notice Banner */}
       {isQuotation && (
