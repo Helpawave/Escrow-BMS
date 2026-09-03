@@ -101,9 +101,12 @@ export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
       linked_transaction_id: tnsId,
       remarks: `[ERP Auto] ${isSales ? 'Sales Invoice' : 'Purchase Bill'} #${payload.invoiceNumber}`,
       tns_type: isSales ? 'DR' : 'CR',
+      type: isSales ? 'DR' : 'CR',
       debit,
       credit,
       amount: payload.amount,
+      date: payload.date || new Date().toISOString(),
+      transaction_date: payload.date || new Date().toISOString(),
       created_at: payload.date || new Date().toISOString()
     }]);
 
@@ -155,9 +158,12 @@ export async function postPaymentToLedger(payload: ERPPaymentPostingPayload) {
       linked_transaction_id: tnsId,
       remarks: `[ERP Auto] Payment ${isReceived ? 'Received' : 'Made'} (${payload.paymentMode || 'Cash'}) for Inv #${payload.invoiceNumber}`,
       tns_type: isReceived ? 'CR' : 'DR',
+      type: isReceived ? 'CR' : 'DR',
       credit,
       debit,
       amount: payload.amount,
+      date: payload.date || new Date().toISOString(),
+      transaction_date: payload.date || new Date().toISOString(),
       created_at: payload.date || new Date().toISOString()
     }]);
 
@@ -250,9 +256,12 @@ export async function postHisabToLedger(payload: ERPHisabPostingPayload) {
       linked_transaction_id: tnsId,
       remarks: `[ERP Hisab Auto] ${payload.remarks || 'Daily Hisab Entry'}`,
       tns_type: isIncome ? 'CR' : 'DR',
+      type: isIncome ? 'CR' : 'DR',
       credit,
       debit,
       amount: payload.amount,
+      date: new Date().toISOString(),
+      transaction_date: new Date().toISOString(),
       created_at: new Date().toISOString()
     }]);
 

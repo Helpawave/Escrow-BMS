@@ -514,9 +514,12 @@ export const useLedgerTransactions = ({
           linked_transaction_id: anchorId,
           remarks: editFormData.remarks || '',
           tns_type: primaryType,
+          type: primaryType,
           credit: creditA,
           debit: debitA,
           amount: absAmt,
+          date: tnsA.created_at || new Date().toISOString(),
+          transaction_date: tnsA.created_at || new Date().toISOString(),
           created_at: tnsA.created_at || new Date().toISOString()
         },
         {
@@ -526,9 +529,12 @@ export const useLedgerTransactions = ({
           linked_transaction_id: anchorId,
           remarks: editFormData.remarks || '',
           tns_type: secondaryType,
+          type: secondaryType,
           credit: creditB,
           debit: debitB,
           amount: absAmt,
+          date: tnsA.created_at || new Date().toISOString(),
+          transaction_date: tnsA.created_at || new Date().toISOString(),
           created_at: tnsA.created_at || new Date().toISOString()
         }
       ]);
@@ -543,9 +549,11 @@ export const useLedgerTransactions = ({
             linked_transaction_id: anchorId,
             remarks: editFormData.remarks || '',
             tns_type: primaryType,
+            type: primaryType,
             credit: creditA,
             debit: debitA,
-            amount: absAmt
+            amount: absAmt,
+            date: tnsA.created_at || new Date().toISOString()
           },
           {
             id: generateUUID(),
@@ -554,9 +562,11 @@ export const useLedgerTransactions = ({
             linked_transaction_id: anchorId,
             remarks: editFormData.remarks || '',
             tns_type: secondaryType,
+            type: secondaryType,
             credit: creditB,
             debit: debitB,
-            amount: absAmt
+            amount: absAmt,
+            date: tnsA.created_at || new Date().toISOString()
           }
         ]);
         insertErr = fbRes.error;
@@ -875,9 +885,12 @@ export const useLedgerTransactions = ({
           linked_transaction_id: chainId,
           remarks: remarksVal || '',
           tns_type: firstPartyType,
+          type: firstPartyType,
           credit: creditA,
           debit: debitA,
           amount: absAmt,
+          date: new Date().toISOString(),
+          transaction_date: new Date().toISOString(),
           created_at: new Date().toISOString()
         },
         {
@@ -887,9 +900,12 @@ export const useLedgerTransactions = ({
           linked_transaction_id: chainId,
           remarks: remarksVal || '',
           tns_type: secondPartyType,
+          type: secondPartyType,
           credit: creditB,
           debit: debitB,
           amount: absAmt,
+          date: new Date().toISOString(),
+          transaction_date: new Date().toISOString(),
           created_at: new Date().toISOString()
         }
       ]);

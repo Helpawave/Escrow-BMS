@@ -1,11 +1,21 @@
 -- ==============================================================================
--- ESCROW BMS: ACCOUNT LEDGER COMPLETE DATABASE FIX (V2 - Amount & Direct Parity)
+-- ESCROW BMS: ACCOUNT LEDGER COMPLETE DATABASE FIX (V3 - Date & Amount Defaults)
 -- Run this in Supabase SQL Editor: https://supabase.com/dashboard/project/ahdcjmydbsxoibvplmuz/sql/new
 -- ==============================================================================
 
--- 1. Ensure amount column in transactions is nullable or defaults to 0
+-- 1. Fix legacy columns in transactions table
 DO $$
 BEGIN
+  -- Fix date column if exists
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'date'
+  ) THEN
+    ALTER TABLE public.transactions ALTER COLUMN date DROP NOT NULL;
+    ALTER TABLE public.transactions ALTER COLUMN date SET DEFAULT timezone('utc'::text, now());
+  END IF;
+
+  -- Fix amount column if exists
   IF EXISTS (
     SELECT 1 FROM information_schema.columns 
     WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'amount'
@@ -14,6 +24,15 @@ BEGIN
     ALTER TABLE public.transactions ALTER COLUMN amount SET DEFAULT 0;
   ELSE
     ALTER TABLE public.transactions ADD COLUMN amount NUMERIC DEFAULT 0;
+  END IF;
+
+  -- Fix type column if exists
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'type'
+  ) THEN
+    ALTER TABLE public.transactions ALTER COLUMN type DROP NOT NULL;
+    ALTER TABLE public.transactions ALTER COLUMN type SET DEFAULT 'CR';
   END IF;
 END $$;
 
@@ -79,7 +98,7 @@ TO authenticated
 USING (auth.uid() = user_id)
 WITH CHECK (auth.uid() = user_id);
 
--- 6. Atomic procedure for ledger transaction posting with amount populated
+-- 6. Atomic procedure for ledger transaction posting
 CREATE OR REPLACE FUNCTION public.post_ledger_transaction(
   p_user_id UUID,
   p_party_id UUID,
@@ -100,6 +119,7 @@ DECLARE
   v_debit_a NUMERIC := 0;
   v_credit_b NUMERIC := 0;
   v_debit_b NUMERIC := 0;
+  v_has_date_col BOOLEAN := false;
 BEGIN
   IF p_amount <= 0 THEN
     RETURN jsonb_build_object('success', false, 'error', 'Amount must be greater than zero');
@@ -115,18 +135,18 @@ BEGIN
     v_credit_b := p_amount;
   END IF;
 
-  -- Insert entry for Party A (including amount)
+  -- Insert entry for Party A
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, transaction_date, created_at
   ) VALUES (
-    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, p_amount, NOW()
+    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, p_amount, NOW(), NOW()
   );
 
-  -- Insert entry for Party B (including amount)
+  -- Insert entry for Party B
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, transaction_date, created_at
   ) VALUES (
-    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, p_amount, NOW()
+    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, p_amount, NOW(), NOW()
   );
 
   -- Update running balances on parties
