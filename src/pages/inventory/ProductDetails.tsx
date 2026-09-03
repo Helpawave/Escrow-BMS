@@ -13,7 +13,7 @@ export const ProductDetails = () => {
         return (
             <div className="p-6">
                 <h1 className="text-2xl font-bold">Product not found</h1>
-                <Button onClick={() => navigate("/products")} className="mt-4">
+                <Button onClick={() => navigate("/inventory/products")} className="mt-4">
                     Back to Products
                 </Button>
             </div>
@@ -23,11 +23,11 @@ export const ProductDetails = () => {
     return (
         <div className="space-y-6 animate-fade-in">
             <div className="flex items-center space-x-4">
-                <Button variant="ghost" size="icon" onClick={() => navigate("/products")}>
+                <Button variant="ghost" size="icon" onClick={() => navigate("/inventory/products")}>
                     <ArrowLeft className="w-5 h-5" />
                 </Button>
                 <h1 className="text-3xl font-bold tracking-tight">Product Details</h1>
-                <Button onClick={() => navigate(`/products/edit/${id}`, { state: { product } })} className="ml-auto">
+                <Button onClick={() => navigate(`/inventory/product/edit/${id}`, { state: { product } })} className="ml-auto">
                     <Edit className="w-4 h-4 mr-2" />
                     Edit Product
                 </Button>

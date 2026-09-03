@@ -1842,7 +1842,7 @@ const EInvoicePage = () => {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" asChild className="h-12 px-6 font-black rounded-xl border-2 uppercase text-[10px] tracking-widest hidden md:flex">
-                  <Link to="/products">Manage Catalog</Link>
+                  <Link to="/inventory/products">Manage Catalog</Link>
                 </Button>
                 <Button
                   variant="hero"

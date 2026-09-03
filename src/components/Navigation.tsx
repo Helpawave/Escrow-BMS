@@ -41,7 +41,7 @@ const navigationItems = [
       { label: "Manage Vendors", path: "/vendors", importKey: "Vendors" }
     ]
   },
-  { icon: Receipt, label: "Products", path: "/products", importKey: "Products" },
+  { icon: Receipt, label: "Products", path: "/inventory/products", importKey: "Products" },
   { icon: CreditCard, label: "Payments", path: "/payments", importKey: "Payments" },
   { icon: Receipt, label: "Expenses", path: "/expenses", importKey: "Expenses" },
   { icon: FileText, label: "E-Invoice", path: "/einvoice", importKey: "EInvoice" },

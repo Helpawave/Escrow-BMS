@@ -36,7 +36,7 @@ export const EditProduct = () => {
         return (
             <div className="p-6">
                 <h1 className="text-2xl font-bold">Product not found</h1>
-                <Button onClick={() => navigate("/products")} className="mt-4">
+                <Button onClick={() => navigate("/inventory/products")} className="mt-4">
                     Back to Products
                 </Button>
             </div>
@@ -60,13 +60,13 @@ export const EditProduct = () => {
 
         updateProduct(product.id, updatedProduct);
         toast.success("Product updated successfully");
-        navigate("/products");
+        navigate("/inventory/products");
     };
 
     return (
         <div className="space-y-6 animate-fade-in">
             <div className="flex items-center space-x-4">
-                <Button variant="ghost" size="icon" onClick={() => navigate("/products")}>
+                <Button variant="ghost" size="icon" onClick={() => navigate("/inventory/products")}>
                     <ArrowLeft className="w-5 h-5" />
                 </Button>
                 <h1 className="text-3xl font-bold tracking-tight">Edit Product</h1>
@@ -181,7 +181,7 @@ export const EditProduct = () => {
                     </div>
 
                     <div className="flex justify-end gap-2 pt-4">
-                        <Button variant="outline" onClick={() => navigate("/products")}>Cancel</Button>
+                        <Button variant="outline" onClick={() => navigate("/inventory/products")}>Cancel</Button>
                         <Button onClick={handleSave}>
                             <Save className="w-4 h-4 mr-2" />
                             Save Changes
