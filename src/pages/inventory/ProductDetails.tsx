@@ -2,12 +2,14 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Edit } from "lucide-react";
+import { useProducts } from "@/contexts/ProductsContext";
 
 export const ProductDetails = () => {
     const { id } = useParams();
     const location = useLocation();
     const navigate = useNavigate();
-    const product = location.state?.product;
+    const { products } = useProducts();
+    const product = location.state?.product || products.find(p => String(p.id) === String(id));
 
     if (!product) {
         return (

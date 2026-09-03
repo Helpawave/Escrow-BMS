@@ -38,7 +38,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download, Tag, Calendar, AlertTriangle, Printer } from "lucide-react";
+import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download, Tag, Calendar, AlertTriangle, Printer, RefreshCw, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProducts, Product } from "@/contexts/ProductsContext";
 import { BarcodeStickerModal, BarcodeProductInfo } from "@/components/inventory/BarcodeStickerModal";
@@ -46,11 +46,16 @@ import { BarcodeStickerModal, BarcodeProductInfo } from "@/components/inventory/
 export const Products = () => {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const { products, addProduct, deleteProduct } = useProducts();
+  const { products, addProduct, deleteProduct, refreshProducts, isLoading } = useProducts();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
   const [stickerModalProduct, setStickerModalProduct] = useState<BarcodeProductInfo | null>(null);
+
+  // Sync products on mount
+  useEffect(() => {
+    refreshProducts();
+  }, [refreshProducts]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -128,8 +133,9 @@ export const Products = () => {
       return;
     }
 
+    const numIds = products.filter(p => typeof p.id === 'number').map(p => p.id as number);
     const newProduct: Product = {
-      id: Math.max(0, ...products.map(p => p.id)) + 1,
+      id: (numIds.length > 0 ? Math.max(0, ...numIds) : 0) + 1,
       sku: formData.sku.toUpperCase(),
       name: formData.name,
       category: formData.category,
@@ -151,7 +157,7 @@ export const Products = () => {
     toast.success("Product added successfully");
   };
 
-  const handleDeleteProduct = (id: number) => {
+  const handleDeleteProduct = (id: number | string) => {
     deleteProduct(id);
     toast.success("Product deleted successfully");
   };
@@ -244,6 +250,18 @@ export const Products = () => {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              refreshProducts();
+              toast.info("Syncing inventory with database...");
+            }}
+            disabled={isLoading}
+            className="flex items-center space-x-2 w-full sm:w-auto cursor-pointer"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#5644E6]' : ''}`} />
+            <span>Sync Live</span>
+          </Button>
           <Button
             onClick={() => navigate('/inventory/products/new')}
             className="flex items-center space-x-2 w-full sm:w-auto bg-[#5644E6] hover:bg-[#4533d5] text-white font-bold cursor-pointer shadow-xs"
@@ -392,7 +410,7 @@ export const Products = () => {
             <span>Product Inventory</span>
           </CardTitle>
           <CardDescription>
-            {filteredProducts.length} products found
+            {isLoading ? "Fetching products from database..." : `${filteredProducts.length} products found`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -412,7 +430,36 @@ export const Products = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((product) => {
+                {isLoading && products.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-6 h-6 animate-spin text-[#5644E6]" />
+                        <span className="text-sm text-muted-foreground font-medium">Loading products from database...</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredProducts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12">
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <Package className="w-10 h-10 text-muted-foreground/50" />
+                        <div className="text-sm font-medium text-muted-foreground">
+                          {searchTerm ? "No products match your search criteria." : "No products found in inventory."}
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => navigate('/inventory/products/new')}
+                          className="bg-[#5644E6] text-white hover:bg-[#4533d5]"
+                        >
+                          <Plus className="w-4 h-4 mr-1.5" />
+                          Add First Product
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredProducts.map((product) => {
                   const hasSecondaryUnit = product.secondary_unit && product.conversion_factor && product.conversion_factor > 0;
                   const secondaryQuantity = hasSecondaryUnit ? (product.quantity / (product.conversion_factor || 1)).toFixed(1) : null;
 
@@ -519,7 +566,8 @@ export const Products = () => {
                       </TableCell>
                     </TableRow>
                   );
-                })}
+                })
+              )}
               </TableBody>
             </Table>
           </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,8 +17,8 @@ export const EditProduct = () => {
     const { id } = useParams();
     const location = useLocation();
     const navigate = useNavigate();
-    const { updateProduct } = useProducts();
-    const product = location.state?.product;
+    const { updateProduct, products } = useProducts();
+    const product = location.state?.product || products.find(p => String(p.id) === String(id));
 
     const [formData, setFormData] = useState(product || {
         sku: "",
@@ -31,6 +31,13 @@ export const EditProduct = () => {
         location: "",
         description: ""
     });
+
+    // Update formData if product resolves after initial render
+    useEffect(() => {
+        if (product && !formData.sku && !formData.name) {
+            setFormData(product);
+        }
+    }, [product]);
 
     if (!product) {
         return (
