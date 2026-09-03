@@ -810,7 +810,7 @@ export const useLedgerTransactions = ({
     };
   };
 
-  const createTransactionEntry = async (amountVal: string, remarksVal: string, linkedPartyVal: Party, _customIdempotencyKey?: string) => {
+  const createTransactionEntry = async (amountVal: string, remarksVal: string, linkedPartyVal: Party, customIdempotencyKey?: string) => {
     if (!selectedParty || !amountVal || parseFloat(amountVal) === 0 || !linkedPartyVal || !authUser) return false;
     setSubmitting(true);
     const parsedAmt = parseFloat(amountVal);
@@ -818,9 +818,33 @@ export const useLedgerTransactions = ({
     const absAmt = Math.abs(numAmt);
     const firstPartyType = numAmt > 0 ? 'CR' : 'DR';
     const secondPartyType = numAmt > 0 ? 'DR' : 'CR';
-    const chainId = generateUUID();
 
     try {
+      // 1. Try atomic database RPC
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('post_ledger_transaction', {
+          p_user_id: authUser.id,
+          p_party_id: selectedParty.id,
+          p_linked_party_id: linkedPartyVal.id,
+          p_amount: absAmt,
+          p_tns_type: firstPartyType,
+          p_remarks: remarksVal || '',
+          p_idempotency_key: customIdempotencyKey || `op-${crypto.randomUUID()}`
+        });
+
+        if (!rpcError && rpcData?.success) {
+          await Promise.all([
+            fetchParties(),
+            fetchTransactions(selectedParty.id)
+          ]);
+          return true;
+        }
+      } catch (rpcEx) {
+        console.warn("RPC post_ledger_transaction fallback to direct insert:", rpcEx);
+      }
+
+      // 2. Direct insert
+      const chainId = generateUUID();
       const [balA, balB] = await Promise.all([
         getBalance(selectedParty.id),
         getBalance(linkedPartyVal.id)
@@ -834,9 +858,10 @@ export const useLedgerTransactions = ({
       const debitB = secondPartyType === 'DR' ? absAmt : 0;
       const newBalB = balB + creditB - debitB;
 
-      let { error: insertErr } = await supabase.from('transactions').insert([
+      const { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: chainId,
+          user_id: authUser.id,
           party_id: selectedParty.id,
           linked_transaction_id: chainId,
           remarks: remarksVal || '',
@@ -847,6 +872,7 @@ export const useLedgerTransactions = ({
         },
         {
           id: generateUUID(),
+          user_id: authUser.id,
           party_id: linkedPartyVal.id,
           linked_transaction_id: chainId,
           remarks: remarksVal || '',
@@ -856,31 +882,6 @@ export const useLedgerTransactions = ({
           created_at: new Date().toISOString()
         }
       ]);
-
-      if (insertErr) {
-        console.warn("Primary transaction insert failed, retrying minimal schema:", insertErr);
-        const resFb = await supabase.from('transactions').insert([
-          {
-            id: chainId,
-            party_id: selectedParty.id,
-            linked_transaction_id: chainId,
-            remarks: remarksVal || '',
-            tns_type: firstPartyType,
-            credit: creditA,
-            debit: debitA
-          },
-          {
-            id: generateUUID(),
-            party_id: linkedPartyVal.id,
-            linked_transaction_id: chainId,
-            remarks: remarksVal || '',
-            tns_type: secondPartyType,
-            credit: creditB,
-            debit: debitB
-          }
-        ]);
-        insertErr = resFb.error;
-      }
 
       if (insertErr) throw insertErr;
 
