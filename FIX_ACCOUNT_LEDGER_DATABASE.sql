@@ -1,9 +1,35 @@
 -- ==============================================================================
--- ESCROW BMS: COMPLETE ACCOUNT LEDGER DATABASE MASTER SYNC
+-- ESCROW BMS: COMPLETE ACCOUNT LEDGER MASTER SYNC & CONSTRAINT REMOVER
 -- Run this in Supabase SQL Editor: https://supabase.com/dashboard/project/ahdcjmydbsxoibvplmuz/sql/new
 -- ==============================================================================
 
--- 1. PARTIES TABLE
+-- 1. DYNAMICALLY DROP ALL OLD/CONFLICTING CHECK CONSTRAINTS
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    -- Drop any check constraints on public.transactions (like transactions_type_check)
+    FOR r IN (
+        SELECT conname 
+        FROM pg_constraint 
+        WHERE conrelid = 'public.transactions'::regclass 
+          AND contype = 'c'
+    ) LOOP
+        EXECUTE 'ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS ' || quote_ident(r.conname) || ' CASCADE;';
+    END LOOP;
+
+    -- Drop any check constraints on public.parties
+    FOR r IN (
+        SELECT conname 
+        FROM pg_constraint 
+        WHERE conrelid = 'public.parties'::regclass 
+          AND contype = 'c'
+    ) LOOP
+        EXECUTE 'ALTER TABLE public.parties DROP CONSTRAINT IF EXISTS ' || quote_ident(r.conname) || ' CASCADE;';
+    END LOOP;
+END $$;
+
+-- 2. PARTIES TABLE SYNC
 CREATE TABLE IF NOT EXISTS public.parties (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -32,7 +58,7 @@ ALTER TABLE public.parties
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 
--- 2. TRANSACTIONS TABLE
+-- 3. TRANSACTIONS TABLE SYNC
 CREATE TABLE IF NOT EXISTS public.transactions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -42,7 +68,6 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   date TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
   remarks TEXT DEFAULT '',
   tns_type TEXT DEFAULT 'CR',
-  type TEXT DEFAULT 'CR',
   credit NUMERIC NOT NULL DEFAULT 0,
   debit NUMERIC NOT NULL DEFAULT 0,
   amount NUMERIC DEFAULT 0,
@@ -56,7 +81,6 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
 
--- Ensure all columns and relax legacy constraints
 ALTER TABLE public.transactions
   ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   ADD COLUMN IF NOT EXISTS party_id UUID REFERENCES public.parties(id) ON DELETE CASCADE,
@@ -65,7 +89,6 @@ ALTER TABLE public.transactions
   ADD COLUMN IF NOT EXISTS date TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
   ADD COLUMN IF NOT EXISTS remarks TEXT DEFAULT '',
   ADD COLUMN IF NOT EXISTS tns_type TEXT DEFAULT 'CR',
-  ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'CR',
   ADD COLUMN IF NOT EXISTS credit NUMERIC NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS debit NUMERIC NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS amount NUMERIC DEFAULT 0,
@@ -90,11 +113,10 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'type') THEN
     ALTER TABLE public.transactions ALTER COLUMN type DROP NOT NULL;
-    ALTER TABLE public.transactions ALTER COLUMN type SET DEFAULT 'CR';
   END IF;
 END $$;
 
--- 3. TRANSFER SHEET TABLES (for Transfer Entry / Sheet)
+-- 4. TRANSFER SHEET TABLES
 CREATE TABLE IF NOT EXISTS public.transfer_entries (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL DEFAULT auth.uid(),
@@ -118,14 +140,14 @@ CREATE TABLE IF NOT EXISTS public.transfer_sheet_status (
   updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
 
--- 4. ENABLE RLS
+-- 5. ENABLE RLS
 ALTER TABLE public.parties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_custom_right_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_sheet_status ENABLE ROW LEVEL SECURITY;
 
--- 5. RECREATE PERMISSIVE RLS POLICIES
+-- 6. RECREATE RLS POLICIES
 DO $$
 BEGIN
   DROP POLICY IF EXISTS "parties_all_policy" ON public.parties;
@@ -157,8 +179,7 @@ USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "transfer_sheet_status_all_policy" ON public.transfer_sheet_status FOR ALL TO authenticated 
 USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- 6. ATOMIC PROCEDURES (RPCs)
--- (A) Execute Monday Final Settlement
+-- 7. ATOMIC PROCEDURES (RPCs)
 CREATE OR REPLACE FUNCTION public.execute_monday_final(
   p_party_id UUID, 
   p_user_id UUID, 
@@ -177,12 +198,12 @@ BEGIN
   v_debit := CASE WHEN p_closing_balance < 0 THEN abs(p_closing_balance) else 0 end;
 
   INSERT INTO public.transactions (
-    id, party_id, remarks, tns_type, type, credit, debit, amount, balance, 
+    id, party_id, remarks, tns_type, credit, debit, amount, balance, 
     is_settlement, is_finalized, user_id, date, transaction_date, created_at
   )
   VALUES (
     gen_random_uuid(), p_party_id, COALESCE(p_remarks, 'MONDAY FINAL SETTLEMENT'), 
-    v_tns_type, v_tns_type, v_credit, v_debit, abs(p_closing_balance), p_closing_balance, 
+    v_tns_type, v_credit, v_debit, abs(p_closing_balance), p_closing_balance, 
     true, false, p_user_id, NOW(), NOW(), NOW()
   )
   RETURNING id INTO v_settlement_id;
@@ -199,7 +220,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- (B) Post Ledger Transaction (Double-entry)
 CREATE OR REPLACE FUNCTION public.post_ledger_transaction(
   p_user_id UUID,
   p_party_id UUID,
@@ -236,15 +256,15 @@ BEGIN
   END IF;
 
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, type, credit, debit, amount, date, transaction_date, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, date, transaction_date, created_at
   ) VALUES (
-    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, p_tns_type, v_credit_a, v_debit_a, p_amount, NOW(), NOW(), NOW()
+    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, p_amount, NOW(), NOW(), NOW()
   );
 
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, type, credit, debit, amount, date, transaction_date, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, date, transaction_date, created_at
   ) VALUES (
-    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_second_type, v_credit_b, v_debit_b, p_amount, NOW(), NOW(), NOW()
+    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, p_amount, NOW(), NOW(), NOW()
   );
 
   UPDATE public.parties 
@@ -261,5 +281,4 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
--- Reload Supabase Schema Cache
 NOTIFY pgrst, 'reload schema';
