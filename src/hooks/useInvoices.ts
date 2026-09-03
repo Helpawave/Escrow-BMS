@@ -26,9 +26,12 @@ export function useInvoices({ page = 1, pageSize = 50, searchTerm = "", statusFi
         .order('created_at', { ascending: false });
 
       if (statusFilter === 'sales_only') {
-        query = query.neq('status', 'quotation');
+        query = query.neq('status', 'quotation').not('invoice_number', 'ilike', 'LB-%').neq('status', 'ledger');
       } else if (statusFilter === 'ledger') {
         query = query.or('status.eq.ledger,invoice_number.ilike.LB-%');
+      } else if (statusFilter.startsWith('ledger_')) {
+        const subStatus = statusFilter.replace('ledger_', '');
+        query = query.or('status.eq.ledger,invoice_number.ilike.LB-%').eq('status', subStatus);
       } else if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }

@@ -389,6 +389,9 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
                                 <Link to="/billing/invoices" className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all', isExactOrChild('/billing/invoices') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
                                   <span>Sales Invoices</span>
                                 </Link>
+                                <Link to="/billing/ledger-bills" className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all', isExactOrChild('/billing/ledger-bills') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
+                                  <span>Ledger Bills</span>
+                                </Link>
                                 <Link to="/billing/quotations" className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all', isExactOrChild('/billing/quotations') ? 'bg-[#5644E6] text-white font-bold shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900/60')}>
                                   <span>Quotations</span>
                                 </Link>

@@ -851,29 +851,23 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
         description: "Failed to delete invoice."
       });
     } finally {
-      setDeleteConfirmationOpen(false);
-      setInvoiceToDelete(null);
+        description: err.message || "Failed to delete.",
+      });
     }
   };
-
-  const [convertingQuotationId, setConvertingQuotationId] = useState<string | null>(null);
 
   const handleConvertToInvoice = async (quotation: Invoice) => {
     try {
       setConvertingQuotationId(quotation.id);
-
-      // 1. Fetch items for stock deduction
       const { data: items, error: fetchError } = await supabase
         .from('invoice_items')
-        .select('product_id, quantity')
+        .select('*')
         .eq('invoice_id', quotation.id);
 
       if (fetchError) throw fetchError;
 
-      // 2. Generate new Tax Invoice Number (INV-...)
       const newInvNumber = await generateInvoiceNumber('INV');
 
-      // 3. Update invoice record to Tax Invoice (status: 'draft')
       const { error: updateError } = await supabase
         .from('invoices')
         .update({
@@ -885,7 +879,6 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
 
       if (updateError) throw updateError;
 
-      // 4. Atomic batch stock deduction for converted invoice
       if (items && items.length > 0) {
         const opId = crypto.randomUUID();
         const validItems = (items as unknown as { product_id: string | null; quantity: number }[])
@@ -917,6 +910,53 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
     }
   };
 
+  const getPageTitle = () => {
+    if (isQuotationTab) return 'Quotations & Estimates';
+    if (isLedgerTab) return 'Ledger Settlement Bills';
+    return 'Sales Invoices';
+  };
+
+  const getPageSubtitle = () => {
+    if (isQuotationTab) return 'Manage price quotes and estimates for your clients';
+    if (isLedgerTab) return 'Manage official settlement bills generated from Account Ledger party remaining balances';
+    return 'Manage customer sales invoices, receivables and payments';
+  };
+
+  const getCreateButtonLabel = () => {
+    if (isQuotationTab) return 'Create Quotation';
+    if (isLedgerTab) return 'Create Ledger Bill';
+    return 'Create Sales Invoice';
+  };
+
+  const getCreateRoute = () => {
+    if (isQuotationTab) return '/billing/create-invoice?type=quotation';
+    if (isLedgerTab) return '/billing/create-invoice?type=ledger';
+    return '/billing/create-invoice';
+  };
+
+  const getSearchPlaceholder = () => {
+    if (isQuotationTab) return 'Search quotations by number, client name, email or phone...';
+    if (isLedgerTab) return 'Search ledger bills by number, party name, email or phone...';
+    return 'Search invoices by number, client name, email or phone...';
+  };
+
+  const getEmptyStateTitle = () => {
+    if (isQuotationTab) return 'No Quotations Found';
+    if (isLedgerTab) return 'No Ledger Bills Found';
+    return 'No Sales Invoices Found';
+  };
+
+  const getEmptyStateDescription = () => {
+    if (totalCount === 0) {
+      if (isQuotationTab) return 'Start creating price quotes and estimates for your clients.';
+      if (isLedgerTab) return 'Generate official settlement bills directly from party remaining balances in Account Ledger.';
+      return 'Start issuing GST and tax invoices to your clients.';
+    }
+    if (isQuotationTab) return 'No quotations match your search criteria.';
+    if (isLedgerTab) return 'No ledger bills match your search criteria.';
+    return 'No invoices match your search criteria.';
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -930,36 +970,29 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl md:text-3xl font-bold text-foreground">
-            {isQuotationTab ? 'Quotations & Estimates' : 'Sales Invoices'}
+            {getPageTitle()}
           </h1>
           <p className="text-xs md:text-base text-muted-foreground mt-1">
-            {isQuotationTab
-              ? 'Manage price quotes and estimates for your clients'
-              : 'Manage customer sales invoices, receivables and payments'}
+            {getPageSubtitle()}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-          {isQuotationTab ? (
-            <Button
-              variant="default"
-              size="lg"
-              onClick={() => navigate('/billing/create-invoice?type=quotation')}
-              className="w-full sm:w-auto h-11 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              <span className="text-sm md:text-base">Create Quotation</span>
-            </Button>
-          ) : (
-            <Button
-              variant="default"
-              size="lg"
-              onClick={() => navigate('/billing/create-invoice')}
-              className="w-full sm:w-auto h-11 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              <span className="text-sm md:text-base">Create Sales Invoice</span>
-            </Button>
-          )}
+          <Button
+            variant="default"
+            size="lg"
+            onClick={() => navigate(getCreateRoute())}
+            className={cn(
+              "w-full sm:w-auto h-11 text-white font-bold",
+              isQuotationTab 
+                ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700" 
+                : (isLedgerTab 
+                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" 
+                    : "bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700")
+            )}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            <span className="text-sm md:text-base">{getCreateButtonLabel()}</span>
+          </Button>
         </div>
       </div>
 
@@ -968,7 +1001,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             type="text"
-            placeholder={isQuotationTab ? "Search quotations by number, client name, email or phone..." : "Search invoices by number, client name, email or phone..."}
+            placeholder={getSearchPlaceholder()}
             className="pl-10 h-11 bg-background border-border/50 rounded-xl"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -989,13 +1022,19 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
               <>
                 <option value="quotation">All Quotations</option>
               </>
+            ) : isLedgerTab ? (
+              <>
+                <option value="ledger">All Ledger Bills</option>
+                <option value="ledger_draft">Draft Bills</option>
+                <option value="ledger_sent">Sent Bills</option>
+                <option value="ledger_paid">Paid Bills</option>
+              </>
             ) : (
               <>
-                <option value="sales_only">All Invoices & Ledger Bills</option>
+                <option value="sales_only">All Statuses</option>
                 <option value="draft">Draft Invoices</option>
                 <option value="sent">Sent Invoices</option>
                 <option value="paid">Paid Invoices</option>
-                <option value="ledger">Ledger Settlement Bills</option>
               </>
             )}
           </select>
@@ -1033,21 +1072,19 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
         <Card className="p-4 md:p-6 md:p-8 text-center bg-card dark:bg-card">
           <FileText className="w-12 h-12 md:w-16 md:h-16 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg md:text-xl font-semibold text-foreground mb-2">
-            {isQuotationTab ? 'No Quotations Found' : 'No Sales Invoices Found'}
+            {getEmptyStateTitle()}
           </h3>
           <p className="text-sm md:text-base text-muted-foreground mb-4">
-            {totalCount === 0 
-              ? (isQuotationTab ? "Start creating price quotes and estimates for your clients." : "Start issuing GST and tax invoices to your clients.") 
-              : (isQuotationTab ? "No quotations match your search criteria." : "No invoices match your search criteria.")}
+            {getEmptyStateDescription()}
           </p>
           {totalCount === 0 && (
             <Button
               variant="default"
-              onClick={() => navigate(isQuotationTab ? '/billing/create-invoice?type=quotation' : '/create-invoice')}
+              onClick={() => navigate(getCreateRoute())}
               className="w-full sm:w-auto"
             >
               <Plus className="w-4 h-4 mr-2" />
-              {isQuotationTab ? 'Create First Quotation' : 'Create First Sales Invoice'}
+              {getCreateButtonLabel()}
             </Button>
           )}
         </Card>
