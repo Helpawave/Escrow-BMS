@@ -26,10 +26,6 @@ export function AuthGuard({ children, redirectTo = '/auth' }: AuthGuardProps) {
     return <Navigate to={redirectTo} replace />;
   }
 
-  if (isSuperAdmin) {
-    return <Navigate to="/admin" replace />;
-  }
-
   return <>{children}</>;
 }
 
