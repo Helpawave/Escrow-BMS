@@ -290,22 +290,22 @@ export default function Landing() {
       )}
 
       {/* ─── Sticky Glass Navbar ──────────────────────────────────────── */}
-      <header className={`sticky top-0 z-50 transition-all duration-200 ${scrolled ? 'bg-white/90 dark:bg-slate-950/90 backdrop-blur-md shadow-xs border-b border-slate-200/80 dark:border-slate-800/80' : 'bg-transparent'}`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
+      <header className={`sticky top-0 z-50 transition-all duration-300 ${scrolled ? 'bg-white/90 dark:bg-slate-950/90 backdrop-blur-md shadow-sm border-b border-slate-200/80 dark:border-slate-800/80 py-3' : 'bg-transparent py-4 sm:py-5'}`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           
           {/* Brand Logo */}
-          <Link to="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-blue-600 flex items-center justify-center text-white font-black text-xl shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+          <Link to="/" className="flex items-center gap-3.5 group">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-blue-600 flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform">
               E
             </div>
             <div>
-              <span className="text-xl font-black tracking-tight text-slate-900 dark:text-white">Escrow<span className="text-indigo-600 dark:text-indigo-400">BMS</span></span>
-              <span className="block text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest -mt-1">Connected ERP</span>
+              <span className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">Escrow<span className="text-indigo-600 dark:text-indigo-400">BMS</span></span>
+              <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest -mt-0.5">Connected ERP</span>
             </div>
           </Link>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden lg:flex items-center gap-8 text-sm font-semibold text-slate-600 dark:text-slate-300">
+          <nav className="hidden lg:flex items-center gap-9 text-sm font-bold text-slate-600 dark:text-slate-300">
             <a href="#features" className="hover:text-indigo-600 dark:hover:text-white transition-colors">Features</a>
             <a href="#industries" className="hover:text-indigo-600 dark:hover:text-white transition-colors">Industries</a>
             <a href="#workflow" className="hover:text-indigo-600 dark:hover:text-white transition-colors">How It Works</a>
@@ -315,11 +315,11 @@ export default function Landing() {
           </nav>
 
           {/* Right Action Buttons */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3.5">
             <button
               onClick={toggleTheme}
               aria-label="Toggle Theme"
-              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+              className="p-2.5 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200/80 dark:border-slate-800 transition-colors cursor-pointer"
             >
               {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -327,7 +327,7 @@ export default function Landing() {
             {user ? (
               <Button
                 onClick={() => navigate('/dashboard')}
-                className="h-10 px-5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 cursor-pointer"
+                className="h-11 px-6 rounded-xl font-black text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-600/25 cursor-pointer"
               >
                 Go to Dashboard →
               </Button>
@@ -341,7 +341,7 @@ export default function Landing() {
                 </Link>
                 <Button
                   onClick={handleAuthAction}
-                  className="h-10 px-5 rounded-xl font-bold bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/25 transition-all active:scale-95 cursor-pointer"
+                  className="h-11 px-6 rounded-xl font-black text-sm bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-xl shadow-indigo-600/30 transition-all active:scale-95 cursor-pointer"
                 >
                   Start Free Trial
                 </Button>
@@ -351,7 +351,7 @@ export default function Landing() {
             {/* Mobile Hamburger */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900"
+              className="lg:hidden p-2.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -382,7 +382,7 @@ export default function Landing() {
       </header>
 
       {/* ─── HERO SECTION (Expansive 2-Column Next-Gen Layout) ──────── */}
-      <section className="relative pt-8 pb-16 lg:pt-16 lg:pb-24 overflow-hidden">
+      <section className="relative pt-12 pb-20 lg:pt-18 lg:pb-32 overflow-hidden">
         {/* Ambient Subtle Gradients */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1100px] h-[600px] bg-gradient-to-b from-indigo-500/12 via-blue-500/6 to-transparent blur-3xl rounded-full" />
