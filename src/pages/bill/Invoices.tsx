@@ -991,10 +991,11 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
               </>
             ) : (
               <>
-                <option value="sales_only">All Statuses</option>
+                <option value="sales_only">All Invoices & Ledger Bills</option>
                 <option value="draft">Draft Invoices</option>
                 <option value="sent">Sent Invoices</option>
                 <option value="paid">Paid Invoices</option>
+                <option value="ledger">Ledger Settlement Bills</option>
               </>
             )}
           </select>

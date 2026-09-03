@@ -27,6 +27,8 @@ export function useInvoices({ page = 1, pageSize = 50, searchTerm = "", statusFi
 
       if (statusFilter === 'sales_only') {
         query = query.neq('status', 'quotation');
+      } else if (statusFilter === 'ledger') {
+        query = query.or('status.eq.ledger,invoice_number.ilike.LB-%');
       } else if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
       }
