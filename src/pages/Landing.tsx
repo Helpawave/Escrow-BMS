@@ -229,6 +229,7 @@ export default function Landing() {
   // Live ROI Calculator State
   const [roiInvoices, setRoiInvoices] = useState<number>(250);
   const [roiTeam, setRoiTeam] = useState<number>(4);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
 
   const [showAnnouncement, setShowAnnouncement] = useState(() => {
     return sessionStorage.getItem('dismiss_landing_announcement') !== 'true';
@@ -311,7 +312,7 @@ export default function Landing() {
             <a href="#workflow" className="hover:text-indigo-600 dark:hover:text-white transition-colors">How It Works</a>
             <a href="#calculator" className="hover:text-indigo-600 dark:hover:text-white transition-colors">GST Tool</a>
             <a href="#comparison" className="hover:text-indigo-600 dark:hover:text-white transition-colors">Compare</a>
-            <Link to="/pricing" className="hover:text-indigo-600 dark:hover:text-white transition-colors">Pricing</Link>
+            <a href="#pricing" className="hover:text-indigo-600 dark:hover:text-white transition-colors">Pricing</a>
           </nav>
 
           {/* Right Action Buttons */}
@@ -367,7 +368,7 @@ export default function Landing() {
               <a href="#workflow" onClick={() => setMobileMenuOpen(false)}>How It Works</a>
               <a href="#calculator" onClick={() => setMobileMenuOpen(false)}>Live GST Calculator</a>
               <a href="#comparison" onClick={() => setMobileMenuOpen(false)}>Compare vs Tally</a>
-              <Link to="/pricing" onClick={() => setMobileMenuOpen(false)}>Pricing Plans</Link>
+              <a href="#pricing" onClick={() => setMobileMenuOpen(false)}>Pricing Plans</a>
             </nav>
             <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2">
               <Link to="/auth" className="w-full text-center py-2.5 font-bold text-sm text-slate-700 dark:text-slate-200 border rounded-xl">
@@ -1359,6 +1360,204 @@ export default function Landing() {
               </table>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ─── INTEGRATED PRICING PLANS SECTION ──────────────────────── */}
+      <section id="pricing" className="py-20 lg:py-28 bg-slate-100/70 dark:bg-slate-950/80 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+          
+          <div className="text-center max-w-3xl mx-auto mb-14">
+            <span className="text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 px-3.5 py-1 text-xs font-bold rounded-full uppercase tracking-wider border border-indigo-200 dark:border-indigo-900">
+              Simple Transparent Pricing
+            </span>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white mt-4 tracking-tight font-display">
+              Plans Built for Growing Indian Businesses
+            </h2>
+            <p className="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-300 font-medium">
+              Start with a 14-day full-access free trial. No credit card required. Cancel anytime.
+            </p>
+
+            {/* Monthly / Yearly Switcher */}
+            <div className="mt-8 inline-flex items-center gap-3 p-1.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+              <button
+                onClick={() => setBillingCycle('monthly')}
+                className={`px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  billingCycle === 'monthly'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                Monthly Billing
+              </button>
+              <button
+                onClick={() => setBillingCycle('yearly')}
+                className={`px-5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  billingCycle === 'yearly'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <span>Annual Billing</span>
+                <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full shadow-2xs">
+                  20% OFF
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {/* Pricing Cards Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-stretch">
+            
+            {/* TIER 1: STARTER */}
+            <div className="rounded-3xl p-8 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow relative">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Starter Plan</h3>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    Retail & Billing
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Best for retail shops and small distributors needing fast GST billing and daily cash counter hisab.
+                </p>
+
+                <div className="mt-6 flex items-baseline gap-1">
+                  <span className="text-4xl font-black text-slate-900 dark:text-white">
+                    {billingCycle === 'yearly' ? '₹799' : '₹999'}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">/ month</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {billingCycle === 'yearly' ? 'Billed ₹9,588 annually' : 'Billed monthly'}
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">What's Included:</div>
+                  <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Unlimited GST Tax Invoices</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> 1-Click WhatsApp Invoice & UPI QR</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Daily Counter Hisab & Denominations</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Up to 2 Staff / Cashier Users</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Cloud Automatic Daily Backup</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  onClick={handleAuthAction}
+                  className="w-full h-12 rounded-xl font-bold text-sm bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Start 14-Day Free Trial
+                </Button>
+              </div>
+            </div>
+
+            {/* TIER 2: GROWTH (FEATURED) */}
+            <div className="rounded-3xl p-8 bg-gradient-to-b from-indigo-900/10 via-white to-white dark:from-indigo-950/40 dark:via-slate-900 dark:to-slate-900 border-2 border-indigo-600 dark:border-indigo-500 flex flex-col justify-between shadow-xl shadow-indigo-600/10 relative">
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-indigo-600 text-white text-[11px] font-black uppercase tracking-wider shadow-md">
+                ⭐ Most Popular
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mt-2">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Growth Plan</h3>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                    Complete Ledger & Stock
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Complete accounting, party ledger balance statements, and multi-warehouse stock for wholesalers & traders.
+                </p>
+
+                <div className="mt-6 flex items-baseline gap-1">
+                  <span className="text-4xl font-black text-slate-900 dark:text-white">
+                    {billingCycle === 'yearly' ? '₹1,999' : '₹2,499'}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">/ month</span>
+                </div>
+                <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
+                  {billingCycle === 'yearly' ? 'Save ₹6,000 annually (₹23,988/yr)' : 'Billed monthly'}
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Everything in Starter, plus:</div>
+                  <ul className="space-y-2.5 text-xs text-slate-700 dark:text-slate-200 font-medium">
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" /> <strong>Party Ledger Khata</strong> & Running Balance</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" /> <strong>Multi-Warehouse Stock</strong> & Low Stock Alerts</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" /> Camera & Hardware <strong>Barcode Scanner</strong></li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" /> Quotations, Proforma & Purchase Bills</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" /> Up to 10 Staff Roles with Permissions</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" /> Profit & Loss & 1-Click GSTR-1 JSON Export</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  onClick={handleAuthAction}
+                  className="w-full h-12 rounded-xl font-black text-sm bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-lg shadow-indigo-600/30 transition-all active:scale-95 cursor-pointer"
+                >
+                  Start 14-Day Free Trial →
+                </Button>
+              </div>
+            </div>
+
+            {/* TIER 3: ENTERPRISE */}
+            <div className="rounded-3xl p-8 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow relative">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Enterprise Plan</h3>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                    All-in-One Cloud ERP
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Full ERP suite for manufacturers and large enterprises needing Staff Payroll, CRM, and unlimited team members.
+                </p>
+
+                <div className="mt-6 flex items-baseline gap-1">
+                  <span className="text-4xl font-black text-slate-900 dark:text-white">
+                    {billingCycle === 'yearly' ? '₹3,999' : '₹4,999'}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">/ month</span>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {billingCycle === 'yearly' ? 'Billed ₹47,988 annually' : 'Billed monthly'}
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Everything in Growth, plus:</div>
+                  <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300 font-medium">
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> <strong>Staff Attendance & Payroll Calculation</strong></li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> 1-Click WhatsApp Salary Slip Delivery</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> <strong>CRM & Visual Kanban Sales Pipeline</strong></li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Unlimited Multi-Staff User Accounts</li>
+                    <li className="flex items-center gap-2.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Dedicated Account Manager & 24/7 Phone Support</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  onClick={handleAuthAction}
+                  className="w-full h-12 rounded-xl font-bold text-sm bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  Start 14-Day Free Trial
+                </Button>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Trust Guarantees */}
+          <div className="mt-12 text-center flex flex-wrap items-center justify-center gap-8 text-xs font-bold text-slate-500 dark:text-slate-400">
+            <span className="flex items-center gap-1.5"><Shield className="w-4 h-4 text-indigo-500" /> 100% Bank-Grade Data Encryption</span>
+            <span className="flex items-center gap-1.5"><Star className="w-4 h-4 text-amber-500" /> 14-Day Full-Access Free Trial</span>
+            <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500" /> No Credit Card Required</span>
+          </div>
+
         </div>
       </section>
 
