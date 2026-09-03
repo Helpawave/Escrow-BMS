@@ -262,7 +262,7 @@ const PurchaseInvoicesPage = () => {
           <Button
             variant="default"
             size="lg"
-            onClick={() => navigate('/create-invoice?type=purchase')}
+            onClick={() => navigate('/billing/create-invoice?type=purchase')}
             className="w-full sm:w-auto h-11 cursor-pointer font-bold"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -323,7 +323,7 @@ const PurchaseInvoicesPage = () => {
               : "No purchase bills match your current search and filter criteria."}
           </p>
           {rawInvoices?.length === 0 && (
-            <Button onClick={() => navigate('/create-invoice?type=purchase')} className="cursor-pointer font-bold">
+            <Button onClick={() => navigate('/billing/create-invoice?type=purchase')} className="cursor-pointer font-bold">
               <Plus className="w-4 h-4 mr-2" />
               Create First Purchase Bill
             </Button>

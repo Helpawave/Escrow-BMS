@@ -63,6 +63,22 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [selectedLedgerPartyId, setSelectedLedgerPartyId] = useState<string | null>(searchParams.get('partyId') || null);
 
   const [isPurchase, setIsPurchase] = useState(() => initialBillingType === 'purchase');
+
+  useEffect(() => {
+    const sType = searchParams.get('type') || searchParams.get('billingType');
+    const computedType = (
+      sType === 'purchase'
+        ? 'purchase'
+        : sType === 'ledger'
+        ? 'ledger'
+        : sType === 'quotation'
+        ? 'quotation'
+        : 'sales'
+    ) as 'sales' | 'purchase' | 'ledger' | 'quotation';
+
+    setBillingType(computedType);
+    setIsPurchase(computedType === 'purchase');
+  }, [searchParams]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [invoiceLoading, setInvoiceLoading] = useState<boolean>(isEditing);
   const [clientSearchOpen, setClientSearchOpen] = useState(false);

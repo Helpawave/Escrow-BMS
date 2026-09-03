@@ -59,6 +59,11 @@ function DynamicProductsRedirect() {
   return <Navigate to={target} replace />;
 }
 
+function DynamicCreateInvoiceRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/billing/create-invoice${location.search}`} replace />;
+}
+
 function DynamicSettingsRedirect() {
   return <Navigate to="/settings" replace />;
 }
@@ -353,8 +358,9 @@ export default function App() {
                           {/* Static Redirects to prevent broken links from absolute routing in sub-modules */}
                           <Route path="/invoices" element={<Navigate to="/billing/invoices" replace />} />
                           <Route path="/invoices/:invoiceId/edit" element={<Navigate to="/billing/invoices/:invoiceId/edit" replace />} />
-                          <Route path="/create-invoice" element={<Navigate to="/billing/create-invoice" replace />} />
+                          <Route path="/create-invoice" element={<DynamicCreateInvoiceRedirect />} />
                           <Route path="/quotations" element={<Navigate to="/billing/quotations" replace />} />
+                          <Route path="/ledger-bills" element={<Navigate to="/billing/ledger-bills" replace />} />
                           <Route path="/clients" element={<Navigate to="/billing/clients" replace />} />
                           <Route path="/vendors" element={<Navigate to="/billing/vendors" replace />} />
                           <Route path="/purchase-invoices" element={<Navigate to="/billing/purchase-invoices" replace />} />
