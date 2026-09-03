@@ -175,6 +175,13 @@ const ClientsPage = () => {
     if (!formData.name.trim()) errors.push("Client name is required.");
     if (!formData.phone.trim()) errors.push("Phone number is required.");
     if (!formData.address.trim()) errors.push("Business address is required.");
+    if (!formData.city.trim()) errors.push("City is required.");
+    if (!formData.state.trim()) errors.push("State is required.");
+    if (!formData.postal_code.trim()) {
+      errors.push("PIN Code is required.");
+    } else if (!/^\d{6}$/.test(formData.postal_code.trim())) {
+      errors.push("PIN Code must be a 6-digit number.");
+    }
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       errors.push("Please enter a valid email address.");
     }
@@ -547,30 +554,40 @@ const ClientsPage = () => {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="city">City</Label>
+                      <Label htmlFor="city">
+                        City <span className="text-destructive font-bold">*</span>
+                      </Label>
                       <Input
                         id="city"
+                        required
                         placeholder="City"
                         value={formData.city}
                         onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="state">State</Label>
+                      <Label htmlFor="state">
+                        State <span className="text-destructive font-bold">*</span>
+                      </Label>
                       <Input
                         id="state"
+                        required
                         placeholder="State"
                         value={formData.state}
                         onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="postal_code">PIN Code</Label>
+                      <Label htmlFor="postal_code">
+                        PIN Code <span className="text-destructive font-bold">*</span>
+                      </Label>
                       <Input
                         id="postal_code"
-                        placeholder="6-digit ZIP"
+                        required
+                        maxLength={6}
+                        placeholder="6-digit PIN"
                         value={formData.postal_code}
-                        onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+                        onChange={(e) => setFormData({ ...formData, postal_code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
                       />
                     </div>
                   </div>

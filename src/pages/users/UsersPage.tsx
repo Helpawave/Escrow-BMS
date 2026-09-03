@@ -950,10 +950,12 @@ export default function UsersPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Street Address
+                    Street Address <span className="text-red-500 font-bold">*</span>
                   </label>
                   <input
                     type="text"
+                    required
+                    placeholder="Street, Area, Building..."
                     value={editForm.address}
                     onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -963,10 +965,12 @@ export default function UsersPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      City
+                      City <span className="text-red-500 font-bold">*</span>
                     </label>
                     <input
                       type="text"
+                      required
+                      placeholder="City"
                       value={editForm.city}
                       onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -975,10 +979,12 @@ export default function UsersPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      State
+                      State <span className="text-red-500 font-bold">*</span>
                     </label>
                     <input
                       type="text"
+                      required
+                      placeholder="State"
                       value={editForm.state}
                       onChange={(e) => setEditForm({ ...editForm, state: e.target.value })}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -987,12 +993,15 @@ export default function UsersPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      PIN Code
+                      PIN Code <span className="text-red-500 font-bold">*</span>
                     </label>
                     <input
                       type="text"
+                      required
+                      maxLength={6}
+                      placeholder="6-digit PIN"
                       value={editForm.postal_code}
-                      onChange={(e) => setEditForm({ ...editForm, postal_code: e.target.value })}
+                      onChange={(e) => setEditForm({ ...editForm, postal_code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
