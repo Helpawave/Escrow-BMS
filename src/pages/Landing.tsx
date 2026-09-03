@@ -360,124 +360,127 @@ export default function Landing() {
         )}
       </header>
 
-      {/* ─── HERO SECTION (Next-Level Ultra Polish) ──────────────────── */}
-      <section className="relative pt-12 pb-20 lg:pt-20 lg:pb-32 overflow-hidden">
+      {/* ─── HERO SECTION (Expansive 2-Column Next-Gen Layout) ──────── */}
+      <section className="relative pt-8 pb-16 lg:pt-16 lg:pb-24 overflow-hidden">
         {/* Ambient Subtle Gradients */}
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-gradient-to-b from-indigo-500/10 via-blue-500/5 to-transparent blur-3xl rounded-full" />
+          <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1100px] h-[600px] bg-gradient-to-b from-indigo-500/12 via-blue-500/6 to-transparent blur-3xl rounded-full" />
           <div className="absolute top-1/3 -right-20 w-96 h-96 bg-purple-500/10 blur-3xl rounded-full" />
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
-          <div className="text-center max-w-4xl mx-auto space-y-6">
+          <div className="grid lg:grid-cols-12 gap-10 lg:gap-12 items-center">
             
-            {/* Trust Pill */}
-            <FadeUp delay={50}>
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 text-indigo-700 dark:text-indigo-300 text-xs font-bold shadow-2xs">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                <span>India’s Most Complete Cloud Accounting & 1-Click Billing Suite</span>
-                <span className="hidden sm:inline text-indigo-400 dark:text-indigo-600">|</span>
-                <span className="hidden sm:inline font-semibold text-slate-600 dark:text-slate-300">Zero Setup Fees</span>
-              </div>
-            </FadeUp>
+            {/* LEFT COLUMN: PUNCHY COPY & CTAS */}
+            <div className="lg:col-span-6 space-y-6 text-left">
+              
+              {/* Trust Pill */}
+              <FadeUp delay={50}>
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 text-indigo-700 dark:text-indigo-300 text-xs font-bold shadow-2xs">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                  <span>India’s Most Complete Cloud Accounting Suite</span>
+                  <span className="hidden sm:inline text-indigo-400 dark:text-indigo-600">|</span>
+                  <span className="hidden sm:inline font-semibold text-slate-600 dark:text-slate-300">Zero Setup Fees</span>
+                </div>
+              </FadeUp>
 
-            {/* Main Headline */}
-            <FadeUp delay={100}>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-black text-slate-900 dark:text-white tracking-tight leading-[1.1] font-display">
-                Create GST Invoices in 60s.<br />
-                <span className="bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-500 bg-clip-text text-transparent">
-                  Your Ledgers Auto-Post
-                </span> & Settle.
-              </h1>
-            </FadeUp>
+              {/* Main Headline */}
+              <FadeUp delay={100}>
+                <h1 className="text-4xl sm:text-5xl xl:text-6xl font-black text-slate-900 dark:text-white tracking-tight leading-[1.12] font-display">
+                  Create GST Invoices in 60s.<br />
+                  <span className="bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-500 bg-clip-text text-transparent">
+                    Your Ledgers Auto-Post
+                  </span> & Settle.
+                </h1>
+              </FadeUp>
 
-            {/* Sub-headline */}
-            <FadeUp delay={150}>
-              <p className="text-base sm:text-lg lg:text-xl text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl mx-auto font-medium">
-                Eliminate manual double-entry. Create compliant tax invoices, share instantly on WhatsApp with UPI links, manage multi-warehouse inventory, and calculate staff payroll in one unified platform.
-              </p>
-            </FadeUp>
+              {/* Sub-headline */}
+              <FadeUp delay={150}>
+                <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-medium max-w-xl">
+                  Eliminate manual double-entry. Create compliant tax invoices, share instantly on WhatsApp with UPI links, manage multi-warehouse inventory, and calculate staff payroll in one unified platform.
+                </p>
+              </FadeUp>
 
-            {/* CTAs */}
-            <FadeUp delay={200}>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
-                <Button
-                  onClick={handleAuthAction}
-                  className="w-full sm:w-auto h-13 px-8 text-base font-black rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-xl shadow-indigo-600/30 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <span>Start 14-Day Free Trial</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
+              {/* CTAs */}
+              <FadeUp delay={200}>
+                <div className="flex flex-col sm:flex-row items-center gap-4 pt-1">
+                  <Button
+                    onClick={handleAuthAction}
+                    className="w-full sm:w-auto h-13 px-8 text-base font-black rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-xl shadow-indigo-600/30 active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <span>Start 14-Day Free Trial</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
 
-                <a
-                  href="#mockup-demo"
-                  className="w-full sm:w-auto h-13 px-6 rounded-2xl font-bold text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <span>Explore Live Interactive Demo</span>
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                </a>
-              </div>
-            </FadeUp>
+                  <a
+                    href="#features"
+                    className="w-full sm:w-auto h-13 px-6 rounded-2xl font-bold text-sm text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <span>Explore All 6 Modules</span>
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                  </a>
+                </div>
+              </FadeUp>
 
-            {/* Trust Checkmarks */}
-            <FadeUp delay={250}>
-              <div className="flex flex-wrap items-center justify-center gap-6 text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 pt-2">
-                <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500" /> 100% GSTN Compliant</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500" /> No Credit Card Required</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500" /> 1-Click Tally / Excel Import</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500" /> Multi-Staff Role Access</span>
-              </div>
-            </FadeUp>
-          </div>
+              {/* Trust Checkmarks */}
+              <FadeUp delay={250}>
+                <div className="grid grid-cols-2 sm:grid-cols-2 gap-2.5 text-xs font-semibold text-slate-500 dark:text-slate-400 pt-2">
+                  <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> 100% GSTN Compliant</span>
+                  <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> No Credit Card Required</span>
+                  <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> 1-Click Tally / Excel Import</span>
+                  <span className="flex items-center gap-1.5"><CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" /> Multi-Staff Role Access</span>
+                </div>
+              </FadeUp>
+            </div>
 
-          {/* ─── INTERACTIVE BROWSER WINDOW MOCKUP FRAME ─────────────── */}
-          <div id="mockup-demo" className="mt-14 lg:mt-18 max-w-5xl mx-auto">
-            <FadeUp delay={300}>
-              <div className="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xl shadow-indigo-900/10 dark:shadow-black/60 overflow-hidden backdrop-blur-xl">
-                
-                {/* Browser Window Header */}
-                <div className="bg-slate-100/90 dark:bg-slate-950 px-4 py-3 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-red-400/80" />
-                    <div className="w-3 h-3 rounded-full bg-amber-400/80" />
-                    <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
-                    <div className="ml-3 px-3 py-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono text-slate-500 flex items-center gap-1.5">
-                      <Lock className="w-3 h-3 text-emerald-500" />
-                      <span>https://app.escrowbms.in/dashboard/live-preview</span>
+            {/* RIGHT COLUMN: INTERACTIVE BROWSER WINDOW MOCKUP FRAME */}
+            <div className="lg:col-span-6">
+              <FadeUp delay={300}>
+                <div className="rounded-3xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xl shadow-indigo-900/10 dark:shadow-black/60 overflow-hidden backdrop-blur-xl">
+                  
+                  {/* Browser Window Header */}
+                  <div className="bg-slate-100/90 dark:bg-slate-950 px-4 py-3 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-400/80" />
+                      <div className="w-3 h-3 rounded-full bg-amber-400/80" />
+                      <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
+                      <div className="ml-2 px-2.5 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-emerald-500" />
+                        <span>app.escrowbms.in</span>
+                      </div>
+                    </div>
+
+                    {/* Mockup Tab Selector */}
+                    <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl">
+                      <button
+                        onClick={() => setActiveMockTab('billing')}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'billing' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                      >
+                        🧾 Invoice
+                      </button>
+                      <button
+                        onClick={() => setActiveMockTab('ledger')}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'ledger' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                      >
+                        📖 Ledger
+                      </button>
+                      <button
+                        onClick={() => setActiveMockTab('inventory')}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'inventory' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                      >
+                        📦 Stock
+                      </button>
+                      <button
+                        onClick={() => setActiveMockTab('payroll')}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'payroll' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                      >
+                        👥 Payroll
+                      </button>
                     </div>
                   </div>
 
-                  {/* Mockup Tab Selector */}
-                  <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-900 p-1 rounded-xl">
-                    <button
-                      onClick={() => setActiveMockTab('billing')}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'billing' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                    >
-                      🧾 GST Invoice
-                    </button>
-                    <button
-                      onClick={() => setActiveMockTab('ledger')}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'ledger' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                    >
-                      📖 Party Ledger
-                    </button>
-                    <button
-                      onClick={() => setActiveMockTab('inventory')}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'inventory' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                    >
-                      📦 Inventory
-                    </button>
-                    <button
-                      onClick={() => setActiveMockTab('payroll')}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${activeMockTab === 'payroll' ? 'bg-white dark:bg-indigo-600 text-indigo-700 dark:text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                    >
-                      👥 Staff Payroll
-                    </button>
-                  </div>
-                </div>
-
-                {/* Mockup Tab Body Content */}
-                <div className="p-5 sm:p-7 bg-slate-50/50 dark:bg-slate-950/40">
+                  {/* Mockup Tab Body Content */}
+                  <div className="p-4 sm:p-5 bg-slate-50/50 dark:bg-slate-950/40">
                   
                   {/* TAB 1: GST BILLING PREVIEW */}
                   {activeMockTab === 'billing' && (
@@ -699,7 +702,8 @@ export default function Landing() {
             </FadeUp>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
 
       {/* ─── METRIC STAT STRIP ───────────────────────────────────────── */}
       <section className="bg-white dark:bg-slate-900 border-y border-slate-200/80 dark:border-slate-800 py-10">
