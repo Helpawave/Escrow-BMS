@@ -316,6 +316,7 @@ const PartyReport = () => {
 
           // 2. Create settlement record
           const { data: settlement, error: sErr } = await supabase.from('transactions').insert([{
+            user_id: user?.id,
             party_id: editingParty.id,
             remarks: 'MONDAY FINAL SETTLEMENT (MANUAL)',
             tns_type: tnsType,
@@ -323,7 +324,10 @@ const PartyReport = () => {
             debit,
             balance: closingBal,
             is_settlement: true,
-            is_finalized: false
+            is_finalized: false,
+            date: new Date().toISOString(),
+            transaction_date: new Date().toISOString(),
+            created_at: new Date().toISOString()
           }]).select().single();
 
           if (sErr) throw sErr;
