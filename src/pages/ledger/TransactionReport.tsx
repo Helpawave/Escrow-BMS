@@ -79,16 +79,20 @@ const TransactionReport = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const buildFilteredQuery = (selectFields = '*', options?: { count?: 'exact' | 'planned' | 'estimated' }) => {
+  const buildFilteredQuery = (partyIdsList: string[], selectFields = '*', options?: { count?: 'exact' | 'planned' | 'estimated' }) => {
     if (!user) return null;
     let q = supabase
       .from('transactions')
-      .select(selectFields, options)
-      .eq('user_id', user.id);
+      .select(selectFields, options);
 
     if (selectedPartyId !== 'all') {
       q = q.eq('party_id', selectedPartyId);
+    } else if (partyIdsList.length > 0) {
+      q = q.in('party_id', partyIdsList);
+    } else {
+      return null;
     }
+
     if (tnsTypeFilter === 'CR') {
       q = q.gt('credit', 0);
     } else if (tnsTypeFilter === 'DR') {
@@ -114,7 +118,7 @@ const TransactionReport = () => {
   };
 
   const fetchParties = async () => {
-    if (!user) return;
+    if (!user) return [];
     try {
       const { data, error } = await supabase
         .from('parties')
@@ -122,9 +126,12 @@ const TransactionReport = () => {
         .eq('user_id', user.id)
         .order('party_name', { ascending: true });
       if (error) throw error;
-      setParties(data || []);
+      const res = data || [];
+      setParties(res);
+      return res;
     } catch (err) {
       console.error('Error fetching parties dropdown:', err);
+      return [];
     }
   };
 
@@ -134,8 +141,18 @@ const TransactionReport = () => {
     else setRefreshing(true);
 
     try {
-      const pageQ = buildFilteredQuery('*, parties(party_name, system_type, status, sr_no)', { count: 'exact' });
-      if (!pageQ) return;
+      let currentParties = parties;
+      if (currentParties.length === 0) {
+        currentParties = await fetchParties();
+      }
+      const partyIdsList = currentParties.map(p => p.id);
+
+      const pageQ = buildFilteredQuery(partyIdsList, '*, parties(party_name, system_type, status, sr_no)', { count: 'exact' });
+      if (!pageQ) {
+        setTransactions([]);
+        setTotalEntries(0);
+        return;
+      }
 
       // 1. Fetch current page transactions & count
       const { data, count, error } = await pageQ
@@ -192,7 +209,7 @@ const TransactionReport = () => {
       setTransactions(processedTns);
 
       // 3. Fetch stats aggregates for the entire filtered set in background
-      const statsQ = buildFilteredQuery('credit, debit');
+      const statsQ = buildFilteredQuery(partyIdsList, 'credit, debit');
       if (statsQ) {
         const { data: statsData, error: statsErr } = await statsQ;
         if (!statsErr && statsData) {

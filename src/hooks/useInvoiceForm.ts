@@ -283,7 +283,6 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         const { data: latestTxns } = await supabase
           .from('transactions')
           .select('party_id, credit, debit, created_at')
-          .eq('user_id', user.id)
           .in('party_id', partyIds)
           .order('created_at', { ascending: false });
 

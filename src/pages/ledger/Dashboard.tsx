@@ -56,8 +56,8 @@ const Dashboard = () => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // Fetch all 4 distinct datasets in parallel to optimize initial reload load time!
-        const [profileRes, partiesRes, todayTnsRes, allTnsRes] = await Promise.all([
+        // Fetch user profile and parties
+        const [profileRes, partiesRes] = await Promise.all([
           supabase
             .from('profiles')
             .select('full_name, company_name')
@@ -66,28 +66,35 @@ const Dashboard = () => {
           supabase
             .from('parties')
             .select('id, monday_final, system_type')
-            .eq('user_id', user.id),
-          supabase
-            .from('transactions')
-            .select('credit, debit, created_at')
             .eq('user_id', user.id)
-            .gte('created_at', today.toISOString()),
-          supabase
-            .from('transactions')
-            .select('id, party_id, credit, debit, remarks, created_at, parties(party_name, system_type)')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
         ]);
 
         if (profileRes.error) throw profileRes.error;
         if (partiesRes.error) throw partiesRes.error;
-        if (todayTnsRes.error) throw todayTnsRes.error;
-        if (allTnsRes.error) throw allTnsRes.error;
 
         const profileData = profileRes.data;
-        const partiesData = partiesRes.data;
-        const todayTns = todayTnsRes.data;
-        const allTns = allTnsRes.data;
+        const partiesData = partiesRes.data || [];
+        const partyIds = partiesData.map(p => p.id);
+
+        let todayTns: any[] = [];
+        let allTns: any[] = [];
+
+        if (partyIds.length > 0) {
+          const [todayTnsRes, allTnsRes] = await Promise.all([
+            supabase
+              .from('transactions')
+              .select('credit, debit, created_at')
+              .in('party_id', partyIds)
+              .gte('created_at', today.toISOString()),
+            supabase
+              .from('transactions')
+              .select('id, party_id, credit, debit, remarks, created_at, parties(party_name, system_type)')
+              .in('party_id', partyIds)
+              .order('created_at', { ascending: false })
+          ]);
+          todayTns = todayTnsRes.data || [];
+          allTns = allTnsRes.data || [];
+        }
 
         if (mounted && profileData) {
           const name = profileData.company_name || profileData.full_name || user.user_metadata?.full_name || 'Valued User';

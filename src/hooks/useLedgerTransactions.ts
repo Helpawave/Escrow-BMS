@@ -509,31 +509,50 @@ export const useLedgerTransactions = ({
       let { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: anchorId,
-          user_id: authUser.id,
           party_id: selectedParty.id,
           linked_transaction_id: anchorId,
           remarks: editFormData.remarks || '',
           tns_type: primaryType,
           credit: creditA,
           debit: debitA,
-          transaction_date: tnsA.transaction_date,
-          created_at: tnsA.created_at,
-          is_modified: true
+          created_at: tnsA.created_at || new Date().toISOString()
         },
         {
           id: generateUUID(),
-          user_id: authUser.id,
           party_id: editFormData.linkedParty.id,
           linked_transaction_id: anchorId,
           remarks: editFormData.remarks || '',
           tns_type: secondaryType,
           credit: creditB,
           debit: debitB,
-          transaction_date: tnsA.transaction_date,
-          created_at: tnsA.created_at,
-          is_modified: true
+          created_at: tnsA.created_at || new Date().toISOString()
         }
       ]);
+
+      if (insertErr) {
+        console.warn("Edit transaction insert with created_at failed, retrying minimal:", insertErr);
+        const fbRes = await supabase.from('transactions').insert([
+          {
+            id: anchorId,
+            party_id: selectedParty.id,
+            linked_transaction_id: anchorId,
+            remarks: editFormData.remarks || '',
+            tns_type: primaryType,
+            credit: creditA,
+            debit: debitA
+          },
+          {
+            id: generateUUID(),
+            party_id: editFormData.linkedParty.id,
+            linked_transaction_id: anchorId,
+            remarks: editFormData.remarks || '',
+            tns_type: secondaryType,
+            credit: creditB,
+            debit: debitB
+          }
+        ]);
+        insertErr = fbRes.error;
+      }
 
       if (insertErr) throw insertErr;
 
@@ -791,55 +810,17 @@ export const useLedgerTransactions = ({
     };
   };
 
-  const createTransactionEntry = async (amountVal: string, remarksVal: string, linkedPartyVal: Party, customIdempotencyKey?: string) => {
+  const createTransactionEntry = async (amountVal: string, remarksVal: string, linkedPartyVal: Party, _customIdempotencyKey?: string) => {
     if (!selectedParty || !amountVal || parseFloat(amountVal) === 0 || !linkedPartyVal || !authUser) return false;
     setSubmitting(true);
     const parsedAmt = parseFloat(amountVal);
     const numAmt = Math.sign(parsedAmt) * Math.round(Math.abs(parsedAmt));
     const absAmt = Math.abs(numAmt);
     const firstPartyType = numAmt > 0 ? 'CR' : 'DR';
+    const secondPartyType = numAmt > 0 ? 'DR' : 'CR';
+    const chainId = generateUUID();
 
-    // Logical Operation ID: Generated per user submission attempt, preserved across retries
-    const idempotencyKey = customIdempotencyKey || `op-${crypto.randomUUID()}`;
-
-    const { data: rpcData, error: rpcError } = await supabase.rpc('post_ledger_transaction', {
-      p_user_id: authUser.id,
-      p_party_id: selectedParty.id,
-      p_linked_party_id: linkedPartyVal.id,
-      p_amount: absAmt,
-      p_tns_type: firstPartyType,
-      p_remarks: remarksVal || '',
-      p_idempotency_key: idempotencyKey
-    });
-
-    if (!rpcError) {
-      if (rpcData?.success) {
-        await Promise.all([
-          fetchParties(),
-          fetchTransactions(selectedParty.id)
-        ]);
-        return true;
-      }
-      throw new Error(`Ledger posting failed: ${rpcData?.error || 'Unknown error'}`);
-    }
-
-    // STRICT FAIL-CLOSED AUDIT RULE:
-    // Only fall back to direct insert if the RPC function does not exist in PostgreSQL (pre-migration dev state).
-    const isRpcNotFound = rpcError.code === '42883' || rpcError.code === 'PGRST202' || rpcError.message?.includes('function');
-
-    if (!isRpcNotFound) {
-      console.error("[FAIL-CLOSED] Ledger posting RPC execution error:", rpcError);
-      alert('Transaction failed: ' + rpcError.message);
-      return false;
-    }
-
-    console.warn("[PRE-MIGRATION DEV FALLBACK] post_ledger_transaction RPC not installed on database yet. Executing pre-migration fallback.");
-
-    // 2. Direct DB fallback if RPC is not yet applied in local database
     try {
-      const secondPartyType = numAmt > 0 ? 'DR' : 'CR';
-      const chainId = generateUUID();
-
       const [balA, balB] = await Promise.all([
         getBalance(selectedParty.id),
         getBalance(linkedPartyVal.id)
@@ -856,34 +837,31 @@ export const useLedgerTransactions = ({
       let { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: chainId,
-          user_id: authUser.id,
           party_id: selectedParty.id,
           linked_transaction_id: chainId,
           remarks: remarksVal || '',
           tns_type: firstPartyType,
           credit: creditA,
           debit: debitA,
-          transaction_date: new Date().toISOString()
+          created_at: new Date().toISOString()
         },
         {
           id: generateUUID(),
-          user_id: authUser.id,
           party_id: linkedPartyVal.id,
           linked_transaction_id: chainId,
           remarks: remarksVal || '',
           tns_type: secondPartyType,
           credit: creditB,
           debit: debitB,
-          transaction_date: new Date().toISOString()
+          created_at: new Date().toISOString()
         }
       ]);
 
       if (insertErr) {
-        console.warn("Primary transaction insert failed, retrying with minimal schema:", insertErr);
+        console.warn("Primary transaction insert failed, retrying minimal schema:", insertErr);
         const resFb = await supabase.from('transactions').insert([
           {
             id: chainId,
-            user_id: authUser.id,
             party_id: selectedParty.id,
             linked_transaction_id: chainId,
             remarks: remarksVal || '',
@@ -893,7 +871,6 @@ export const useLedgerTransactions = ({
           },
           {
             id: generateUUID(),
-            user_id: authUser.id,
             party_id: linkedPartyVal.id,
             linked_transaction_id: chainId,
             remarks: remarksVal || '',
@@ -921,6 +898,11 @@ export const useLedgerTransactions = ({
         recalculateBalances(linkedPartyVal.id)
       ]);
       
+      await Promise.all([
+        fetchParties(),
+        fetchTransactions(selectedParty.id)
+      ]);
+
       return true;
     } catch (err) { 
       console.error(err); 

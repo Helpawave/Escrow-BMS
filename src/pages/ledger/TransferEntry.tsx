@@ -358,7 +358,6 @@ const TransferEntry = () => {
           const { data: allTxns } = await supabase
             .from('transactions')
             .select('party_id, credit, debit')
-            .eq('user_id', user.id)
             .in('party_id', partyIds);
 
           if (allTxns && allTxns.length > 0) {

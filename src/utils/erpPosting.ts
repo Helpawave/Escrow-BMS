@@ -96,7 +96,6 @@ export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
 
     await supabase.from('transactions').insert([{
       id: tnsId,
-      user_id: user.id,
       party_id: partyId,
       linked_transaction_id: tnsId,
       remarks: `[ERP Auto] ${isSales ? 'Sales Invoice' : 'Purchase Bill'} #${payload.invoiceNumber}`,
@@ -149,7 +148,6 @@ export async function postPaymentToLedger(payload: ERPPaymentPostingPayload) {
 
     await supabase.from('transactions').insert([{
       id: tnsId,
-      user_id: user.id,
       party_id: partyId,
       linked_transaction_id: tnsId,
       remarks: `[ERP Auto] Payment ${isReceived ? 'Received' : 'Made'} (${payload.paymentMode || 'Cash'}) for Inv #${payload.invoiceNumber}`,
@@ -243,7 +241,6 @@ export async function postHisabToLedger(payload: ERPHisabPostingPayload) {
 
     await supabase.from('transactions').insert([{
       id: tnsId,
-      user_id: user.id,
       party_id: partyId,
       linked_transaction_id: tnsId,
       remarks: `[ERP Hisab Auto] ${payload.remarks || 'Daily Hisab Entry'}`,

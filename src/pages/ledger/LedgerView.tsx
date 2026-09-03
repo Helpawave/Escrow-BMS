@@ -153,7 +153,6 @@ const LedgerView = () => {
           const { data: allTxns } = await supabase
             .from('transactions')
             .select('party_id, credit, debit')
-            .eq('user_id', effectiveUserId)
             .in('party_id', partyIds);
 
           if (allTxns && allTxns.length > 0) {
