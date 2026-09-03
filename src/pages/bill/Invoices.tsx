@@ -43,6 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useInvoices } from "@/hooks/useInvoices";
 import { useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 import {
   fetchFullInvoiceData,
   formatCompanyData,
@@ -53,25 +54,27 @@ import { Invoice, InvoiceItem, Client, UserSettings, ClientData, CompanyData, It
 
 interface InvoicesPageProps {
   isQuotationMode?: boolean;
+  isLedgerMode?: boolean;
 }
 
-const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps = {}) => {
+const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLedgerMode }: InvoicesPageProps = {}) => {
   const queryClient = useQueryClient();
   const location = useLocation();
   const isQuotationTab = propQuotationMode ?? location.pathname.includes('/quotations');
+  const isLedgerTab = propLedgerMode ?? (location.pathname.includes('/ledger-bills') || location.pathname.includes('/ledger-invoices'));
 
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const initialInvoiceId = searchParams.get('id') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
-  const [statusFilter, setStatusFilter] = useState(isQuotationTab ? "quotation" : "sales_only");
+  const [statusFilter, setStatusFilter] = useState(isQuotationTab ? "quotation" : (isLedgerTab ? "ledger" : "sales_only"));
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
 
   useEffect(() => {
-    setStatusFilter(isQuotationTab ? "quotation" : "sales_only");
-  }, [isQuotationTab]);
+    setStatusFilter(isQuotationTab ? "quotation" : (isLedgerTab ? "ledger" : "sales_only"));
+  }, [isQuotationTab, isLedgerTab]);
 
   const { data, isLoading: loading, isFetching: searchLoading } = useInvoices({
     page: currentPage,
@@ -82,6 +85,8 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
 
   const invoices = data?.invoices || [];
   const totalCount = data?.totalCount || 0;
+
+  const [convertingQuotationId, setConvertingQuotationId] = useState<string | null>(null);
 
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);

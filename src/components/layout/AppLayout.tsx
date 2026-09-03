@@ -148,6 +148,9 @@ export function AppLayout({ children }: AppLayoutProps) {
               if (itemRoute === '/billing/invoices') {
                 return location.pathname === '/billing/invoices' || location.pathname === '/billing' || location.pathname === '/billing/';
               }
+              if (itemRoute === '/billing/ledger-bills') {
+                return location.pathname === '/billing/ledger-bills' || location.pathname.startsWith('/billing/ledger-bills') || location.pathname === '/ledger-bills';
+              }
               if (itemRoute === '/billing/quotations') {
                 return location.pathname === '/billing/quotations' || location.pathname === '/billing/quotations/';
               }
