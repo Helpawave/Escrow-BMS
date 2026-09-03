@@ -819,7 +819,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
         const { client_id, ...purchaseFormData } = formData;
 
-        const { data: rawPurchaseData, error: purchaseError } = await supabase
+        let rawPurchaseData: any = null;
+        let purchaseError: any = null;
+
+        const pRes = await supabase
           .from('purchase_invoices')
           .insert([{
             id: crypto.randomUUID(),
@@ -833,7 +836,30 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
             notes: formData.notes || ''
           }])
           .select('*')
-          .single();
+          .maybeSingle();
+
+        if (pRes.error) {
+          console.warn("Purchase invoice insert tier 1 failed, retrying tier 2 without notes:", pRes.error);
+          const pResTier2 = await supabase
+            .from('purchase_invoices')
+            .insert([{
+              id: crypto.randomUUID(),
+              user_id: activeUserId,
+              vendor_id: finalVendorId,
+              invoice_number: await generateInvoiceNumber('PUR'),
+              issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
+              due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
+              total_amount: total,
+              status: 'draft'
+            }])
+            .select('*')
+            .maybeSingle();
+
+          rawPurchaseData = pResTier2.data;
+          purchaseError = pResTier2.error;
+        } else {
+          rawPurchaseData = pRes.data;
+        }
 
         if (purchaseError) throw purchaseError;
         const purchaseData = rawPurchaseData as unknown as PurchaseInvoice;
@@ -858,13 +884,17 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         }
 
         // Atomic batch stock increment for purchase bill
-        const opId = crypto.randomUUID();
-        await adjustStockBatch(
-          items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-          'PURCHASE',
-          purchaseData.id,
-          `${opId}:CREATE`
-        );
+        try {
+          const opId = crypto.randomUUID();
+          await adjustStockBatch(
+            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+            'PURCHASE',
+            purchaseData.id,
+            `${opId}:PURCHASE_CREATE`
+          );
+        } catch (stockErr) {
+          console.warn("Purchase stock adjustment warning:", stockErr);
+        }
 
         setSuccessInfo({
           title: "Purchase Bill Created",
@@ -990,12 +1020,16 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
             .eq('invoice_id', invoiceId);
 
           if (oldItems && oldItems.length > 0) {
-            await adjustStockBatch(
-              (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
-              'SALE_CANCEL',
-              invoiceId,
-              `${editOpId}:EDIT_REVERSAL`
-            );
+            try {
+              await adjustStockBatch(
+                (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
+                'SALE_CANCEL',
+                invoiceId,
+                `${editOpId}:EDIT_REVERSAL`
+              );
+            } catch (stockErr) {
+              console.warn("Stock reversal warning during edit:", stockErr);
+            }
           }
         }
 
@@ -1025,13 +1059,17 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           if (insertError) throw insertError;
 
           if (!isQuotation) {
-            const editOpId = crypto.randomUUID();
-            await adjustStockBatch(
-              items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-              'SALE',
-              invoiceId,
-              `${editOpId}:EDIT_APPLY`
-            );
+            try {
+              const editOpId = crypto.randomUUID();
+              await adjustStockBatch(
+                items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+                'SALE',
+                invoiceId,
+                `${editOpId}:EDIT_APPLY`
+              );
+            } catch (stockErr) {
+              console.warn("Stock apply warning during edit:", stockErr);
+            }
           }
         }
 
@@ -1120,13 +1158,17 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
           // Only adjust stock for actual invoices (NOT for quotations)
           if (!isQuotation) {
-            const createOpId = crypto.randomUUID();
-            await adjustStockBatch(
-              items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-              'SALE',
-              (invoiceData as Invoice).id,
-              `${createOpId}:CREATE`
-            );
+            try {
+              const createOpId = crypto.randomUUID();
+              await adjustStockBatch(
+                items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
+                'SALE',
+                (invoiceData as Invoice).id,
+                `${createOpId}:CREATE`
+              );
+            } catch (stockErr) {
+              console.warn("Sale invoice stock adjustment warning:", stockErr);
+            }
           }
         }
 
