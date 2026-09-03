@@ -270,20 +270,21 @@ export default function Landing() {
       
       {/* ─── Top Announcement Banner with Close Button ───────────────── */}
       {showAnnouncement && (
-        <div className="bg-gradient-to-r from-indigo-900 via-indigo-700 to-blue-800 text-white text-xs py-2 px-4 flex items-center justify-between font-semibold tracking-wide border-b border-indigo-600/30 animate-fade-in">
+        <div className="bg-gradient-to-r from-indigo-900 via-indigo-700 to-blue-800 text-white text-xs py-2 px-4 flex items-center justify-between font-semibold tracking-wide border-b border-indigo-600/30 animate-fade-in relative z-50">
           <div className="flex-1 text-center flex items-center justify-center gap-2">
             <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">NEW</span>
-            <span>Trial: 14 days left of full access — E-Invoicing, Quotations & Multi-Staff Role Access!</span>
+            <span>E-Invoicing, Quotations & Multi-Staff Role Access is now live in Escrow BMS!</span>
             <button onClick={handleAuthAction} className="underline hover:text-amber-300 font-bold ml-1 hidden sm:inline cursor-pointer">
-              Upgrade / Try Free →
+              Try 14 Days Free →
             </button>
           </div>
           <button
             onClick={handleDismissAnnouncement}
-            className="p-1 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-2"
-            title="Dismiss announcement"
+            className="p-1.5 rounded-lg text-white/80 hover:text-white hover:bg-white/20 transition-all cursor-pointer ml-2 flex items-center justify-center shrink-0"
+            title="Close banner"
+            aria-label="Close announcement"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
