@@ -843,15 +843,12 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode }: InvoicesPageProps 
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       queryClient.invalidateQueries({ queryKey: ['products'] }); // Refresh product stock in UI
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting invoice:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to delete invoice."
-      });
-    } finally {
-        description: err.message || "Failed to delete.",
+        description: error?.message || "Failed to delete invoice."
       });
     }
   };
