@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { Menu, Bell, Sun, Moon, LogOut, BookOpen } from 'lucide-react';
+import { Menu, Bell, Sun, Moon, LogOut, BookOpen, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MODULES } from '@/lib/constants';
 
@@ -53,18 +53,38 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
 
   const displayFirstName = profile?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Me';
 
+  const [showTrialBanner, setShowTrialBanner] = React.useState(() => {
+    return sessionStorage.getItem('dismiss_trial_banner') !== 'true';
+  });
+
+  const handleDismissBanner = () => {
+    setShowTrialBanner(false);
+    sessionStorage.setItem('dismiss_trial_banner', 'true');
+  };
+
   return (
     <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
-      {/* Top Banner (Trial Alert) */}
-      <div className="bg-indigo-50/70 dark:bg-indigo-950/40 border-b border-indigo-100/60 dark:border-indigo-900/30 px-4 py-1.5 flex items-center justify-center gap-2 text-xs text-indigo-700 dark:text-indigo-300 font-medium">
-        <span>Trial: 14 days left of full access</span>
-        <button
-          onClick={() => navigate('/pricing')}
-          className="font-bold underline hover:text-indigo-900 dark:hover:text-indigo-100 cursor-pointer"
-        >
-          Upgrade
-        </button>
-      </div>
+      {/* Top Banner (Trial Alert) with Close Button */}
+      {showTrialBanner && (
+        <div className="bg-indigo-50/80 dark:bg-indigo-950/50 border-b border-indigo-100/80 dark:border-indigo-900/40 px-4 py-1.5 flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 font-medium animate-fade-in">
+          <div className="flex-1 text-center flex items-center justify-center gap-2">
+            <span>⚡ Trial: 14 days left of full access</span>
+            <button
+              onClick={() => navigate('/pricing')}
+              className="font-bold underline hover:text-indigo-900 dark:hover:text-indigo-100 cursor-pointer"
+            >
+              Upgrade
+            </button>
+          </div>
+          <button
+            onClick={handleDismissBanner}
+            className="p-1 rounded-md text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-200 hover:bg-indigo-100/60 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
+            title="Dismiss banner"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Main Top Header Bar */}
       <div className="h-14 flex items-center justify-between px-5 gap-4">

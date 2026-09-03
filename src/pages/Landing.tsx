@@ -230,6 +230,15 @@ export default function Landing() {
   const [roiInvoices, setRoiInvoices] = useState<number>(250);
   const [roiTeam, setRoiTeam] = useState<number>(4);
 
+  const [showAnnouncement, setShowAnnouncement] = useState(() => {
+    return sessionStorage.getItem('dismiss_landing_announcement') !== 'true';
+  });
+
+  const handleDismissAnnouncement = () => {
+    setShowAnnouncement(false);
+    sessionStorage.setItem('dismiss_landing_announcement', 'true');
+  };
+
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
@@ -259,14 +268,25 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-300">
       
-      {/* ─── Top Announcement Banner ─────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-indigo-900 via-indigo-700 to-blue-800 text-white text-xs py-2 px-4 text-center font-semibold tracking-wide flex items-center justify-center gap-2 border-b border-indigo-600/30">
-        <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">NEW</span>
-        <span>E-Invoicing, Quotations & Multi-Staff Role Access is now live in Escrow BMS!</span>
-        <button onClick={handleAuthAction} className="underline hover:text-amber-300 font-bold ml-1 hidden sm:inline cursor-pointer">
-          Try 14 Days Free →
-        </button>
-      </div>
+      {/* ─── Top Announcement Banner with Close Button ───────────────── */}
+      {showAnnouncement && (
+        <div className="bg-gradient-to-r from-indigo-900 via-indigo-700 to-blue-800 text-white text-xs py-2 px-4 flex items-center justify-between font-semibold tracking-wide border-b border-indigo-600/30 animate-fade-in">
+          <div className="flex-1 text-center flex items-center justify-center gap-2">
+            <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">NEW</span>
+            <span>Trial: 14 days left of full access — E-Invoicing, Quotations & Multi-Staff Role Access!</span>
+            <button onClick={handleAuthAction} className="underline hover:text-amber-300 font-bold ml-1 hidden sm:inline cursor-pointer">
+              Upgrade / Try Free →
+            </button>
+          </div>
+          <button
+            onClick={handleDismissAnnouncement}
+            className="p-1 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer ml-2"
+            title="Dismiss announcement"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* ─── Sticky Glass Navbar ──────────────────────────────────────── */}
       <header className={`sticky top-0 z-50 transition-all duration-200 ${scrolled ? 'bg-white/90 dark:bg-slate-950/90 backdrop-blur-md shadow-xs border-b border-slate-200/80 dark:border-slate-800/80' : 'bg-transparent'}`}>
