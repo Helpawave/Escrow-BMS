@@ -1,30 +1,23 @@
 -- ==============================================================================
--- ESCROW BMS: ACCOUNT LEDGER COMPLETE DATABASE FIX
--- Run this SQL script in Supabase SQL Editor for project ahdcjmydbsxoibvplmuz
+-- ESCROW BMS: ACCOUNT LEDGER COMPLETE DATABASE FIX (V2 - Amount & Direct Parity)
+-- Run this in Supabase SQL Editor: https://supabase.com/dashboard/project/ahdcjmydbsxoibvplmuz/sql/new
 -- ==============================================================================
 
--- 1. Create or alter the transactions table to ensure all columns exist
-CREATE TABLE IF NOT EXISTS public.transactions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  party_id UUID REFERENCES public.parties(id) ON DELETE CASCADE,
-  linked_transaction_id UUID,
-  transaction_date TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-  remarks TEXT DEFAULT '',
-  tns_type TEXT DEFAULT 'CR',
-  credit NUMERIC NOT NULL DEFAULT 0,
-  debit NUMERIC NOT NULL DEFAULT 0,
-  balance NUMERIC NOT NULL DEFAULT 0,
-  is_checked BOOLEAN DEFAULT FALSE,
-  is_finalized BOOLEAN DEFAULT FALSE,
-  is_modified BOOLEAN DEFAULT FALSE,
-  is_settlement BOOLEAN DEFAULT FALSE,
-  settlement_id UUID,
-  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
-);
+-- 1. Ensure amount column in transactions is nullable or defaults to 0
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'amount'
+  ) THEN
+    ALTER TABLE public.transactions ALTER COLUMN amount DROP NOT NULL;
+    ALTER TABLE public.transactions ALTER COLUMN amount SET DEFAULT 0;
+  ELSE
+    ALTER TABLE public.transactions ADD COLUMN amount NUMERIC DEFAULT 0;
+  END IF;
+END $$;
 
--- Ensure all columns exist even if the table already existed with older schema
+-- 2. Ensure all other transactions ledger columns exist
 ALTER TABLE public.transactions
   ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   ADD COLUMN IF NOT EXISTS party_id UUID REFERENCES public.parties(id) ON DELETE CASCADE,
@@ -43,7 +36,7 @@ ALTER TABLE public.transactions
   ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 
--- 2. Ensure parties table has all columns
+-- 3. Ensure parties table has all columns
 ALTER TABLE public.parties
   ADD COLUMN IF NOT EXISTS sr_no TEXT DEFAULT '',
   ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0,
@@ -53,11 +46,11 @@ ALTER TABLE public.parties
   ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'take',
   ADD COLUMN IF NOT EXISTS balance NUMERIC DEFAULT 0;
 
--- 3. Enable RLS
+-- 4. Enable RLS
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.parties ENABLE ROW LEVEL SECURITY;
 
--- 4. Clean and recreate permissive RLS policies
+-- 5. Clean and recreate permissive RLS policies
 DO $$
 BEGIN
   DROP POLICY IF EXISTS "Users can view their own transactions" ON public.transactions;
@@ -86,7 +79,7 @@ TO authenticated
 USING (auth.uid() = user_id)
 WITH CHECK (auth.uid() = user_id);
 
--- 5. Atomic RPC for ledger posting (optional high-performance backend procedure)
+-- 6. Atomic procedure for ledger transaction posting with amount populated
 CREATE OR REPLACE FUNCTION public.post_ledger_transaction(
   p_user_id UUID,
   p_party_id UUID,
@@ -107,8 +100,6 @@ DECLARE
   v_debit_a NUMERIC := 0;
   v_credit_b NUMERIC := 0;
   v_debit_b NUMERIC := 0;
-  v_bal_a NUMERIC := 0;
-  v_bal_b NUMERIC := 0;
 BEGIN
   IF p_amount <= 0 THEN
     RETURN jsonb_build_object('success', false, 'error', 'Amount must be greater than zero');
@@ -124,18 +115,18 @@ BEGIN
     v_credit_b := p_amount;
   END IF;
 
-  -- Insert entry for Party A
+  -- Insert entry for Party A (including amount)
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, created_at
   ) VALUES (
-    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, NOW()
+    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, p_amount, NOW()
   );
 
-  -- Insert entry for Party B
+  -- Insert entry for Party B (including amount)
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, created_at
   ) VALUES (
-    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, NOW()
+    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, p_amount, NOW()
   );
 
   -- Update running balances on parties

@@ -1,26 +1,19 @@
 -- ==============================================================================
--- ESCROW BMS: ACCOUNT LEDGER COMPLETE DATABASE FIX
+-- ESCROW BMS: ACCOUNT LEDGER COMPLETE DATABASE FIX (V2 - Amount & Direct Parity)
 -- ==============================================================================
 
-CREATE TABLE IF NOT EXISTS public.transactions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  party_id UUID REFERENCES public.parties(id) ON DELETE CASCADE,
-  linked_transaction_id UUID,
-  transaction_date TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-  remarks TEXT DEFAULT '',
-  tns_type TEXT DEFAULT 'CR',
-  credit NUMERIC NOT NULL DEFAULT 0,
-  debit NUMERIC NOT NULL DEFAULT 0,
-  balance NUMERIC NOT NULL DEFAULT 0,
-  is_checked BOOLEAN DEFAULT FALSE,
-  is_finalized BOOLEAN DEFAULT FALSE,
-  is_modified BOOLEAN DEFAULT FALSE,
-  is_settlement BOOLEAN DEFAULT FALSE,
-  settlement_id UUID,
-  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
-);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'transactions' AND column_name = 'amount'
+  ) THEN
+    ALTER TABLE public.transactions ALTER COLUMN amount DROP NOT NULL;
+    ALTER TABLE public.transactions ALTER COLUMN amount SET DEFAULT 0;
+  ELSE
+    ALTER TABLE public.transactions ADD COLUMN amount NUMERIC DEFAULT 0;
+  END IF;
+END $$;
 
 ALTER TABLE public.transactions
   ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -116,15 +109,15 @@ BEGIN
   END IF;
 
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, created_at
   ) VALUES (
-    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, NOW()
+    v_chain_id, p_user_id, p_party_id, v_chain_id, COALESCE(p_remarks, ''), p_tns_type, v_credit_a, v_debit_a, p_amount, NOW()
   );
 
   INSERT INTO public.transactions (
-    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, created_at
+    id, user_id, party_id, linked_transaction_id, remarks, tns_type, credit, debit, amount, created_at
   ) VALUES (
-    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, NOW()
+    gen_random_uuid(), p_user_id, p_linked_party_id, v_chain_id, COALESCE(p_remarks, ''), v_second_type, v_credit_b, v_debit_b, p_amount, NOW()
   );
 
   UPDATE public.parties 

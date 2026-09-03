@@ -509,22 +509,26 @@ export const useLedgerTransactions = ({
       let { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: anchorId,
+          user_id: authUser.id,
           party_id: selectedParty.id,
           linked_transaction_id: anchorId,
           remarks: editFormData.remarks || '',
           tns_type: primaryType,
           credit: creditA,
           debit: debitA,
+          amount: absAmt,
           created_at: tnsA.created_at || new Date().toISOString()
         },
         {
           id: generateUUID(),
+          user_id: authUser.id,
           party_id: editFormData.linkedParty.id,
           linked_transaction_id: anchorId,
           remarks: editFormData.remarks || '',
           tns_type: secondaryType,
           credit: creditB,
           debit: debitB,
+          amount: absAmt,
           created_at: tnsA.created_at || new Date().toISOString()
         }
       ]);
@@ -534,21 +538,25 @@ export const useLedgerTransactions = ({
         const fbRes = await supabase.from('transactions').insert([
           {
             id: anchorId,
+            user_id: authUser.id,
             party_id: selectedParty.id,
             linked_transaction_id: anchorId,
             remarks: editFormData.remarks || '',
             tns_type: primaryType,
             credit: creditA,
-            debit: debitA
+            debit: debitA,
+            amount: absAmt
           },
           {
             id: generateUUID(),
+            user_id: authUser.id,
             party_id: editFormData.linkedParty.id,
             linked_transaction_id: anchorId,
             remarks: editFormData.remarks || '',
             tns_type: secondaryType,
             credit: creditB,
-            debit: debitB
+            debit: debitB,
+            amount: absAmt
           }
         ]);
         insertErr = fbRes.error;
@@ -798,7 +806,8 @@ export const useLedgerTransactions = ({
           totalVolume = 0;
         }
       } else {
-        totalVolume = 0;
+        // Direct calculation without system company party
+        totalVolume = mainTns.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
       }
     }
     
@@ -868,6 +877,7 @@ export const useLedgerTransactions = ({
           tns_type: firstPartyType,
           credit: creditA,
           debit: debitA,
+          amount: absAmt,
           created_at: new Date().toISOString()
         },
         {
@@ -879,6 +889,7 @@ export const useLedgerTransactions = ({
           tns_type: secondPartyType,
           credit: creditB,
           debit: debitB,
+          amount: absAmt,
           created_at: new Date().toISOString()
         }
       ]);
