@@ -808,7 +808,13 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="mt-6 pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 group-hover:underline">Explore Invoicing →</span>
+                <Link
+                  to={user ? "/billing/invoices" : "/auth"}
+                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 group-hover:translate-x-0.5 transition-all"
+                >
+                  <span>Explore Invoicing</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
 
@@ -835,7 +841,13 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="mt-6 pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-                <span className="text-xs font-bold text-blue-600 dark:text-blue-400 group-hover:underline">Explore Ledger →</span>
+                <Link
+                  to={user ? "/ledger" : "/auth"}
+                  className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 group-hover:translate-x-0.5 transition-all"
+                >
+                  <span>Explore Ledger</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
 
@@ -862,7 +874,13 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="mt-6 pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 group-hover:underline">Explore Daily Hisab →</span>
+                <Link
+                  to={user ? "/calculation" : "/auth"}
+                  className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 group-hover:translate-x-0.5 transition-all"
+                >
+                  <span>Explore Daily Hisab</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
 
@@ -889,7 +907,13 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="mt-6 pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 group-hover:underline">Explore Inventory →</span>
+                <Link
+                  to={user ? "/inventory/products" : "/auth"}
+                  className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 flex items-center gap-1 group-hover:translate-x-0.5 transition-all"
+                >
+                  <span>Explore Inventory</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
 
@@ -916,7 +940,13 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="mt-6 pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-                <span className="text-xs font-bold text-purple-600 dark:text-purple-400 group-hover:underline">Explore Payroll →</span>
+                <Link
+                  to={user ? "/payroll/payroll" : "/auth"}
+                  className="text-xs font-bold text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 flex items-center gap-1 group-hover:translate-x-0.5 transition-all"
+                >
+                  <span>Explore Payroll</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
 
@@ -943,7 +973,13 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="mt-6 pt-4 border-t border-slate-200/60 dark:border-slate-800/80 flex justify-between items-center">
-                <span className="text-xs font-bold text-rose-600 dark:text-rose-400 group-hover:underline">Explore CRM & Members →</span>
+                <Link
+                  to={user ? "/crm" : "/auth"}
+                  className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 flex items-center gap-1 group-hover:translate-x-0.5 transition-all"
+                >
+                  <span>Explore CRM & Members</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
 
