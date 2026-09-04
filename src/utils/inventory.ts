@@ -5,9 +5,9 @@ export interface StockItemMutation {
   quantity: number;
 }
 
-// Memory cache to avoid repeated 404 network roundtrips for uninstalled RPCs
-let rpcBatchSupported: boolean | null = null;
-let rpcSingleSupported: boolean | null = null;
+// Set to false by default since custom RPCs are not deployed in remote Supabase
+let rpcBatchSupported: boolean | null = false;
+let rpcSingleSupported: boolean | null = false;
 
 /**
  * Fast & resilient Invoice-Level Batch Stock Adjuster.

@@ -941,46 +941,31 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         let rawPurchaseData: any = null;
         let purchaseError: any = null;
 
+        // Insert purchase invoice with authoritative columns present in schema
+        const purchasePayload = {
+          id: crypto.randomUUID(),
+          user_id: activeUserId,
+          vendor_id: finalVendorId,
+          invoice_number: await generateInvoiceNumber('PUR'),
+          issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
+          due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
+          total_amount: total,
+          status: 'draft'
+        };
+
         const pRes = await supabase
           .from('purchase_invoices')
-          .insert([{
-            id: crypto.randomUUID(),
-            user_id: activeUserId,
-            vendor_id: finalVendorId,
-            invoice_number: await generateInvoiceNumber('PUR'),
-            issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
-            due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
-            total_amount: total,
-            status: 'draft',
-            notes: formData.notes || ''
-          }])
+          .insert([purchasePayload])
           .select('*')
           .maybeSingle();
 
-        if (pRes.error) {
-          console.warn("Purchase invoice insert tier 1 failed, retrying tier 2 without notes:", pRes.error);
-          const pResTier2 = await supabase
-            .from('purchase_invoices')
-            .insert([{
-              id: crypto.randomUUID(),
-              user_id: activeUserId,
-              vendor_id: finalVendorId,
-              invoice_number: await generateInvoiceNumber('PUR'),
-              issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
-              due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
-              total_amount: total,
-              status: 'draft'
-            }])
-            .select('*')
-            .maybeSingle();
+        rawPurchaseData = pRes.data;
+        purchaseError = pRes.error;
 
-          rawPurchaseData = pResTier2.data;
-          purchaseError = pResTier2.error;
-        } else {
-          rawPurchaseData = pRes.data;
+        if (purchaseError) {
+          console.warn("Purchase invoice insert error:", purchaseError);
+          throw purchaseError;
         }
-
-        if (purchaseError) throw purchaseError;
         const purchaseData = rawPurchaseData as unknown as PurchaseInvoice;
 
         try {
