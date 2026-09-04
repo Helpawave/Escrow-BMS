@@ -38,7 +38,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download, Tag, Calendar, AlertTriangle, Printer, RefreshCw, Loader2 } from "lucide-react";
+import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download, Tag, Calendar, AlertTriangle, Printer, RefreshCw, Loader2, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProducts, Product } from "@/contexts/ProductsContext";
 import { BarcodeStickerModal, BarcodeProductInfo } from "@/components/inventory/BarcodeStickerModal";
@@ -51,6 +51,40 @@ export const Products = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewProduct, setViewProduct] = useState<Product | null>(null);
   const [stickerModalProduct, setStickerModalProduct] = useState<BarcodeProductInfo | null>(null);
+
+  // Low Stock 1-Click Purchase Reorder Modal state
+  const [reorderProduct, setReorderProduct] = useState<Product | null>(null);
+  const [reorderQuantity, setReorderQuantity] = useState<number>(10);
+  const [reorderCost, setReorderCost] = useState<string>("");
+  const [reorderSupplier, setReorderSupplier] = useState<string>("");
+
+  const handleOpenReorder = (product: Product) => {
+    setReorderProduct(product);
+    setReorderQuantity(10);
+    setReorderCost(product.cost ? String(product.cost) : (product.price ? String(product.price) : "0"));
+    setReorderSupplier(product.supplier || "");
+  };
+
+  const handleConfirmReorder = () => {
+    if (!reorderProduct) return;
+    const qty = Number(reorderQuantity) || 1;
+    const rate = Number(reorderCost) || 0;
+
+    navigate('/billing/create-invoice?type=purchase', {
+      state: {
+        prefillProduct: {
+          id: String(reorderProduct.id),
+          name: reorderProduct.name,
+          sku: reorderProduct.sku,
+          unit: reorderProduct.unit || 'pcs',
+          rate: rate,
+          quantity: qty,
+          supplier: reorderSupplier
+        }
+      }
+    });
+    setReorderProduct(null);
+  };
 
   // Sync products on mount
   useEffect(() => {
@@ -88,7 +122,7 @@ export const Products = () => {
     const matchesType = filterConfig.type === "all" || product.type === filterConfig.type;
     const matchesStatus = filterConfig.status === "all" ||
       (filterConfig.status === "active" && product.status !== "low_stock") ||
-      (filterConfig.status === "low_stock" && (product.status === "low_stock" || product.quantity < 10));
+      (filterConfig.status === "low_stock" && (product.status === "low_stock" || product.quantity <= 5 || product.quantity < 10));
     const matchesTax = filterConfig.taxPreference === "all" || product.taxPreference === filterConfig.taxPreference;
     const matchesReturnable = filterConfig.returnable === "all" ||
       (filterConfig.returnable === "yes" && product.returnableItem) ||
@@ -97,11 +131,59 @@ export const Products = () => {
     return matchesSearch && matchesType && matchesStatus && matchesTax && matchesReturnable;
   });
 
-  const getStatusBadge = (status: string, quantity: number) => {
-    if (status === "low_stock" || quantity < 10) {
-      return <Badge variant="destructive">Low Stock</Badge>;
+  const getStatusBadge = (product: Product) => {
+    const isCriticalLow = product.quantity <= 5;
+    const isLow = product.status === "low_stock" || product.quantity < 10;
+
+    if (isCriticalLow) {
+      return (
+        <div className="flex flex-col gap-1.5 items-start">
+          <Badge variant="destructive" className="bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1 font-bold text-[10px] px-2 py-0.5 shadow-xs">
+            <AlertTriangle className="w-3 h-3 animate-pulse" />
+            Low Stock ({product.quantity} left)
+          </Badge>
+          <Button
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenReorder(product);
+            }}
+            className="h-6 text-[10px] px-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800 font-extrabold flex items-center gap-1 shadow-xs cursor-pointer rounded-md transition-all hover:scale-105"
+            title="Create Purchase Bill in 1-Click to reorder this stock"
+          >
+            <ShoppingCart className="w-3 h-3 text-amber-700 dark:text-amber-400" />
+            1-Click Purchase
+          </Button>
+        </div>
+      );
     }
-    return <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white">In Stock</Badge>;
+
+    if (isLow) {
+      return (
+        <div className="flex flex-col gap-1.5 items-start">
+          <Badge variant="destructive" className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] px-2 py-0.5">
+            Low Stock ({product.quantity})
+          </Badge>
+          <Button
+            size="sm"
+            type="button"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenReorder(product);
+            }}
+            className="h-5 text-[10px] px-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 font-bold flex items-center gap-1 cursor-pointer"
+          >
+            <ShoppingCart className="w-2.5 h-2.5" />
+            Reorder
+          </Button>
+        </div>
+      );
+    }
+
+    return <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px]">In Stock</Badge>;
   };
 
   const resetForm = () => {
@@ -522,7 +604,7 @@ export const Products = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {getStatusBadge(product.status, product.quantity)}
+                        {getStatusBadge(product)}
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -534,6 +616,13 @@ export const Products = () => {
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => handleOpenReorder(product)}
+                              className="cursor-pointer text-amber-700 dark:text-amber-400 font-bold"
+                            >
+                              <ShoppingCart className="w-4 h-4 mr-2 text-amber-600" />
+                              1-Click Purchase Bill
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => setStickerModalProduct({
                                 name: product.name,
@@ -657,6 +746,131 @@ export const Products = () => {
                 Edit Product
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 1-Click Purchase Bill Modal for Low Stock Reorder */}
+      <Dialog open={!!reorderProduct} onOpenChange={(open) => !open && setReorderProduct(null)}>
+        <DialogContent className="sm:max-w-lg rounded-2xl p-6">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-100 dark:bg-amber-950/60 rounded-xl text-amber-600 dark:text-amber-400">
+                <ShoppingCart className="w-6 h-6" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-black text-foreground">
+                  Create Purchase Bill for Low Stock
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  Replenish stock for this item in 1 click.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {reorderProduct && (
+            <div className="space-y-4 py-2">
+              {/* Product Details Header Card */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <h4 className="font-extrabold text-foreground text-sm leading-tight">{reorderProduct.name}</h4>
+                  <p className="text-xs text-muted-foreground font-mono mt-0.5">SKU: {reorderProduct.sku}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Current Stock</span>
+                  <Badge variant="destructive" className="bg-rose-600 text-white font-mono font-bold text-xs mt-0.5">
+                    {reorderProduct.quantity} {reorderProduct.unit || 'pcs'} left
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Purchase Quantity to Order */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-foreground">
+                    Purchase Quantity to Order (कितना stock मंगाना है?)
+                  </Label>
+                  <span className="text-[11px] font-semibold text-muted-foreground">Unit: {reorderProduct.unit || 'pcs'}</span>
+                </div>
+                <Input
+                  type="number"
+                  min="1"
+                  value={reorderQuantity}
+                  onChange={(e) => setReorderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="font-bold text-lg h-11"
+                  placeholder="Enter quantity to purchase"
+                />
+                <div className="flex items-center gap-1.5 pt-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Quick Add:</span>
+                  {[5, 10, 25, 50, 100].map(qty => (
+                    <Button
+                      key={qty}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReorderQuantity(qty)}
+                      className={`h-7 px-2.5 text-xs font-bold rounded-lg cursor-pointer ${reorderQuantity === qty ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 hover:bg-slate-100'}`}
+                    >
+                      +{qty}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Purchase Cost & Supplier */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-foreground">Purchase Cost per Unit (₹)</Label>
+                  <Input
+                    type="number"
+                    value={reorderCost}
+                    onChange={(e) => setReorderCost(e.target.value)}
+                    className="font-semibold text-sm"
+                    placeholder="Rate per item"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-foreground">Supplier / Vendor</Label>
+                  <Input
+                    value={reorderSupplier}
+                    onChange={(e) => setReorderSupplier(e.target.value)}
+                    className="font-semibold text-sm"
+                    placeholder="Vendor name"
+                  />
+                </div>
+              </div>
+
+              {/* Total Purchase Summary */}
+              <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-indigo-900 dark:text-indigo-300">Total Estimated Purchase Value</p>
+                  <p className="text-[11px] text-muted-foreground">{reorderQuantity} {reorderProduct.unit || 'pcs'} × ₹{Number(reorderCost) || 0}</p>
+                </div>
+                <div className="text-right font-black text-lg text-indigo-600 dark:text-indigo-400 font-mono">
+                  ₹{(reorderQuantity * (Number(reorderCost) || 0)).toLocaleString()}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setReorderProduct(null)}
+              className="rounded-xl font-semibold cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmReorder}
+              className="bg-gradient-to-r from-amber-600 to-indigo-600 hover:from-amber-700 hover:to-indigo-700 text-white rounded-xl font-bold px-5 shadow-lg shadow-indigo-500/20 cursor-pointer"
+            >
+              <ShoppingCart className="w-4 h-4 mr-2" />
+              Generate Purchase Bill
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

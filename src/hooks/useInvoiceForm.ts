@@ -430,6 +430,44 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   }, [billingType, ledgerParties, searchParams, selectedLedgerPartyId, handleLedgerPartySelect]);
 
+  // Handle pre-filled product for Purchase Bill (e.g. from Low Stock Reorder 1-Click Modal)
+  const hasPrefilledRef = useRef(false);
+  useEffect(() => {
+    if (isEditing || hasPrefilledRef.current) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prefillData = (location.state as any)?.prefillProduct;
+    const prefillId = prefillData?.id || searchParams.get('prefillProductId') || searchParams.get('productId');
+    const prefillQty = Number(prefillData?.quantity || searchParams.get('qty') || 1);
+    const prefillRate = Number(prefillData?.rate || searchParams.get('rate') || 0);
+    const prefillSupplier = prefillData?.supplier || searchParams.get('supplier') || '';
+
+    if (isPurchase && (prefillData || prefillId)) {
+      hasPrefilledRef.current = true;
+
+      const matchedProd = products.find(p => String(p.id) === String(prefillId)) || prefillData;
+      const rateToUse = prefillRate > 0 ? prefillRate : (Number(matchedProd?.cost) || Number(matchedProd?.price) || 0);
+      const qtyToUse = prefillQty > 0 ? prefillQty : 10;
+
+      setItems([{
+        product_id: matchedProd?.id ? String(matchedProd.id) : (prefillId ? String(prefillId) : undefined),
+        description: matchedProd?.name || prefillData?.name || 'Reorder Item',
+        quantity: qtyToUse,
+        rate: rateToUse,
+        discount: 0,
+        tax_rate: 0,
+        amount: qtyToUse * rateToUse
+      }]);
+
+      if (prefillSupplier && vendors.length > 0) {
+        const matchedVendor = vendors.find(v => v.name.toLowerCase() === prefillSupplier.toLowerCase());
+        if (matchedVendor) {
+          setFormData(prev => ({ ...prev, vendor_id: matchedVendor.id }));
+        }
+      }
+    }
+  }, [isEditing, isPurchase, location.state, searchParams, products, vendors]);
+
   // Load existing invoice if editing
   useEffect(() => {
     if (!user || !isEditing || !invoiceId) return;
