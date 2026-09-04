@@ -10,11 +10,11 @@ ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS tax_amount NUMERIC
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS discount_amount NUMERIC DEFAULT 0;
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'INR';
 
--- 2. Create purchase_invoice_items table for line-item storage
+-- 2. Create purchase_invoice_items table for line-item storage (TEXT id/foreign keys to match existing tables)
 CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  invoice_id UUID REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
-  product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
+  id TEXT PRIMARY KEY,
+  invoice_id TEXT REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
+  product_id TEXT,
   description TEXT NOT NULL,
   quantity NUMERIC NOT NULL DEFAULT 1,
   rate NUMERIC NOT NULL DEFAULT 0,
