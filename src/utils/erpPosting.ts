@@ -1,4 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as baseSupabase } from "@/integrations/supabase/client";
+const supabase = baseSupabase as any;
 
 /**
  * Central ERP Auto-Posting Service
