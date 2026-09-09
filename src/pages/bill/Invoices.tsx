@@ -38,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InvoiceTemplateId } from "@/types/invoice";
 import { AlertCircle, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -209,9 +210,10 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         product: item.products
       }));
 
-      const template = (['professional', 'elegant', 'minimal', 'modern', 'corporate'] as readonly string[]).includes(
-        settings?.invoice_template || ''
-      ) ? settings?.invoice_template as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate' : 'professional';
+      const validTemplates: InvoiceTemplateId[] = ['classic', 'modern', 'thermal', 'export', 'minimal', 'corporate', 'professional', 'elegant', 'creative', 'retail'];
+      const template: InvoiceTemplateId = validTemplates.includes(settings?.invoice_template as InvoiceTemplateId)
+        ? (settings?.invoice_template as InvoiceTemplateId)
+        : 'corporate';
 
       // 3. Generate and download PDF
       const blob = await generateInvoicePDFBlob(

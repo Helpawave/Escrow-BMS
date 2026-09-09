@@ -16,12 +16,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { safelyToLocaleDate } from "@/utils/dateUtils";
 import { useToast } from "@/hooks/use-toast";
 import { InvoicePreview } from "./InvoicePreview";
 import { generateInvoicePDFBlob } from "@/utils/invoicePDF";
+import { InvoiceTemplateId } from "@/types/invoice";
 
 type InvoiceStatus = "draft" | "sent" | "viewed" | "paid" | "overdue";
 
@@ -43,6 +44,8 @@ interface Invoice {
   discount_amount?: number;
   notes?: string;
   terms?: string;
+  payment_terms?: string;
+  created_by_name?: string;
 }
 
 interface InvoiceTableProps {
@@ -52,15 +55,30 @@ interface InvoiceTableProps {
 export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, effectiveUserId, ownerName, profile, companyProfile } = useAuth();
   const { toast } = useToast();
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
+  const getCreatorTag = (terms?: string | null) => {
+    if (terms && terms.startsWith('Created by:')) {
+      const n = terms.replace('Created by:', '').trim();
+      if (n && n.toLowerCase() !== 'company' && n.toLowerCase() !== 'company owner') {
+        return `Created by: ${n}`;
+      }
+    }
+    const fallback = ownerName || profile?.company_name || companyProfile?.company_name || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Owner';
+    return `Created by: ${fallback}`;
+  };
+
+  const targetUserId = effectiveUserId || user?.id;
+
   const fetchRecentInvoices = useCallback(async () => {
+    if (!targetUserId) return;
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('invoices')
         .select(`
           id,
@@ -75,36 +93,48 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
           discount_amount,
           notes,
           terms,
+          payment_terms,
           clients (
             *
           )
         `)
+        .eq('user_id', targetUserId)
         .order('created_at', { ascending: false })
         .limit(limit);
 
       if (error) throw error;
-      setInvoices((data as unknown as Invoice[]) || []);
+      const rawInvoices = (data as unknown as Invoice[]) || [];
+      const sorted = [...rawInvoices].sort((a, b) => {
+        const timeA = a.issue_date ? new Date(a.issue_date).getTime() : 0;
+        const timeB = b.issue_date ? new Date(b.issue_date).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        const numA = parseInt((a.invoice_number || '').replace(/\D/g, '') || '0', 10);
+        const numB = parseInt((b.invoice_number || '').replace(/\D/g, '') || '0', 10);
+        return numB - numA;
+      });
+      setInvoices(sorted);
     } catch (error) {
       console.error('Error fetching invoices:', error);
     } finally {
       setLoading(false);
     }
-  }, [limit]);
+  }, [limit, targetUserId]);
 
   useEffect(() => {
-    if (user) {
+    if (targetUserId) {
       fetchRecentInvoices();
     }
-  }, [user, fetchRecentInvoices]);
+  }, [targetUserId, fetchRecentInvoices]);
 
   const handleDownload = async (invoice: Invoice) => {
     try {
       setDownloadingId(invoice.id);
+      const clientToUse = serviceSupabase || supabase;
       
       const [itemsRes, profileRes, settingsRes] = await Promise.all([
-        supabase.from('invoice_items').select('*, products(*)').eq('invoice_id', invoice.id),
-        supabase.from('profiles').select('*').eq('id', user?.id).single(),
-        supabase.from('user_settings').select('invoice_template, hide_company_details').eq('user_id', user?.id).single()
+        clientToUse.from('invoice_items').select('*, products(*)').eq('invoice_id', invoice.id),
+        clientToUse.from('profiles').select('*').eq('user_id', targetUserId).maybeSingle(),
+        clientToUse.from('user_settings').select('invoice_template, hide_company_details').eq('user_id', targetUserId).maybeSingle()
       ]);
 
       const itemsData = (itemsRes.data as unknown as Record<string, unknown>[]) || [];
@@ -121,9 +151,10 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
         product: item.products
       }));
 
-      const template = (['professional', 'elegant', 'minimal', 'modern', 'corporate'].includes(settingsData?.invoice_template as string)
-        ? settingsData.invoice_template
-        : 'corporate') as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate';
+      const validTemplates: InvoiceTemplateId[] = ['classic', 'modern', 'thermal', 'export', 'minimal', 'corporate', 'professional', 'elegant', 'creative', 'retail'];
+      const template: InvoiceTemplateId = validTemplates.includes(settingsData?.invoice_template as InvoiceTemplateId)
+        ? (settingsData.invoice_template as InvoiceTemplateId)
+        : 'corporate';
 
       const blob = await generateInvoicePDFBlob(
         {
@@ -208,7 +239,12 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
                   <StatusBadge status={invoice.status as InvoiceStatus} />
                 </div>
                 <p className="text-xs text-muted-foreground font-medium">{invoice.clients?.name || 'Unknown Client'}</p>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{safelyToLocaleDate(invoice.issue_date)}</p>
+                <p className="text-[10px] text-muted-foreground/60 font-normal">
+                  {getCreatorTag(invoice.payment_terms)}
+                </p>
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                  <span className="uppercase tracking-widest">{safelyToLocaleDate(invoice.issue_date)}</span>
+                </div>
               </div>
               <div className="text-right flex flex-col items-end gap-2">
                 <span className="font-black text-foreground text-lg">
@@ -241,8 +277,15 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
             <TableBody>
               {invoices.map((invoice) => (
                 <TableRow key={invoice.id} className="hover:bg-muted/50 dark:hover:bg-slate-800/50 transition-colors group">
-                  <TableCell className="font-bold">{invoice.invoice_number}</TableCell>
-                  <TableCell className="font-medium">{invoice.clients?.name || 'Unknown Client'}</TableCell>
+                  <TableCell className="font-bold">
+                    <span>{invoice.invoice_number}</span>
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <div>{invoice.clients?.name || 'Unknown Client'}</div>
+                    <p className="text-[10px] text-muted-foreground/60 font-normal mt-0.5">
+                      {getCreatorTag(invoice.payment_terms)}
+                    </p>
+                  </TableCell>
                   <TableCell className="font-black">
                     {invoice.currency === 'USD' ? '$' : (invoice.currency === 'EUR' ? '€' : (invoice.currency === 'GBP' ? '£' : '₹'))}
                     {invoice.total_amount.toFixed(2)}

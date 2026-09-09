@@ -9,6 +9,8 @@ import { InvoiceItemsTable } from "@/components/invoice/InvoiceItemsTable";
 import { InvoiceTotals } from "@/components/invoice/InvoiceTotals";
 import { InvoiceDialogs } from "@/components/invoice/InvoiceDialogs";
 import { SuccessModal } from '@/components/SuccessModal';
+import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
+import { CompleteProfileModal } from "@/components/CompleteProfileModal";
 
 const CreateInvoicePage = () => {
   const navigate = useNavigate();
@@ -59,13 +61,16 @@ const CreateInvoicePage = () => {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
-              {isEditing ? (
-                <>Edit {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation' : (isPurchase ? 'Bill' : 'Invoice'))}</>
-              ) : (
-                <>Create {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation / Price Estimate' : (isPurchase ? 'Purchase Bill' : 'Sales Invoice'))}</>
-              )}
-            </h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
+                {isEditing ? (
+                  <>Edit {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation' : (isPurchase ? 'Bill' : 'Invoice'))}</>
+                ) : (
+                  <>Create {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation / Price Estimate' : (isPurchase ? 'Purchase Bill' : 'Sales Invoice'))}</>
+                )}
+              </h1>
+              <StaffHeaderBadge />
+            </div>
             <p className="text-slate-500 mt-1">
               {isEditing 
                 ? `Managing ${billingType === 'quotation' ? 'quotation' : (isPurchase ? 'purchase record' : 'invoice')} #${invoiceNumber}` 
@@ -264,6 +269,8 @@ const CreateInvoicePage = () => {
         title={successInfo.title}
         message={successInfo.message}
       />
+
+      <CompleteProfileModal featureName="creating invoices" />
     </div>
   );
 };
