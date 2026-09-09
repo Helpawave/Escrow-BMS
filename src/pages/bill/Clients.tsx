@@ -407,13 +407,13 @@ const ClientsPage = () => {
   const handleEdit = async (client: Client) => {
     let currentStatus: 'take' | 'give' = 'take';
     try {
-      const { data: pData } = await supabase
+      const { data: pDataList } = await supabase
         .from('parties')
         .select('status')
         .eq('user_id', user?.id)
         .ilike('party_name', client.name)
-        .maybeSingle();
-      if (pData?.status === 'give') currentStatus = 'give';
+        .limit(1);
+      if (pDataList?.[0]?.status === 'give') currentStatus = 'give';
     } catch {}
 
     setFormData({

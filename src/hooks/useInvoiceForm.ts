@@ -933,18 +933,18 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           // All transactions, balances, and history remain intact!
           if (vendorName) {
             try {
-              const { data: existingParty } = await supabase
+              const { data: existingPartyList } = await supabase
                 .from('parties')
                 .select('id, status')
                 .eq('user_id', activeUserId)
                 .ilike('party_name', vendorName.trim())
-                .maybeSingle();
+                .limit(1);
 
-              if (existingParty) {
+              if (existingPartyList && existingPartyList.length > 0) {
                 await supabase
                   .from('parties')
                   .update({ status: 'give' })
-                  .eq('id', existingParty.id);
+                  .eq('id', existingPartyList[0].id);
               } else {
                 await supabase
                   .from('parties')

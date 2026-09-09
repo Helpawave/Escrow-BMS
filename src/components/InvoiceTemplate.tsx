@@ -91,13 +91,8 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   template = 'corporate',
   currencySymbol: propCurrencySymbol
 }) => {
-  let contextCurrencySymbol = '₹';
-  try {
-    const context = useCurrency();
-    contextCurrencySymbol = context.currencySymbol;
-  } catch (e) {
-    // Ignore error if used outside of provider
-  }
+  const context = useCurrency();
+  const contextCurrencySymbol = context?.currencySymbol || '₹';
   const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
   const isPaid = invoice.status?.toLowerCase() === 'paid';
   const hasGST = (invoice.tax_amount > 0) || items.some(item => (item.tax_rate || 0) > 0);
