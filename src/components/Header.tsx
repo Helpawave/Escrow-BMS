@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Search, User, Settings, LogOut } from "lucide-react";
+import { Search, User, Settings, LogOut, Building2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +16,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { GlobalSearch } from "./GlobalSearch";
 
 export function Header() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isStaff } = useAuth();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
@@ -62,13 +62,22 @@ export function Header() {
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium truncate">{user?.email}</p>
-                  <p className="text-xs text-muted-foreground">My Account</p>
+                  <p className="text-xs text-muted-foreground">{isStaff ? 'Staff Account' : 'Company Account'}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/settings?tab=profile')}>
-                <User className="mr-2 h-4 w-4" />
-                Profile
+              <DropdownMenuItem onClick={() => navigate('/settings?tab=business')}>
+                {isStaff ? (
+                  <>
+                    <User className="mr-2 h-4 w-4" />
+                    Staff Profile
+                  </>
+                ) : (
+                  <>
+                    <Building2 className="mr-2 h-4 w-4" />
+                    Business Identity
+                  </>
+                )}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleSignOut}>

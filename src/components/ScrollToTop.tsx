@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ArrowUp } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
 export const ScrollToTop = () => {
+    const location = useLocation();
     const [isVisible, setIsVisible] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -19,6 +21,11 @@ export const ScrollToTop = () => {
         window.addEventListener('scroll', toggleVisibility);
         return () => window.removeEventListener('scroll', toggleVisibility);
     }, []);
+
+    // Only show scroll to top button on the homepage / landing page
+    if (location.pathname !== '/') {
+        return null;
+    }
 
     const scrollToTop = () => {
         window.scrollTo({
