@@ -696,8 +696,7 @@ export async function updateUserAcrossAllModules(payload: ERPUserUpdatePayload) 
 }
 
 /**
- * 7. AUTO INITIALIZE 2 DEFAULT LEDGER PARTIES — Exactly like the reference project's
- * Supabase `handle_new_user()` trigger in supabase_advanced_ledger.sql:
+ * 7. AUTO INITIALIZE 2 DEFAULT LEDGER PARTIES — Exactly like Account Ledger:
  *   - SYS-01: "Commission" (system_type: commission)
  *   - SYS-02: Company name party (system_type: company)
  * Only created if they don't already exist for this user.
@@ -705,13 +704,62 @@ export async function updateUserAcrossAllModules(payload: ERPUserUpdatePayload) 
 export async function ensureDefaultLedgerParties(userId: string) {
   if (!userId) return;
   try {
-    // Clean up and delete any previously generated system parties
-    await supabase
+    // Fetch user's profile to get company name and check if user is a team member
+    const { data: profileData } = await (supabase as any)
+      .from('profiles')
+      .select('company_name, parent_user_id, role')
+      .eq('id', userId)
+      .maybeSingle();
+
+    // If user is a team member of a company (has parent_user_id or member role), DO NOT create independent parties!
+    if (profileData?.parent_user_id || profileData?.role === 'member') {
+      return;
+    }
+
+    const companyName = profileData?.company_name || 'My Company';
+
+    // Check which system parties already exist
+    const { data: existingParties } = await (supabase as any)
       .from('parties')
-      .delete()
-      .eq('user_id', userId)
-      .or('system_type.in.(commission,company,escrow),sr_no.in.(SYS-01,SYS-02)');
+      .select('system_type, sr_no, party_name')
+      .eq('user_id', userId);
+
+    const existingTypes = new Set((existingParties || []).map((p: any) => p.system_type));
+    const existingSrNos = new Set((existingParties || []).map((p: any) => p.sr_no));
+    const toInsert: any[] = [];
+
+    // SYS-01: Commission party
+    if (!existingTypes.has('commission') && !existingSrNos.has('SYS-01')) {
+      toInsert.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined,
+        user_id: userId,
+        sr_no: 'SYS-01',
+        party_name: 'Commission',
+        status: 'give',
+        commission_type: 'without',
+        commission_rate: 0,
+        system_type: 'commission'
+      });
+    }
+
+    // SYS-02: Company party (named after user's company)
+    if (!existingTypes.has('company') && !existingSrNos.has('SYS-02')) {
+      toInsert.push({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined,
+        user_id: userId,
+        sr_no: 'SYS-02',
+        party_name: companyName,
+        status: 'give',
+        commission_type: 'without',
+        commission_rate: 0,
+        system_type: 'company'
+      });
+    }
+
+    if (toInsert.length > 0) {
+      await (supabase as any).from('parties').insert(toInsert);
+    }
   } catch (err) {
-    console.warn('System parties cleanup notice:', err);
+    console.warn('Auto ledger parties initialization warning:', err);
   }
 }
