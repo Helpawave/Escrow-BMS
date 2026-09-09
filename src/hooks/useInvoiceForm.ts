@@ -334,7 +334,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           status: effectiveStatus,
           balance: bal,
           last_date: info?.last_date,
-          phone: p.phone
+          phone: p.phone,
+          system_type: p.system_type || 'normal'
         };
       });
 

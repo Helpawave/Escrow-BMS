@@ -39,6 +39,7 @@ export interface LedgerPartyOption {
   balance: number;
   last_date?: string;
   phone?: string;
+  system_type?: string;
 }
 
 interface InvoiceHeaderProps {
@@ -215,7 +216,14 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                   {isLedger ? (
                     selectedParty ? (
                       <div className="flex items-center justify-between w-full pr-2">
-                        <span className="font-bold text-slate-900 dark:text-white truncate">{selectedParty.party_name}</span>
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="font-bold text-slate-900 dark:white truncate">{selectedParty.party_name}</span>
+                          {selectedParty.system_type && selectedParty.system_type !== 'normal' && (
+                            <span className="text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider shrink-0">
+                              System
+                            </span>
+                          )}
+                        </div>
                         <span className={cn(
                           "text-[10px] font-black px-2 py-0.5 rounded-md ml-2 shrink-0",
                           (selectedParty.balance < 0 || selectedParty.status === 'give') 
@@ -274,7 +282,14 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                             <div className="flex items-center gap-2">
                               <BookOpen className="w-4 h-4 text-blue-600" />
                               <div>
-                                <p className="font-bold text-sm text-foreground">{party.party_name}</p>
+                                <div className="flex items-center gap-1.5">
+                                  <p className="font-bold text-sm text-foreground">{party.party_name}</p>
+                                  {party.system_type && party.system_type !== 'normal' && (
+                                    <span className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                                      System
+                                    </span>
+                                  )}
+                                </div>
                                 {party.phone && <p className="text-[11px] text-muted-foreground">{party.phone}</p>}
                               </div>
                             </div>
