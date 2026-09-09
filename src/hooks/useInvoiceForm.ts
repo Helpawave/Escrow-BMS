@@ -321,11 +321,17 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
       const partiesWithBal = partiesData.map((p: any) => {
         const info = balMap.get(p.id);
+        const bal = info?.balance ?? 0;
+        // In Accounting & Ledger:
+        // Debit (balance < 0) -> Payable (Dena)
+        // Credit (balance > 0) -> Receivable (Lena)
+        // If balance === 0, fallback to party status
+        const effectiveStatus: 'take' | 'give' = bal < 0 ? 'give' : bal > 0 ? 'take' : ((p.status || 'take') as 'take' | 'give');
         return {
           id: p.id,
           party_name: p.party_name,
-          status: (p.status || 'take') as 'take' | 'give',
-          balance: info?.balance ?? 0,
+          status: effectiveStatus,
+          balance: bal,
           last_date: info?.last_date,
           phone: p.phone
         };
@@ -341,6 +347,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     setSelectedLedgerPartyId(partyId);
     const party = ledgerParties.find(p => p.id === partyId);
     if (!party) return;
+
+    // Determine Debit (Payable) vs Credit (Receivable)
+    const isPayable = party.balance < 0 || (party.balance === 0 && party.status === 'give');
+    const balanceTypeLabel = isPayable ? 'Payable (Debit)' : 'Receivable (Credit)';
 
     // Match with client by name
     let matchedClient = clients.find(c => c.name.toLowerCase() === party.party_name.toLowerCase());
@@ -372,12 +382,12 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       setFormData(prev => ({
         ...prev,
         client_id: matchedClient!.id,
-        notes: `Settlement bill against Account Ledger balance of ₹${Math.abs(party.balance).toLocaleString()} (${party.status === 'take' ? 'Receivable' : 'Payable'}).`
+        notes: `Settlement bill against Account Ledger balance of ₹${Math.abs(party.balance).toLocaleString('en-IN')} (${balanceTypeLabel}).`
       }));
     } else {
       setFormData(prev => ({
         ...prev,
-        notes: `Settlement bill for party: ${party.party_name}. Account Ledger balance: ₹${Math.abs(party.balance).toLocaleString()}.`
+        notes: `Settlement bill for party: ${party.party_name}. Account Ledger balance: ₹${Math.abs(party.balance).toLocaleString('en-IN')} (${balanceTypeLabel}).`
       }));
     }
 
@@ -385,7 +395,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
     setItems([
       {
-        description: `Ledger Balance Settlement - ${party.party_name} (${party.status === 'take' ? 'Receivable' : 'Payable'})`,
+        description: `Ledger Balance Settlement - ${party.party_name} (${balanceTypeLabel})`,
         quantity: 1,
         rate: billAmount,
         discount: 0,

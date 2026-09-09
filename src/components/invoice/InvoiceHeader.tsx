@@ -218,9 +218,11 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                         <span className="font-bold text-slate-900 dark:text-white truncate">{selectedParty.party_name}</span>
                         <span className={cn(
                           "text-[10px] font-black px-2 py-0.5 rounded-md ml-2 shrink-0",
-                          selectedParty.balance >= 0 ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300" : "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                          (selectedParty.balance < 0 || selectedParty.status === 'give') 
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300" 
+                            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
                         )}>
-                          Bal: ₹{Math.abs(selectedParty.balance).toLocaleString()} ({selectedParty.status === 'take' ? 'Take' : 'Give'})
+                          Bal: ₹{Math.abs(selectedParty.balance).toLocaleString('en-IN')} ({(selectedParty.balance < 0 || selectedParty.status === 'give') ? 'Payable' : 'Receivable'})
                         </span>
                       </div>
                     ) : "Select party with ledger balance..."
@@ -278,13 +280,13 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                             </div>
                             <div className="text-right">
                               <span className="font-black text-xs text-foreground block">
-                                ₹{Math.abs(party.balance).toLocaleString()}
+                                ₹{Math.abs(party.balance).toLocaleString('en-IN')}
                               </span>
                               <span className={cn(
                                 "text-[10px] font-bold uppercase",
-                                party.status === 'take' ? "text-blue-600" : "text-amber-600"
+                                (party.balance < 0 || party.status === 'give') ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"
                               )}>
-                                {party.status === 'take' ? 'Receivable' : 'Payable'}
+                                {(party.balance < 0 || party.status === 'give') ? 'Payable (Debit)' : 'Receivable (Credit)'}
                               </span>
                             </div>
                           </CommandItem>
@@ -391,13 +393,15 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
             <div className="bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Live Ledger Outstanding</span>
               <span className="text-lg font-black text-slate-900 dark:text-white">
-                ₹{Math.abs(selectedParty.balance).toLocaleString()}
+                ₹{Math.abs(selectedParty.balance).toLocaleString('en-IN')}
               </span>
               <span className={cn(
                 "text-[10px] font-black ml-2 px-1.5 py-0.5 rounded",
-                selectedParty.status === 'take' ? "bg-blue-100 text-blue-800" : "bg-amber-100 text-amber-800"
+                (selectedParty.balance < 0 || selectedParty.status === 'give') 
+                  ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300" 
+                  : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
               )}>
-                {selectedParty.status === 'take' ? 'Take' : 'Give'}
+                {(selectedParty.balance < 0 || selectedParty.status === 'give') ? 'Payable (Debit)' : 'Receivable (Credit)'}
               </span>
             </div>
 
