@@ -26,7 +26,7 @@ export async function adjustStockBatch(
 
   if (user && rpcBatchSupported !== false) {
     try {
-      const { data, error } = await supabase.rpc('process_invoice_stock_batch_mutation', {
+      const { data, error } = await (supabase as any).rpc('process_invoice_stock_batch_mutation', {
         p_user_id: user.id,
         p_items: validItems,
         p_movement_type: movementType,
@@ -36,12 +36,12 @@ export async function adjustStockBatch(
         p_operation_id: operationId
       });
 
-      if (!error && data?.success) {
+      if (!error && (data as any)?.success) {
         rpcBatchSupported = true;
         return;
       }
 
-      if (error && (error.code === '42883' || error.code === 'PGRST202' || error.message?.includes('function'))) {
+      if (error && ((error as any).code === '42883' || (error as any).code === 'PGRST202' || (error as any).message?.includes('function'))) {
         rpcBatchSupported = false;
       }
     } catch {
@@ -75,7 +75,7 @@ export async function adjustStock(
   if (user && rpcSingleSupported !== false) {
     try {
       const key = idempotencyKey || `stock-${user.id}-${productId}-${movementType}-${referenceId || 'manual'}-${quantity}`;
-      const { data, error } = await supabase.rpc('process_invoice_stock_mutation', {
+      const { data, error } = await (supabase as any).rpc('process_invoice_stock_mutation', {
         p_user_id: user.id,
         p_product_id: productId,
         p_quantity: quantity,
@@ -86,12 +86,12 @@ export async function adjustStock(
         p_idempotency_key: key
       });
 
-      if (!error && data?.success) {
+      if (!error && (data as any)?.success) {
         rpcSingleSupported = true;
         return;
       }
 
-      if (error && (error.code === '42883' || error.code === 'PGRST202' || error.message?.includes('function'))) {
+      if (error && ((error as any).code === '42883' || (error as any).code === 'PGRST202' || (error as any).message?.includes('function'))) {
         rpcSingleSupported = false;
       }
     } catch {
@@ -101,13 +101,18 @@ export async function adjustStock(
 
   // Direct database update on products table using existing opening_stock column
   try {
-    const { data: product, error: fetchError } = await supabase
+    const { data: product, error: fetchError } = await (supabase as any)
       .from('products')
-      .select('id, opening_stock')
+      .select('id, opening_stock, type')
       .eq('id', productId)
       .maybeSingle();
 
     if (fetchError || !product) return;
+
+    // Services do not maintain physical stock
+    if ((product as { type?: string }).type === 'service') {
+      return;
+    }
 
     const currentVal = parseFloat(String((product as any).opening_stock || '0')) || 0;
     let delta = quantity;
@@ -122,7 +127,7 @@ export async function adjustStock(
 
     const newVal = Math.max(0, currentVal + delta);
 
-    await supabase
+    await (supabase as any)
       .from('products')
       .update({
         opening_stock: newVal

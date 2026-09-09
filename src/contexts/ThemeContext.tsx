@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useAuth } from './AuthContext';
-import { useUserSettings } from './UserSettingsContext';
 import { supabase } from '@/integrations/supabase/client';
 
 type Theme = 'light' | 'dark';
@@ -15,33 +14,56 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 const getInitialTheme = (): Theme => {
   if (typeof window !== 'undefined') {
+    const userSet = localStorage.getItem('theme_user_set');
     const savedTheme = localStorage.getItem('theme') as Theme;
-    if (savedTheme === 'dark' || savedTheme === 'light') {
-      return savedTheme;
+    if (userSet === 'true' && savedTheme === 'dark') {
+      return 'dark';
     }
   }
-  return 'light';
+  return 'light'; // Default is always light
 };
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const { user } = useAuth();
-  const userSettings = useUserSettings();
 
-  // Load theme from userSettings context or localStorage
+  // Load theme from user settings
   useEffect(() => {
-    if (user) {
-      if (userSettings?.settings) {
-        setTheme(userSettings.settings.dark_mode ? 'dark' : 'light');
+    const loadTheme = async () => {
+      if (user) {
+        try {
+          const { data } = await supabase
+            .from('user_settings')
+            .select('dark_mode')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          const settings = data as { dark_mode?: boolean } | null;
+          if (settings && typeof settings.dark_mode === 'boolean') {
+            const isDark = settings.dark_mode === true;
+            setTheme(isDark ? 'dark' : 'light');
+            if (isDark) {
+              localStorage.setItem('theme_user_set', 'true');
+            }
+          } else {
+            // Default to light unless explicitly chosen by user
+            const userSet = localStorage.getItem('theme_user_set');
+            const savedTheme = localStorage.getItem('theme') as Theme;
+            setTheme(userSet === 'true' && savedTheme === 'dark' ? 'dark' : 'light');
+          }
+        } catch (error) {
+          console.error('Error loading theme:', error);
+        }
+      } else {
+        // Load from localStorage for non-authenticated users; strictly default to light unless explicitly chosen
+        const userSet = localStorage.getItem('theme_user_set');
+        const savedTheme = localStorage.getItem('theme') as Theme;
+        setTheme(userSet === 'true' && savedTheme === 'dark' ? 'dark' : 'light');
       }
-    } else {
-      // Load from localStorage for non-authenticated users
-      const savedTheme = localStorage.getItem('theme') as Theme;
-      if (savedTheme) {
-        setTheme(savedTheme);
-      }
-    }
-  }, [user, userSettings?.settings]);
+    };
+
+    loadTheme();
+  }, [user]);
 
   // Apply theme to document
   useEffect(() => {
@@ -55,6 +77,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('theme_user_set', 'true');
     setTheme(newTheme);
 
     // Update user settings if authenticated
@@ -67,14 +90,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }, { onConflict: 'user_id' })
         .then(({ error }) => {
           if (error) console.error('Error updating theme:', error);
-          if (!error && userSettings?.refetchSettings) {
-            userSettings.refetchSettings();
-          }
         });
     }
   };
 
   const updateTheme = (newTheme: Theme) => {
+    localStorage.setItem('theme_user_set', 'true');
     setTheme(newTheme);
 
     // Update user settings if authenticated
@@ -87,9 +108,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         }, { onConflict: 'user_id' })
         .then(({ error }) => {
           if (error) console.error('Error updating theme:', error);
-          if (!error && userSettings?.refetchSettings) {
-            userSettings.refetchSettings();
-          }
         });
     }
   };
@@ -100,24 +118,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     toggleTheme,
   };
 
+
+
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (context === undefined) {
-    const savedTheme = typeof window !== 'undefined' ? (localStorage.getItem('theme') as Theme) || 'light' : 'light';
-    return {
-      theme: (savedTheme === 'dark' ? 'dark' : 'light') as Theme,
-      setTheme: () => {},
-      toggleTheme: () => {
-        if (typeof window !== 'undefined') {
-          const current = localStorage.getItem('theme') === 'dark' ? 'light' : 'dark';
-          localStorage.setItem('theme', current);
-          document.documentElement.classList.toggle('dark', current === 'dark');
-        }
-      },
-    };
+    // More descriptive error with debugging info
+    console.error('useTheme must be used within a ThemeProvider. Make sure ThemeProvider wraps your component tree.');
+    throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
 }

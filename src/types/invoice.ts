@@ -1,62 +1,23 @@
 import { Database } from "@/integrations/supabase/types";
 
-export type Client = {
-  id: string;
-  name: string;
-  email?: string | null;
-  phone?: string | null;
-  company_name?: string | null;
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  gstin?: string | null;
-  user_id?: string;
-  created_at?: string;
-  hide_contact_details?: boolean | null;
-};
+export type Client = Database['public']['Tables']['clients']['Row'];
+export type Product = Database['public']['Tables']['products']['Row'];
+export type Vendor = Database['public']['Tables']['vendors']['Row'];
 
-export type Product = {
-  id: string;
-  name: string;
-  description?: string | null;
-  rate?: number;
-  price?: number | string;
-  purchase_price?: number | string;
-  discount?: number | string;
-  tax_rate?: number;
-  user_id?: string;
-  created_at?: string;
-  opening_stock?: string | number;
-  type?: string;
-  unit?: string;
-  category?: string | null;
-  sku?: string | null;
-  hsn_code?: string | null;
-};
-
-export type Vendor = {
-  id: string;
-  name: string;
-  email?: string | null;
-  phone?: string | null;
-  company_name?: string | null;
-  address?: string | null;
-  gstin?: string | null;
-  user_id?: string;
-  created_at?: string;
-};
+export type InvoiceTemplateId = 'modern' | 'classic' | 'thermal' | 'export' | 'minimal' | 'corporate' | 'professional' | 'elegant' | 'creative' | 'retail';
 
 export interface InvoiceItem {
   id?: string;
   product_id?: string;
+  product_name?: string;
   description: string;
   quantity: number;
   rate: number;
   discount: number;
   tax_rate: number;
   amount: number;
+  hsn_code?: string;
+  unit?: string;
 }
 
 export interface Invoice {
@@ -68,6 +29,8 @@ export interface Invoice {
   due_date: string;
   notes: string;
   terms: string;
+  payment_terms?: string;
+  created_by_name?: string;
   status: string;
   currency: string;
   subtotal: number;
@@ -139,19 +102,23 @@ export interface Expense {
 
 export interface Payment {
   id: string;
-  invoice_id: string;
+  invoice_id?: string | null;
+  purchase_invoice_id?: string | null;
   amount: number;
   payment_date: string;
   payment_method: string;
   reference_number: string;
   notes: string;
-  invoices: {
+  invoice_type?: 'sales' | 'purchase';
+  party_name?: string;
+  display_number?: string;
+  invoices?: {
     invoice_number: string;
     status: string;
-    clients: {
+    clients?: {
       name: string;
-    };
-  };
+    } | null;
+  } | null;
 }
 
 export interface InvoiceData {
@@ -164,8 +131,12 @@ export interface InvoiceData {
   total_amount: number;
   currency: string;
   due_date?: string | null;
+  payment_date?: string | null;
+  paid_at?: string | null;
+  updated_at?: string | null;
   notes?: string | null;
   terms?: string | null;
+  payment_terms?: string | null;
 }
 
 export interface ClientData {

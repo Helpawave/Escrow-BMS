@@ -16,7 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { InvoiceTemplate } from "./InvoiceTemplate";
-import { generateInvoicePDFBlob, generateInvoiceHTML, InvoiceData } from '@/utils/invoicePDF';
+import { generateInvoicePDFBlob, generateInvoiceHTML } from '@/utils/invoicePDF';
 import { ResponsiveInvoiceWrapper } from './ResponsiveInvoiceWrapper';
 
 interface InvoiceItem {
@@ -35,7 +35,7 @@ interface InvoiceItem {
 
 interface Client {
   name: string;
-  email?: string | null;
+  email: string;
   phone?: string;
   address?: string;
   city?: string;
@@ -43,7 +43,7 @@ interface Client {
   postal_code?: string;
   country?: string;
   gstin?: string;
-  hide_contact_details?: boolean | null;
+  hide_contact_details?: boolean;
 }
 
 interface CompanyProfile {
@@ -56,6 +56,7 @@ interface CompanyProfile {
   logo_url?: string;
   website?: string;
   signature_url?: string;
+  upi_qr_url?: string;
   bank_name?: string;
   account_number?: string;
   ifsc_code?: string;
@@ -98,6 +99,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const [template, setTemplate] = useState('corporate');
   const [loading, setLoading] = useState(true);
   const [emailConfirmationOpen, setEmailConfirmationOpen] = useState(false);
+  const [fullInvoice, setFullInvoice] = useState<Invoice | null>(null);
 
   const { user } = useAuth();
   const { toast } = useToast();
@@ -107,6 +109,16 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
     setLoading(true);
     try {
+      // Fetch full invoice details to ensure all fields (subtotal, notes, terms, etc.) are populated
+      const { data: invoiceData, error: invoiceError } = await supabase
+        .from('invoices')
+        .select('*, clients(*)')
+        .eq('id', invoice.id)
+        .single();
+
+      if (invoiceError) throw invoiceError;
+      setFullInvoice(invoiceData as unknown as Invoice);
+
       // Fetch invoice items
       const { data: itemsData, error: itemsError } = await supabase
         .from('invoice_items')
@@ -168,6 +180,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         logo_url: prof?.logo_url || '',
         website: prof?.website || '',
         signature_url: prof?.signature_url || '',
+        upi_qr_url: prof?.upi_qr_url || '',
         bank_name: prof?.bank_name || '',
         account_number: prof?.account_number || '',
         ifsc_code: prof?.ifsc_code || '',
@@ -201,31 +214,33 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const generatePDFBlob = async () => {
     if (!invoice || !user) throw new Error("Missing data");
 
+    const invToUse = fullInvoice || invoice;
+
     return await generateInvoicePDFBlob(
       {
-        invoice_number: invoice.invoice_number,
-        issue_date: invoice.issue_date,
-        due_date: invoice.due_date,
-        status: invoice.status,
-        subtotal: invoice.subtotal || 0,
-        discount_amount: invoice.discount_amount || 0,
-        tax_amount: invoice.tax_amount || 0,
-        total_amount: invoice.total_amount,
-        currency: invoice.currency,
-        notes: invoice.notes,
-        terms: invoice.terms
+        invoice_number: invToUse.invoice_number,
+        issue_date: invToUse.issue_date,
+        due_date: invToUse.due_date,
+        status: invToUse.status,
+        subtotal: invToUse.subtotal || 0,
+        discount_amount: invToUse.discount_amount || 0,
+        tax_amount: invToUse.tax_amount || 0,
+        total_amount: invToUse.total_amount,
+        currency: invToUse.currency,
+        notes: invToUse.notes,
+        terms: invToUse.terms
       } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       {
-        name: invoice.clients?.name || 'N/A',
-        email: invoice.clients?.email || '',
-        phone: invoice.clients?.phone || '',
-        address: invoice.clients?.address || '',
-        city: invoice.clients?.city || '',
-        state: invoice.clients?.state || '',
-        postal_code: invoice.clients?.postal_code || '',
-        country: invoice.clients?.country || '',
-        gstin: invoice.clients?.gstin || '',
-        hide_contact_details: invoice.clients?.hide_contact_details ?? false
+        name: invToUse.clients?.name || 'N/A',
+        email: invToUse.clients?.email || '',
+        phone: invToUse.clients?.phone || '',
+        address: invToUse.clients?.address || '',
+        city: invToUse.clients?.city || '',
+        state: invToUse.clients?.state || '',
+        postal_code: invToUse.clients?.postal_code || '',
+        country: invToUse.clients?.country || '',
+        gstin: invToUse.clients?.gstin || '',
+        hide_contact_details: invToUse.clients?.hide_contact_details ?? false
       },
       items,
       company as any, // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -330,24 +345,26 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     }
   };
 
-  if (!invoice) return null;
+    if (!invoice) return null;
+
+  const invToUse = fullInvoice || invoice;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[95vw] w-full max-h-[96vh] overflow-y-auto p-0 bg-white dark:bg-slate-950 border-none shadow-2xl flex flex-col">
-        <DialogHeader className="sticky top-0 z-10 w-full px-6 py-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 rounded-t-lg shadow-sm">
+      <DialogContent className="sm:max-w-4xl w-full max-h-[92vh] p-0 bg-white dark:bg-slate-950 border border-border shadow-2xl flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0 w-full px-6 py-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 rounded-t-lg shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-3">
                 <FileText className="w-5 h-5 text-primary" />
-                Invoice Preview - {invoice.invoice_number}
+                Invoice Preview - {invToUse.invoice_number}
               </DialogTitle>
               <DialogDescription className="text-slate-500 dark:text-slate-400 text-sm font-medium">
                 Review and manage invoice details before sending to client
               </DialogDescription>
             </div>
             <div className="flex items-center gap-3 sm:pr-8">
-              {invoice.clients?.email && (
+              {invToUse.clients?.email && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -382,34 +399,30 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           </div>
         </DialogHeader>
 
-        <div className="mt-4">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-100/40 dark:bg-slate-950/40 flex justify-center">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
           ) : (
-            <div 
-              id="invoice-preview-content" 
-              className="flex-1 bg-slate-100/30 dark:bg-slate-950/30 p-0 sm:p-4 md:p-6 min-h-[600px] transition-colors overflow-y-auto flex flex-col items-center"
-            >
-              <ResponsiveInvoiceWrapper>
-                <div className="shadow-2xl ring-1 ring-slate-200 dark:ring-slate-800 bg-white dark:bg-slate-900 rounded-sm overflow-hidden h-fit mb-10">
+            <div className="w-full max-w-[820px]">
+              <ResponsiveInvoiceWrapper maxWidth={template === 'thermal' ? 380 : 800}>
+                <div className="shadow-xl ring-1 ring-slate-200 dark:ring-slate-800 bg-white dark:bg-slate-900 rounded-sm mb-6">
                   <InvoiceTemplate
                     invoice={{
-                      invoice_number: invoice.invoice_number,
-                      issue_date: invoice.issue_date,
-                      due_date: invoice.due_date,
-                      status: invoice.status,
-                      subtotal: invoice.subtotal || 0,
-                      discount_amount: invoice.discount_amount || 0,
-                      tax_amount: invoice.tax_amount || 0,
-                      total_amount: invoice.total_amount,
-                      currency: invoice.currency,
-                      notes: invoice.notes,
-                      terms: invoice.terms
+                      invoice_number: invToUse.invoice_number,
+                      issue_date: invToUse.issue_date,
+                      due_date: invToUse.due_date,
+                      status: invToUse.status,
+                      subtotal: invToUse.subtotal || 0,
+                      discount_amount: invToUse.discount_amount || 0,
+                      tax_amount: invToUse.tax_amount || 0,
+                      total_amount: invToUse.total_amount,
+                      currency: invToUse.currency,
+                      notes: invToUse.notes,
+                      terms: invToUse.terms
                     }}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    client={company.hide_company_details ? { ...invoice.clients || {}, address: '', email: '', phone: '', name: (invoice.clients as any)?.name || 'N/A' } as any : (invoice.clients || {} as any)}
+                    client={invToUse.clients || { name: 'Customer', email: '' }}
                     items={items}
                     company={company as any} // eslint-disable-line @typescript-eslint/no-explicit-any
                     template={template as any} // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -428,7 +441,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                 Send Invoice Email?
               </AlertDialogTitle>
               <AlertDialogDescription className="text-slate-500 dark:text-slate-400">
-                This will send a professional PDF invoice to <strong>{invoice.clients?.email}</strong>.
+                This will send a professional PDF invoice to <strong>{invToUse.clients?.email}</strong>.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="mt-6">

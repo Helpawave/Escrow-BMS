@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,23 +12,53 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, CreditCard, Receipt, Search, X, CheckCircle2, Banknote, Smartphone, ChevronDown, AlertCircle, FileText } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  Plus,
+  Edit,
+  Trash2,
+  CreditCard,
+  Receipt,
+  Search,
+  X,
+  CheckCircle2,
+  Banknote,
+  Smartphone,
+  ChevronDown,
+  AlertCircle,
+  FileText,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ShoppingCart,
+  Building2,
+  Landmark,
+  Wallet,
+  Filter,
+  FileCheck
+} from "lucide-react";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { usePayments, usePendingPaymentInvoices, PendingInvoiceItem } from "@/hooks/usePayments";
 import { Payment } from "@/types/invoice";
 import { useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { safelyToLocaleDate } from "@/utils/dateUtils";
 import { SuccessModal } from '@/components/SuccessModal';
 import { DeleteConfirmation } from '@/components/DeleteConfirmation';
+import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { cn } from "@/lib/utils";
 
 const PaymentsPage = () => {
-  const [currentPage, setCurrentPage] = useState(1);
+  const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  // Route & Tab state: Sales vs Purchase payments
+  const isPurchasePath = location.pathname.includes('purchase-payments') || searchParams.get('type') === 'purchase';
+  const activeTab: 'sales' | 'purchase' = isPurchasePath ? 'purchase' : 'sales';
+
+  const [currentPage, setCurrentPage] = useState(1);
   const initialSearch = searchParams.get('search') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
@@ -45,8 +75,10 @@ const PaymentsPage = () => {
     methodFilter,
     dateFilter,
     startDate,
-    endDate
+    endDate,
+    typeFilter: activeTab
   });
+
   const { data: invoicesData = [] } = usePendingPaymentInvoices();
   const invoices = invoicesData as unknown as PendingInvoiceItem[];
 
@@ -54,6 +86,7 @@ const PaymentsPage = () => {
   const totalPages = paymentsData ? Math.max(1, Math.ceil(paymentsData.totalCount / ITEMS_PER_PAGE)) : 1;
   const queryClient = useQueryClient();
 
+  const [dialogType, setDialogType] = useState<'sales' | 'purchase'>(activeTab);
   const [formData, setFormData] = useState({
     invoice_id: '',
     amount: 0,
@@ -71,9 +104,17 @@ const PaymentsPage = () => {
   const [successInfo, setSuccessInfo] = useState({ title: '', message: '' });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const { user, profile } = useAuth();
-  const targetUserId = user?.id;
+  const { user, effectiveUserId, isStaff, companyProfile, profile, staffName, ownerName } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
+
+  const handleTabChange = (tab: 'sales' | 'purchase') => {
+    if (tab === 'purchase') {
+      navigate('/purchase-payments');
+    } else {
+      navigate('/payments');
+    }
+  };
 
   const getCreatorTag = (notesText?: string | null) => {
     if (notesText && notesText.includes('Created by:')) {
@@ -84,8 +125,33 @@ const PaymentsPage = () => {
         return `Created by: ${n}`;
       }
     }
-    const fallback = profile?.company_name || (user?.user_metadata?.full_name as string) || 'Owner';
+    const fallback = ownerName || profile?.company_name || companyProfile?.company_name || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Owner';
     return `Created by: ${fallback}`;
+  };
+
+  const dateFilterLabel = useMemo(() => {
+    switch (dateFilter) {
+      case 'today': return 'Today';
+      case 'this_week': return 'This Week';
+      case 'this_month': return 'This Month';
+      case 'last_month': return 'Last Month';
+      case 'custom': return startDate && endDate ? `${startDate} to ${endDate}` : 'Custom Period';
+      default: return 'All Time';
+    }
+  }, [dateFilter, startDate, endDate]);
+
+  const getMethodLabel = (method: string) => {
+    switch (method) {
+      case 'cash': return 'Cash';
+      case 'upi': return 'UPI / GPay';
+      case 'bank_transfer': return 'Bank Transfer';
+      case 'cheque': return 'Cheque';
+      case 'credit_card': return 'Credit Card';
+      case 'debit_card': return 'Debit Card';
+      case 'pending': return 'Pending Mode';
+      case 'other': return 'Other';
+      default: return method;
+    }
   };
 
   useEffect(() => {
@@ -97,17 +163,21 @@ const PaymentsPage = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, methodFilter, dateFilter, startDate, endDate]);
+  }, [activeTab, debouncedSearch, methodFilter, dateFilter, startDate, endDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const errors: string[] = [];
-    if (!formData.invoice_id) errors.push("Please select an invoice or purchase bill.");
+    if (!formData.invoice_id) {
+      errors.push(dialogType === 'sales' ? "Please select a sales invoice." : "Please select a purchase bill.");
+    }
     if (!formData.amount || formData.amount <= 0) {
       errors.push("Please enter a payment amount greater than zero.");
     }
-    if (!formData.payment_date) errors.push("Payment date is required.");
+    if (!formData.payment_date) {
+      errors.push("Payment date is required.");
+    }
 
     if (errors.length > 0) {
       toast({
@@ -123,12 +193,23 @@ const PaymentsPage = () => {
     }
 
     try {
-      if (!targetUserId) throw new Error("Please log in to record payment.");
+      const clientToUse = serviceSupabase || supabase;
+      const isPurchase = dialogType === 'purchase';
 
       if (editingId) {
-        const { error } = await supabase
+        const updatePayload = {
+          amount: formData.amount,
+          payment_date: formData.payment_date,
+          payment_method: formData.payment_method,
+          reference_number: formData.reference_number,
+          notes: formData.notes,
+          invoice_id: isPurchase ? null : formData.invoice_id,
+          purchase_invoice_id: isPurchase ? formData.invoice_id : null,
+        };
+
+        const { error } = await clientToUse
           .from('payments')
-          .update(formData)
+          .update(updatePayload)
           .eq('id', editingId);
 
         if (error) throw error;
@@ -138,28 +219,48 @@ const PaymentsPage = () => {
         });
         setShowSuccess(true);
       } else {
-        const creatorName = profile?.company_name || user?.user_metadata?.full_name || 'Owner';
-        const paymentNotes = formData.notes ? `${formData.notes} • Created by: ${creatorName}` : `Created by: ${creatorName}`;
+        const creatorName = isStaff
+          ? (staffName || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Staff Member')
+          : (companyProfile?.company_name || 'Company Owner');
+        
+        const selectedInvoice = invoices.find(inv => inv.id === formData.invoice_id);
+        const invTypeLabel = isPurchase ? 'Purchase Bill' : 'Sales Invoice';
+        const invNumber = selectedInvoice?.invoice_number || '';
+        
+        const baseNote = formData.notes || `${invTypeLabel} #${invNumber} payment`;
+        const paymentNotes = `${baseNote} • Created by: ${creatorName}`;
 
-        const { error } = await supabase
+        const insertPayload = {
+          amount: formData.amount,
+          payment_date: formData.payment_date,
+          payment_method: formData.payment_method,
+          reference_number: formData.reference_number,
+          notes: paymentNotes,
+          user_id: targetUserId,
+          invoice_id: isPurchase ? null : formData.invoice_id,
+          purchase_invoice_id: isPurchase ? formData.invoice_id : null,
+        };
+
+        const { error } = await clientToUse
           .from('payments')
-          .insert([{ ...formData, notes: paymentNotes, user_id: targetUserId }]);
+          .insert([insertPayload]);
 
         if (error) throw error;
 
         // Update invoice / bill status to paid
-        const selectedInvoice = invoices.find(inv => inv.id === formData.invoice_id);
         if (selectedInvoice && selectedInvoice.status !== 'paid') {
-          const targetTable = selectedInvoice.type === 'purchase' ? 'purchase_invoices' : 'invoices';
-          await supabase
+          const targetTable = isPurchase ? 'purchase_invoices' : 'invoices';
+          await clientToUse
             .from(targetTable)
             .update({ status: 'paid' })
             .eq('id', formData.invoice_id);
         }
 
         setSuccessInfo({
-          title: "Payment Recorded",
-          message: "The payment has been successfully logged and status updated."
+          title: isPurchase ? "Purchase Payment Recorded" : "Sales Payment Recorded",
+          message: isPurchase
+            ? `Payment to vendor has been recorded for Bill #${invNumber}.`
+            : `Payment from customer has been recorded for Invoice #${invNumber}.`
         });
         setShowSuccess(true);
       }
@@ -172,18 +273,34 @@ const PaymentsPage = () => {
       setDialogOpen(false);
     } catch (error: unknown) {
       console.error('Error saving payment:', error);
+
       const err = error as { message?: string };
+      const errorMessage = err?.message || "An unexpected error occurred.";
+
       toast({
         variant: "destructive",
         title: "Save Failed",
-        description: err?.message || "An unexpected error occurred."
+        description: (
+          <div className="mt-2 text-sm">
+            <p className="font-semibold text-destructive">{errorMessage}</p>
+            <div className="mt-2 p-2 bg-destructive/5 rounded border border-destructive/10 text-[10px]">
+              <p className="font-bold uppercase tracking-widest opacity-70 mb-1">Troubleshooting:</p>
+              <ul className="list-disc list-inside space-y-0.5 opacity-90">
+                <li>Entry ID: {formData.invoice_id || "N/A"}</li>
+                <li>Amount: {formData.amount || "0"}</li>
+              </ul>
+            </div>
+          </div>
+        )
       });
     }
   };
 
   const handleEdit = (payment: Payment) => {
+    const isPurchase = payment.invoice_type === 'purchase';
+    setDialogType(isPurchase ? 'purchase' : 'sales');
     setFormData({
-      invoice_id: payment.invoice_id,
+      invoice_id: (payment.purchase_invoice_id || payment.invoice_id) || '',
       amount: payment.amount,
       payment_date: payment.payment_date,
       payment_method: payment.payment_method || 'cash',
@@ -202,7 +319,8 @@ const PaymentsPage = () => {
   const confirmDelete = async () => {
     if (!paymentToDelete) return;
     try {
-      const { error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { error } = await clientToUse
         .from('payments')
         .delete()
         .eq('id', paymentToDelete);
@@ -233,7 +351,8 @@ const PaymentsPage = () => {
 
   const handleUpdatePaymentMethod = async (paymentId: string, newMethod: string) => {
     try {
-      const { error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { error } = await clientToUse
         .from('payments')
         .update({ payment_method: newMethod })
         .eq('id', paymentId);
@@ -241,7 +360,7 @@ const PaymentsPage = () => {
       if (error) throw error;
 
       toast({
-        title: "Method Updated! ✅",
+        title: "Payment Method Updated",
         description: `Payment method set to ${newMethod.replace('_', ' ').toUpperCase()}.`
       });
 
@@ -269,10 +388,15 @@ const PaymentsPage = () => {
     setEditingId(null);
   };
 
-  // Filter invoices for dropdown: ONLY show paid sales invoices & purchase bills, and exclude those already recorded (unless editing)
-  const availableInvoices = invoices.filter(
-    inv => inv.status === 'paid' && (!inv.has_payment_record || inv.id === formData.invoice_id)
-  );
+  // Filter invoices for dialog dropdown based on current dialogType (sales vs purchase)
+  // Strictly display ONLY invoices/bills marked as 'paid' that do NOT have a payment record logged yet
+  const availableInvoices = useMemo(() => {
+    return invoices.filter(
+      inv => String(inv.status || '').toLowerCase().trim() === 'paid' && 
+             inv.type === dialogType &&
+             (!inv.has_payment_record || inv.id === formData.invoice_id)
+    );
+  }, [invoices, dialogType, formData.invoice_id]);
 
   if (loading) {
     return (
@@ -284,102 +408,257 @@ const PaymentsPage = () => {
 
   return (
     <div className="space-y-6">
+      {/* Top Segmented Navigation Tabs: Sales vs Purchase Payments */}
+      <div className="flex items-center gap-2 border-b border-border/60 pb-3">
+        <button
+          onClick={() => handleTabChange('sales')}
+          className={cn(
+            "flex items-center gap-2.5 px-4 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all",
+            activeTab === 'sales'
+              ? "bg-emerald-50 text-emerald-900 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700 shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          )}
+        >
+          <ArrowDownLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <span>Sales Payments (Received)</span>
+          <span className={cn(
+            "text-[10px] font-black px-2 py-0.5 rounded-full",
+            activeTab === 'sales'
+              ? "bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200"
+              : "bg-muted text-muted-foreground"
+          )}>
+            {(paymentsData?.stats?.salesRecords ?? 0).toLocaleString('en-IN')}
+          </span>
+        </button>
+
+        <button
+          onClick={() => handleTabChange('purchase')}
+          className={cn(
+            "flex items-center gap-2.5 px-4 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all",
+            activeTab === 'purchase'
+              ? "bg-purple-50 text-purple-900 border border-purple-300 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-700 shadow-sm"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          )}
+        >
+          <ArrowUpRight className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+          <span>Purchase Payments (Paid)</span>
+          <span className={cn(
+            "text-[10px] font-black px-2 py-0.5 rounded-full",
+            activeTab === 'purchase'
+              ? "bg-purple-200 text-purple-900 dark:bg-purple-900 dark:text-purple-200"
+              : "bg-muted text-muted-foreground"
+          )}>
+            {(paymentsData?.stats?.purchaseRecords ?? 0).toLocaleString('en-IN')}
+          </span>
+        </button>
+      </div>
+
+      {/* Header and Primary Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Payments</h1>
-          <p className="text-muted-foreground mt-1 text-sm">Track and manage sales & purchase payment records</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl lg:text-3xl font-bold text-foreground">
+              {activeTab === 'sales' ? 'Sales Payments' : 'Purchase Payments'}
+            </h1>
+            <StaffHeaderBadge />
+          </div>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {activeTab === 'sales'
+              ? 'Track customer payment receipts and sales invoice settlements'
+              : 'Track vendor payment outflow and purchase bill settlements'}
+          </p>
         </div>
+
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button variant="default" size="lg" className="w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95 cursor-pointer" onClick={resetForm}>
+            <Button
+              variant="default"
+              size="lg"
+              className={cn(
+                "w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95",
+                activeTab === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : ""
+              )}
+              onClick={() => {
+                setDialogType(activeTab);
+                resetForm();
+              }}
+            >
               <Plus className="w-4 h-4 mr-2" />
-              Record Payment
+              {activeTab === 'sales' ? 'Record Sales Payment' : 'Record Purchase Payment'}
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[520px] p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background max-h-[90vh] flex flex-col">
-            <DialogHeader className="p-4 md:p-8 pb-4 shrink-0">
-              <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
-                <Receipt className="w-6 h-6 text-primary" />
+
+          <DialogContent hideClose className="sm:max-w-[540px] p-0 overflow-hidden rounded-2xl border border-border/80 shadow-2xl bg-card gap-0 flex flex-col">
+            <DialogHeader className="px-5 py-3.5 border-b border-border/50 shrink-0 bg-muted/15 flex flex-row items-center justify-between gap-3 space-y-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className={cn(
+                  "w-8 h-8 rounded-lg shrink-0 flex items-center justify-center",
+                  dialogType === 'purchase' ? "bg-purple-500/10 text-purple-600" : "bg-emerald-500/10 text-emerald-600"
+                )}>
+                  {dialogType === 'purchase' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
+                </div>
+                <div className="min-w-0">
+                  <DialogTitle className="text-base font-bold tracking-tight text-foreground truncate">
+                    {editingId 
+                      ? (dialogType === 'purchase' ? 'Edit Purchase Payment' : 'Edit Sales Payment')
+                      : (dialogType === 'purchase' ? 'Record Purchase Payment' : 'Record Sales Payment')}
+                  </DialogTitle>
+                  <DialogDescription className="text-[11px] text-muted-foreground truncate">
+                    {dialogType === 'purchase'
+                      ? 'Record payment outflow to vendor for a purchase bill.'
+                      : 'Record payment receipt from customer for a sales invoice.'}
+                  </DialogDescription>
+                </div>
               </div>
-              <DialogTitle className="text-2xl font-black tracking-tight text-foreground">
-                {editingId ? 'Edit Payment Record' : 'Record New Payment'}
-              </DialogTitle>
-              <DialogDescription className="text-muted-foreground font-medium">
-                {editingId ? 'Modify the details of this payment transaction below.' : 'Log a payment transaction for sales invoice or purchase bill.'}
-              </DialogDescription>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Switcher within dialog if user wants to change type */}
+                {!editingId && (
+                  <div className="flex items-center p-0.5 bg-background rounded-lg border border-border/70 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDialogType('sales');
+                        setFormData(prev => ({ ...prev, invoice_id: '', amount: 0 }));
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 py-1 px-2.5 rounded-md text-[11px] font-bold transition-all",
+                        dialogType === 'sales'
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-extrabold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
+                      <span>Sales</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDialogType('purchase');
+                        setFormData(prev => ({ ...prev, invoice_id: '', amount: 0 }));
+                      }}
+                      className={cn(
+                        "flex items-center gap-1 py-1 px-2.5 rounded-md text-[11px] font-bold transition-all",
+                        dialogType === 'purchase'
+                          ? "bg-purple-500/15 text-purple-700 dark:text-purple-400 font-extrabold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <ArrowUpRight className="w-3 h-3 text-purple-600" />
+                      <span>Purchase</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Clean non-overlapping Close button */}
+                <button
+                  type="button"
+                  onClick={() => setDialogOpen(false)}
+                  className="w-8 h-8 rounded-lg text-muted-foreground/70 hover:text-foreground hover:bg-muted/80 flex items-center justify-center transition-colors shrink-0"
+                  title="Close dialog"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </DialogHeader>
 
-            {/* Form Content Area */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar">
-              <form id="payment-form" onSubmit={handleSubmit} className="space-y-6">
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 gap-5">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                        Select Sales Invoice / Purchase Bill <span className="text-rose-500">*</span>
-                      </Label>
-                      <Select
-                        value={formData.invoice_id}
-                        onValueChange={(value) => {
-                          const selectedInvoice = invoices.find(inv => inv.id === value);
-                          setFormData({
-                            ...formData,
-                            invoice_id: value,
-                            amount: Number(selectedInvoice?.total_amount || selectedInvoice?.remaining_amount || 0),
-                            payment_method: selectedInvoice?.payment_method || formData.payment_method || 'cash'
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="h-11 border-border/60 focus:ring-primary font-medium bg-muted/20 rounded-lg">
-                          <SelectValue placeholder={availableInvoices.length === 0 ? "No pending invoices available" : "Select invoice or purchase bill"} />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-lg shadow-xl max-h-72">
-                          {availableInvoices.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-xs text-muted-foreground italic">
-                              No unrecorded invoices or purchase bills found. All current entries already have payments logged.
-                            </div>
-                          ) : (
-                            availableInvoices.map((invoice) => (
-                              <SelectItem key={invoice.id} value={invoice.id} className="cursor-pointer py-2.5">
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-sm">{invoice.invoice_number}</span>
-                                      <Badge
-                                        variant="outline"
-                                        className={cn(
-                                          "text-[9px] px-1 py-0 uppercase font-semibold",
-                                          invoice.type === 'purchase'
-                                            ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
-                                            : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400"
-                                        )}
-                                      >
-                                        {invoice.type === 'purchase' ? 'Purchase Bill' : 'Sales Invoice'}
-                                      </Badge>
-                                    </div>
-                                    <span className={cn(
-                                      "text-[9px] px-1.5 py-0.5 rounded font-bold uppercase",
-                                      invoice.status === 'paid'
-                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
-                                        : "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400"
-                                    )}>
-                                      {invoice.status === 'paid' ? 'Paid' : 'Unsettled'}
-                                    </span>
-                                  </div>
-                                  <span className="text-[10px] text-muted-foreground font-medium">
-                                    {invoice.party_name} • ₹{Number(invoice.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    {invoice.payment_method && ` • Mode: ${invoice.payment_method.toUpperCase()}`}
-                                  </span>
+            {/* Form Content Area with Natural Content Height (No empty bottom space) */}
+            <div className="px-5 py-4 overflow-y-auto max-h-[75vh] custom-scrollbar">
+              <form id="payment-form" onSubmit={handleSubmit} className="space-y-3.5">
+                {/* 1. Select Invoice / Bill (Full Width) */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                      {dialogType === 'purchase' ? 'Select Purchase Bill' : 'Select Sales Invoice'} <span className="text-rose-500">*</span>
+                    </Label>
+                    <span className="text-[10px] text-muted-foreground/80 font-normal">
+                      Only unrecorded paid {dialogType === 'purchase' ? 'bills' : 'invoices'}
+                    </span>
+                  </div>
+                  <Select
+                    value={formData.invoice_id}
+                    onValueChange={(value) => {
+                      const selectedInvoice = invoices.find(inv => inv.id === value);
+                      setFormData({
+                        ...formData,
+                        invoice_id: value,
+                        amount: Number(selectedInvoice?.total_amount || selectedInvoice?.remaining_amount || 0),
+                        payment_method: selectedInvoice?.payment_method || formData.payment_method || 'cash'
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="h-9.5 border-border/60 focus:ring-primary font-medium bg-muted/20 rounded-lg text-xs">
+                      <SelectValue placeholder={
+                        availableInvoices.length === 0 
+                          ? (dialogType === 'purchase' ? "No unrecorded paid purchase bills available" : "No unrecorded paid sales invoices available")
+                          : (dialogType === 'purchase' ? "Select unrecorded paid purchase bill..." : "Select unrecorded paid sales invoice...")
+                      } />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-lg shadow-xl max-h-64">
+                      {availableInvoices.length === 0 ? (
+                        <div className="px-3 py-3 text-center text-xs text-muted-foreground italic">
+                          {dialogType === 'purchase'
+                            ? "No unrecorded paid purchase bills found. Bills that already have payments recorded do not appear here."
+                            : "No unrecorded paid sales invoices found. Invoices that already have payments recorded do not appear here."}
+                        </div>
+                      ) : (
+                        availableInvoices.map((invoice) => (
+                          <SelectItem key={invoice.id} value={invoice.id} className="cursor-pointer py-2">
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-xs sm:text-sm">{invoice.invoice_number}</span>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-[9px] px-1 py-0 uppercase font-semibold",
+                                      invoice.type === 'purchase'
+                                        ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
+                                        : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400"
+                                    )}
+                                  >
+                                    {invoice.type === 'purchase' ? 'Bill' : 'Invoice'}
+                                  </Badge>
                                 </div>
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400">
+                                  Paid
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-muted-foreground font-medium truncate">
+                                {invoice.party_name} • ₹{Number(invoice.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {invoice.payment_method && ` • Mode: ${invoice.payment_method.toUpperCase()}`}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
 
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">Amount (₹) <span className="text-rose-500">*</span></Label>
+                  {/* Compact Quick Summary of Selected Item */}
+                  {formData.invoice_id && (() => {
+                    const selected = invoices.find(inv => inv.id === formData.invoice_id);
+                    if (!selected) return null;
+                    return (
+                      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-muted/40 border border-border/40 text-[11px] animate-in fade-in duration-150">
+                        <span className="text-muted-foreground truncate">
+                          {dialogType === 'purchase' ? 'Vendor' : 'Customer'}: <strong className="text-foreground">{selected.party_name}</strong>
+                        </span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">
+                          Total: ₹{Number(selected.total_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* 2. Row: Amount & Payment Date (2 Columns) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                      {dialogType === 'purchase' ? 'Amount Paid (₹)' : 'Amount Received (₹)'} <span className="text-rose-500">*</span>
+                    </Label>
+                    <div className="relative">
                       <Input
                         id="amount"
                         type="number"
@@ -387,88 +666,100 @@ const PaymentsPage = () => {
                         value={formData.amount}
                         onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
                         required
-                        className="h-11 border-border/60 font-bold text-base bg-muted/20 rounded-lg focus:ring-primary shadow-none"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">Payment Date <span className="text-rose-500">*</span></Label>
-                        <Input
-                          id="payment_date"
-                          type="date"
-                          value={formData.payment_date}
-                          onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
-                          required
-                          className="h-11 border-border/60 font-medium bg-muted/20 rounded-lg focus:ring-primary"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment Mode</Label>
-                        <Select
-                          value={formData.payment_method}
-                          onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
-                        >
-                          <SelectTrigger className="h-11 border-border/60 font-medium bg-muted/20 rounded-lg">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-lg">
-                            <SelectItem value="cash">Cash</SelectItem>
-                            <SelectItem value="upi">UPI / GPay</SelectItem>
-                            <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                            <SelectItem value="cheque">Cheque</SelectItem>
-                            <SelectItem value="credit_card">Credit Card</SelectItem>
-                            <SelectItem value="debit_card">Debit Card</SelectItem>
-                            <SelectItem value="other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Reference / Txn ID</Label>
-                      <Input
-                        id="reference_number"
-                        value={formData.reference_number}
-                        onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
-                        placeholder="e.g. UPI Ref / TXN12345678"
-                        className="h-11 border-border/60 font-medium bg-muted/20 rounded-lg"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Internal Notes</Label>
-                      <Textarea
-                        id="notes"
-                        value={formData.notes}
-                        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                        placeholder="Optional notes for your records..."
-                        className="min-h-[90px] border-border/60 font-medium bg-muted/20 rounded-lg p-3 resize-none"
+                        className="h-9.5 border-border/60 font-black text-sm bg-muted/20 rounded-lg focus:ring-primary shadow-none"
                       />
                     </div>
                   </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                      Payment Date <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input
+                      id="payment_date"
+                      type="date"
+                      value={formData.payment_date}
+                      onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
+                      required
+                      className="h-9.5 border-border/60 font-medium bg-muted/20 rounded-lg focus:ring-primary text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Row: Payment Mode & Reference / Txn ID (2 Columns) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Payment Mode
+                    </Label>
+                    <Select
+                      value={formData.payment_method}
+                      onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
+                    >
+                      <SelectTrigger className="h-9.5 border-border/60 font-medium bg-muted/20 rounded-lg text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-lg">
+                        <SelectItem value="cash">💵 Cash</SelectItem>
+                        <SelectItem value="upi">📱 UPI / GPay / QR</SelectItem>
+                        <SelectItem value="bank_transfer">🏛️ Bank Transfer</SelectItem>
+                        <SelectItem value="cheque">📑 Cheque / DD</SelectItem>
+                        <SelectItem value="credit_card">💳 Credit Card</SelectItem>
+                        <SelectItem value="debit_card">💳 Debit Card</SelectItem>
+                        <SelectItem value="other">⚠️ Other Mode</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Reference / Txn ID
+                    </Label>
+                    <Input
+                      id="reference_number"
+                      value={formData.reference_number}
+                      onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
+                      placeholder="e.g. UPI Ref / UTR / Cheque #"
+                      className="h-9.5 border-border/60 font-medium bg-muted/20 rounded-lg text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Row: Internal Notes (Compact) */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Internal Notes
+                  </Label>
+                  <Textarea
+                    id="notes"
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Optional notes for your accounting records..."
+                    className="h-14 min-h-[56px] border-border/60 font-medium bg-muted/20 rounded-lg p-2.5 resize-none text-xs"
+                  />
                 </div>
               </form>
             </div>
 
             {/* Action Footer */}
-            <DialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5 shrink-0 sm:flex-row sm:space-x-0">
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => setDialogOpen(false)}
-                className="flex-1 h-11 font-bold rounded-xl border-2 cursor-pointer"
-              >
+            <div className="px-5 py-3 border-t border-border/40 bg-muted/20 flex items-center justify-end gap-2.5 shrink-0">
+              <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(false)} className="h-9 px-4 text-xs">
                 Cancel
               </Button>
               <Button
                 type="submit"
                 form="payment-form"
-                className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-primary/20 bg-primary hover:opacity-90 text-primary-foreground uppercase tracking-widest transition-all active:scale-[0.98] cursor-pointer"
+                size="sm"
+                className={cn(
+                  "h-9 px-4 text-xs font-bold shadow-sm",
+                  dialogType === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : ""
+                )}
               >
-                {editingId ? 'Update' : 'Confirm'}
+                {editingId 
+                  ? 'Update Payment' 
+                  : (dialogType === 'purchase' ? 'Save Purchase Payment' : 'Save Sales Payment')}
               </Button>
-            </DialogFooter>
+            </div>
           </DialogContent>
         </Dialog>
       </div>
@@ -481,14 +772,16 @@ const PaymentsPage = () => {
             <Input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search payments by invoice, client, vendor, reference..."
+              placeholder={activeTab === 'sales'
+                ? "Search sales payments by invoice #, client, reference..."
+                : "Search purchase payments by bill #, vendor, reference..."}
               className="pl-9 pr-10 h-11 bg-background border-border/50 rounded-xl"
             />
             {searchTerm.trim() && (
               <button
                 type="button"
                 onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 aria-label="Clear search"
               >
                 <X className="h-4 w-4" />
@@ -555,7 +848,7 @@ const PaymentsPage = () => {
                 variant="ghost"
                 size="sm"
                 onClick={() => { setStartDate(""); setEndDate(""); }}
-                className="text-xs h-8 text-muted-foreground hover:text-foreground cursor-pointer"
+                className="text-xs h-8 text-muted-foreground hover:text-foreground"
               >
                 Clear Dates
               </Button>
@@ -570,98 +863,407 @@ const PaymentsPage = () => {
         )}
       </div>
 
-      {/* Summary Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
-        <Card className="p-4 md:p-5 bg-card dark:bg-card border-2 rounded-2xl">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Total Paid</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xl lg:text-2xl font-black text-foreground tracking-tight">
-              ₹{(paymentsData?.stats?.overallTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 opacity-60">
-              <CreditCard className="w-5 h-5 lg:w-6 lg:h-6" />
-            </div>
-          </div>
-          <p className="text-[10px] font-bold text-emerald-600/70 mt-2">Verified Settlements</p>
-        </Card>
+      {/* Summary Stats Cards Tailored to Sales vs Purchase & Synchronized with Active Filters */}
+      {(() => {
+        const stats = paymentsData?.stats as any;
+        const isSales = activeTab === 'sales';
 
-        <Card className="p-4 md:p-5 bg-card dark:bg-card border-2 rounded-2xl">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Total Records</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xl lg:text-2xl font-black text-foreground tracking-tight">
-              {paymentsData?.stats?.totalRecords ?? payments.length}
-            </p>
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 opacity-60">
-              <Receipt className="w-5 h-5 lg:w-6 lg:h-6" />
-            </div>
-          </div>
-          <p className="text-[10px] font-bold text-blue-600/70 mt-2">Payment Transactions</p>
-        </Card>
+        const totalAmount = isSales ? (stats?.salesTotal ?? 0) : (stats?.purchaseTotal ?? 0);
+        const totalCount = isSales ? (stats?.salesRecords ?? 0) : (stats?.purchaseRecords ?? 0);
+        const settledCount = invoices.filter(inv => inv.type === activeTab && String(inv.status || '').toLowerCase().trim() === 'paid').length;
 
-        <Card className="p-4 md:p-5 bg-card dark:bg-card border-2 rounded-2xl">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Paid Invoices</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xl lg:text-2xl font-black text-foreground tracking-tight">
-              {invoices.filter(inv => inv.status === 'paid').length}
-            </p>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 opacity-80">
-              <CheckCircle2 className="w-5 h-5 lg:w-6 lg:h-6" />
-            </div>
-          </div>
-          <p className="text-[10px] font-bold text-emerald-600/80 mt-2">Marked as Settled</p>
-        </Card>
+        const cashAmount = isSales ? (stats?.salesCash ?? 0) : (stats?.purchaseCash ?? 0);
+        const cashCount = isSales ? (stats?.salesCashCount ?? 0) : (stats?.purchaseCashCount ?? 0);
 
-        <Card className="p-4 md:p-5 bg-card dark:bg-card border-2 rounded-2xl border-emerald-200/50 dark:border-emerald-900/30">
-          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-1">Cash Collected</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-400 tracking-tight">
-              ₹{(paymentsData?.stats?.overallCash ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600">
-              <Banknote className="w-5 h-5 lg:w-6 lg:h-6" />
-            </div>
-          </div>
-          <p className="text-[10px] font-bold text-emerald-600/70 mt-2">Cash Payments</p>
-        </Card>
+        const upiAmount = isSales ? (stats?.salesUpi ?? 0) : (stats?.purchaseUpi ?? 0);
+        const upiCount = isSales ? (stats?.salesUpiCount ?? 0) : (stats?.purchaseUpiCount ?? 0);
 
-        <Card className="p-4 md:p-5 bg-card dark:bg-card border-2 rounded-2xl border-violet-200/50 dark:border-violet-900/30">
-          <p className="text-[10px] font-black uppercase tracking-widest text-violet-600 dark:text-violet-400 mb-1">UPI Collected</p>
-          <div className="flex items-center justify-between">
-            <p className="text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-400 tracking-tight">
-              ₹{(paymentsData?.stats?.overallUpi ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-            <div className="p-2 rounded-lg bg-violet-500/10 text-violet-600">
-              <Smartphone className="w-5 h-5 lg:w-6 lg:h-6" />
-            </div>
-          </div>
-          <p className="text-[10px] font-bold text-violet-600/70 mt-2">UPI / GPay Transfers</p>
-        </Card>
-      </div>
+        const bankAmount = isSales ? (stats?.salesBankTransfer ?? 0) : (stats?.purchaseBankTransfer ?? 0);
+        const bankCount = isSales ? (stats?.salesBankTransferCount ?? 0) : (stats?.purchaseBankTransferCount ?? 0);
 
+        const chequeAmount = isSales ? (stats?.salesCheque ?? 0) : (stats?.purchaseCheque ?? 0);
+        const chequeCount = isSales ? (stats?.salesChequeCount ?? 0) : (stats?.purchaseChequeCount ?? 0);
+
+        const cardAmount = isSales ? (stats?.salesCard ?? 0) : (stats?.purchaseCard ?? 0);
+        const cardCount = isSales ? (stats?.salesCardCount ?? 0) : (stats?.purchaseCardCount ?? 0);
+
+        const otherAmount = isSales ? (stats?.salesOther ?? 0) : (stats?.purchaseOther ?? 0);
+        const otherCount = isSales ? (stats?.salesOtherCount ?? 0) : (stats?.purchaseOtherCount ?? 0);
+
+        return (
+          <div className="space-y-3.5">
+            {/* Unified Stats Grid: When "all", shows original 5 cards (Total, Records, Settled, Cash, UPI). When filtered, shows only the selected method's stat card (4 cards total). */}
+            <div className={cn(
+              "grid gap-2.5 sm:gap-3",
+              methodFilter === 'all'
+                ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+                : "grid-cols-2 sm:grid-cols-2 lg:grid-cols-4"
+            )}>
+              {/* 1. Total Received / Total Paid */}
+              <Card
+                onClick={() => setMethodFilter('all')}
+                className={cn(
+                  "p-3 sm:p-4 bg-card dark:bg-card border rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer select-none",
+                  methodFilter === 'all'
+                    ? "border-primary/80 ring-2 ring-primary/20 bg-primary/5 dark:bg-primary/10 shadow-md"
+                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
+                )}
+              >
+                <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Total Received" : "Total Paid"}>
+                    {isSales ? "Total Received" : "Total Paid"}
+                  </span>
+                  <div className={cn(
+                    "w-7 h-7 sm:w-8 sm:h-8 rounded-xl shrink-0 flex items-center justify-center",
+                    isSales ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                  )}>
+                    {isSales ? <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                  </div>
+                </div>
+                <div className="my-auto py-0.5 w-full overflow-hidden">
+                  <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                    ₹&nbsp;{totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between text-[10px] font-semibold mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                  <span className={cn(isSales ? "text-emerald-600/90 dark:text-emerald-400/90" : "text-purple-600/90 dark:text-purple-400/90", "truncate")}>
+                    {isSales ? "Customer Collections" : "Vendor Outflow"}
+                  </span>
+                  <span className="text-muted-foreground/70 font-normal">({dateFilterLabel})</span>
+                </div>
+              </Card>
+
+              {/* 2. Total Records */}
+              <Card className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title="Total Entries">
+                    Total Records
+                  </span>
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0 flex items-center justify-center">
+                    <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </div>
+                </div>
+                <div className="my-auto py-0.5 w-full overflow-hidden">
+                  <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                    {totalCount.toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <p className="text-[10px] font-semibold text-blue-600/90 dark:text-blue-400/90 mt-1.5 pt-1.5 border-t border-border/40 truncate">
+                  {isSales ? "Receipt Entries" : "Payment Entries"}
+                </p>
+              </Card>
+
+              {/* 3. Paid Invoices / Paid Bills */}
+              <Card className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Paid Invoices" : "Paid Bills"}>
+                    {isSales ? "Paid Invoices" : "Paid Bills"}
+                  </span>
+                  <div className={cn(
+                    "w-7 h-7 sm:w-8 sm:h-8 rounded-xl shrink-0 flex items-center justify-center",
+                    isSales ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                  )}>
+                    <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </div>
+                </div>
+                <div className="my-auto py-0.5 w-full overflow-hidden">
+                  <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                    {settledCount.toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <p className={cn(
+                  "text-[10px] font-semibold mt-1.5 pt-1.5 border-t border-border/40 truncate",
+                  isSales ? "text-emerald-600/90 dark:text-emerald-400/90" : "text-purple-600/90 dark:text-purple-400/90"
+                )}>
+                  {isSales ? "Invoices Settled" : "Bills Cleared"}
+                </p>
+              </Card>
+
+              {/* 4 & 5. Payment Method Cards */}
+              {methodFilter === 'all' ? (
+                <>
+                  {/* Default: 💵 Cash Card */}
+                  <Card
+                    onClick={() => setMethodFilter('cash')}
+                    className="p-3 sm:p-4 bg-card dark:bg-card border border-emerald-500/20 dark:border-emerald-900/40 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/20"
+                  >
+                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 leading-tight truncate flex-1" title={isSales ? "Cash Received" : "Cash Disbursed"}>
+                        {isSales ? "Cash Received" : "Cash Disbursed"}
+                      </span>
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0 flex items-center justify-center">
+                        <Banknote className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      </div>
+                    </div>
+                    <div className="my-auto py-0.5 w-full overflow-hidden">
+                      <p className="text-base sm:text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                        ₹&nbsp;{cashAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                      <span className="truncate">{cashCount} {isSales ? 'Inflow' : 'Disbursed'}</span>
+                      <span className="text-[9px] text-muted-foreground/70 font-normal">Cash</span>
+                    </div>
+                  </Card>
+
+                  {/* Default: 📱 UPI Card */}
+                  <Card
+                    onClick={() => setMethodFilter('upi')}
+                    className="p-3 sm:p-4 bg-card dark:bg-card border border-violet-500/20 dark:border-violet-900/40 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer hover:border-violet-500/50 hover:bg-violet-50/20 dark:hover:bg-violet-950/20"
+                  >
+                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 leading-tight truncate flex-1" title={isSales ? "UPI Received" : "Digital Disbursed"}>
+                        {isSales ? "UPI Received" : "Digital Disbursed"}
+                      </span>
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400 shrink-0 flex items-center justify-center">
+                        <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      </div>
+                    </div>
+                    <div className="my-auto py-0.5 w-full overflow-hidden">
+                      <p className="text-base sm:text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                        ₹&nbsp;{upiAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] font-semibold text-violet-600/90 dark:text-violet-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                      <span className="truncate">{upiCount} Collections</span>
+                      <span className="text-[9px] text-muted-foreground/70 font-normal">GPay / QR</span>
+                    </div>
+                  </Card>
+                </>
+              ) : methodFilter === 'cash' ? (
+                /* Selected Filter: 💵 Cash */
+                <Card
+                  onClick={() => setMethodFilter('all')}
+                  className="p-3 sm:p-4 bg-card dark:bg-card border border-emerald-500 ring-2 ring-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
+                  title="Click to clear filter"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 leading-tight truncate flex-1" title={isSales ? "Cash Received" : "Cash Paid"}>
+                      💵 {isSales ? "Cash Received" : "Cash Paid"}
+                    </span>
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 flex items-center justify-center">
+                      <Banknote className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </div>
+                  </div>
+                  <div className="my-auto py-0.5 w-full overflow-hidden">
+                    <p className="text-base sm:text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                      ₹&nbsp;{cashAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                    <span className="truncate">{cashCount} {isSales ? 'Cash Inflow' : 'Cash Outflow'}</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-600/15 text-emerald-600 dark:text-emerald-400">Filtered</span>
+                  </div>
+                </Card>
+              ) : methodFilter === 'upi' ? (
+                /* Selected Filter: 📱 UPI */
+                <Card
+                  onClick={() => setMethodFilter('all')}
+                  className="p-3 sm:p-4 bg-card dark:bg-card border border-violet-500 ring-2 ring-violet-500/25 bg-violet-50/70 dark:bg-violet-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
+                  title="Click to clear filter"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 leading-tight truncate flex-1" title={isSales ? "UPI Received" : "UPI Paid"}>
+                      📱 {isSales ? "UPI Received" : "UPI Paid"}
+                    </span>
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-violet-500/20 text-violet-600 dark:text-violet-400 shrink-0 flex items-center justify-center">
+                      <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </div>
+                  </div>
+                  <div className="my-auto py-0.5 w-full overflow-hidden">
+                    <p className="text-base sm:text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                      ₹&nbsp;{upiAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-violet-600/90 dark:text-violet-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                    <span className="truncate">{upiCount} Collections • QR & UPI</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-violet-600/15 text-violet-600 dark:text-violet-400">Filtered</span>
+                  </div>
+                </Card>
+              ) : methodFilter === 'bank_transfer' ? (
+                /* Selected Filter: 🏛️ Bank Transfer */
+                <Card
+                  onClick={() => setMethodFilter('all')}
+                  className="p-3 sm:p-4 bg-card dark:bg-card border border-sky-500 ring-2 ring-sky-500/25 bg-sky-50/70 dark:bg-sky-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
+                  title="Click to clear filter"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400 leading-tight truncate flex-1" title={isSales ? "Bank Transfer Received" : "Bank Transfer Paid"}>
+                      🏛️ {isSales ? "Bank Transfer Received" : "Bank Transfer Paid"}
+                    </span>
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-sky-500/20 text-sky-600 dark:text-sky-400 shrink-0 flex items-center justify-center">
+                      <Landmark className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </div>
+                  </div>
+                  <div className="my-auto py-0.5 w-full overflow-hidden">
+                    <p className="text-base sm:text-xl lg:text-2xl font-black text-sky-700 dark:text-sky-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                      ₹&nbsp;{bankAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-sky-600/90 dark:text-sky-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                    <span className="truncate">{bankCount} Entries • NEFT / RTGS / IMPS</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-600/15 text-sky-600 dark:text-sky-400">Filtered</span>
+                  </div>
+                </Card>
+              ) : methodFilter === 'cheque' ? (
+                /* Selected Filter: 📑 Cheque */
+                <Card
+                  onClick={() => setMethodFilter('all')}
+                  className="p-3 sm:p-4 bg-card dark:bg-card border border-amber-500 ring-2 ring-amber-500/25 bg-amber-50/70 dark:bg-amber-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
+                  title="Click to clear filter"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 leading-tight truncate flex-1" title={isSales ? "Cheque Received" : "Cheque Paid"}>
+                      📑 {isSales ? "Cheque Received" : "Cheque Paid"}
+                    </span>
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 flex items-center justify-center">
+                      <FileCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </div>
+                  </div>
+                  <div className="my-auto py-0.5 w-full overflow-hidden">
+                    <p className="text-base sm:text-xl lg:text-2xl font-black text-amber-700 dark:text-amber-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                      ₹&nbsp;{chequeAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-amber-600/90 dark:text-amber-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                    <span className="truncate">{chequeCount} Entries • Cheques & DD</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-600/15 text-amber-600 dark:text-amber-400">Filtered</span>
+                  </div>
+                </Card>
+              ) : (methodFilter === 'credit_card' || methodFilter === 'debit_card' || methodFilter === 'card') ? (
+                /* Selected Filter: 💳 Cards (Credit & Debit) */
+                <Card
+                  onClick={() => setMethodFilter('all')}
+                  className="p-3 sm:p-4 bg-card dark:bg-card border border-rose-500 ring-2 ring-rose-500/25 bg-rose-50/70 dark:bg-rose-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
+                  title="Click to clear filter"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 leading-tight truncate flex-1" title={isSales ? "Cards Received" : "Cards Paid"}>
+                      💳 {isSales ? "Cards Received" : "Cards Paid"}
+                    </span>
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 shrink-0 flex items-center justify-center">
+                      <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </div>
+                  </div>
+                  <div className="my-auto py-0.5 w-full overflow-hidden">
+                    <p className="text-base sm:text-xl lg:text-2xl font-black text-rose-700 dark:text-rose-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                      ₹&nbsp;{cardAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-rose-600/90 dark:text-rose-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                    <span className="truncate">{cardCount} Entries • Credit & Debit</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-600/15 text-rose-600 dark:text-rose-400">Filtered</span>
+                  </div>
+                </Card>
+              ) : (
+                /* Selected Filter: ⚠️ Other / Pending */
+                <Card
+                  onClick={() => setMethodFilter('all')}
+                  className="p-3 sm:p-4 bg-card dark:bg-card border border-slate-500 ring-2 ring-slate-500/25 bg-slate-50/70 dark:bg-slate-900/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
+                  title="Click to clear filter"
+                >
+                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 leading-tight truncate flex-1" title={isSales ? "Other / Pending Received" : "Other / Pending Paid"}>
+                      ⚠️ {methodFilter === 'pending' ? 'Pending Mode' : 'Other Methods'}
+                    </span>
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-500/20 text-slate-600 dark:text-slate-400 shrink-0 flex items-center justify-center">
+                      <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </div>
+                  </div>
+                  <div className="my-auto py-0.5 w-full overflow-hidden">
+                    <p className="text-base sm:text-xl lg:text-2xl font-black text-slate-700 dark:text-slate-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+                      ₹&nbsp;{otherAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-slate-600/90 dark:text-slate-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
+                    <span className="truncate">{otherCount} Entries • Unclassified Modes</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-600/15 text-slate-600 dark:text-slate-400">Filtered</span>
+                  </div>
+                </Card>
+              )}
+            </div>
+
+            {/* Interactive Active Filter Summary Banner */}
+            {methodFilter !== 'all' && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-xs text-foreground animate-in fade-in duration-200">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-primary text-primary-foreground font-bold text-[11px]">
+                    <Filter className="w-3 h-3" />
+                    <span>Active Filter: {getMethodLabel(methodFilter)}</span>
+                  </div>
+                  <span className="text-muted-foreground">
+                    Matching {isSales ? 'customer collections' : 'vendor disbursements'} for <strong>{dateFilterLabel}</strong>:
+                  </span>
+                  <span className="font-extrabold text-foreground text-sm">
+                    ₹&nbsp;{(isSales ? (stats?.selectedMethodSalesTotal ?? 0) : (stats?.selectedMethodPurchaseTotal ?? 0)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-muted-foreground text-[11px]">
+                    ({isSales ? (stats?.selectedMethodSalesCount ?? 0) : (stats?.selectedMethodPurchaseCount ?? 0)} records found)
+                  </span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMethodFilter('all')}
+                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-background/80 self-end sm:self-auto shrink-0"
+                >
+                  <X className="w-3.5 h-3.5 mr-1" />
+                  Clear Filter
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Main Table or Empty State */}
       {payments.length === 0 ? (
-        <Card className="p-4 md:p-8 text-center bg-card dark:bg-card">
-          <CreditCard className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-foreground mb-2">No Payments Found</h3>
-          <p className="text-muted-foreground mb-4">
-            {paymentsData?.totalCount === 0 ? "Start recording payments to track your cash flow and invoice settlements." : "No payment records match your current filters."}
-          </p>
-          {paymentsData?.totalCount === 0 && (
-            <Button variant="default" onClick={() => setDialogOpen(true)} className="cursor-pointer">
-              <Plus className="w-4 h-4 mr-2" />
-              Record Your First Payment
-            </Button>
+        <Card className="p-6 md:p-12 text-center bg-card dark:bg-card border border-border/70 rounded-2xl shadow-sm">
+          {activeTab === 'sales' ? (
+            <CreditCard className="w-14 h-14 text-emerald-500/40 mx-auto mb-3" />
+          ) : (
+            <ShoppingCart className="w-14 h-14 text-purple-500/40 mx-auto mb-3" />
           )}
+          <h3 className="text-lg font-bold text-foreground mb-1">
+            {activeTab === 'sales' ? "No Sales Payments Found" : "No Purchase Payments Found"}
+          </h3>
+          <p className="text-muted-foreground text-xs sm:text-sm mb-5 max-w-md mx-auto">
+            {activeTab === 'sales'
+              ? "No customer payments recorded yet for sales invoices matching your criteria."
+              : "No vendor payments recorded yet for purchase bills matching your criteria."}
+          </p>
+          <Button
+            variant="default"
+            onClick={() => {
+              setDialogType(activeTab);
+              resetForm();
+              setDialogOpen(true);
+            }}
+            className={cn(
+              "font-bold text-xs h-10 px-5",
+              activeTab === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : ""
+            )}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            {activeTab === 'sales' ? "Record Sales Payment" : "Record Purchase Payment"}
+          </Button>
         </Card>
       ) : (
-        <Card className="overflow-hidden bg-card dark:bg-card border-border/80 rounded-2xl shadow-sm">
+        <Card className="overflow-hidden bg-card dark:bg-card border border-border/80 rounded-2xl shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Payment Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Invoice / Bill</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Client / Vendor</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Amount</th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {activeTab === 'sales' ? 'Sales Invoice #' : 'Purchase Bill #'}
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {activeTab === 'sales' ? 'Customer Name' : 'Vendor Name'}
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {activeTab === 'sales' ? 'Amount Received' : 'Amount Paid'}
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Method</th>
                   <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Reference</th>
                   <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Actions</th>
@@ -689,7 +1291,7 @@ const PaymentsPage = () => {
                               "text-[8px] px-1 py-0 font-semibold uppercase",
                               invoiceType === 'purchase'
                                 ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
-                                : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400"
+                                : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
                             )}
                           >
                             {invoiceType === 'purchase' ? 'Purchase' : 'Sales'}
@@ -703,7 +1305,10 @@ const PaymentsPage = () => {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        <div className={cn(
+                          "text-sm font-bold",
+                          invoiceType === 'purchase' ? "text-purple-600 dark:text-purple-400" : "text-emerald-600 dark:text-emerald-400"
+                        )}>
                           ₹{Number(payment.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                       </td>
@@ -798,7 +1403,7 @@ const PaymentsPage = () => {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEdit(payment)}
-                            className="h-8 w-8 p-0 cursor-pointer"
+                            className="h-8 w-8 p-0"
                             title="Edit Payment"
                           >
                             <Edit className="w-4 h-4" />
@@ -807,7 +1412,7 @@ const PaymentsPage = () => {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDelete(payment.id)}
-                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                             title="Delete Payment"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -831,7 +1436,6 @@ const PaymentsPage = () => {
             size="sm"
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
             disabled={currentPage === 1}
-            className="cursor-pointer"
           >
             Previous
           </Button>
@@ -843,7 +1447,6 @@ const PaymentsPage = () => {
             size="sm"
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
             disabled={currentPage === totalPages}
-            className="cursor-pointer"
           >
             Next
           </Button>

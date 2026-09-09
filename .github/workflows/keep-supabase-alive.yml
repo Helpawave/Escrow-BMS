@@ -1,0 +1,37 @@
+name: Keep Supabase Active (Anti-Pause Cron)
+
+on:
+  schedule:
+    # Runs everyday at 05:30 UTC (11:00 AM IST)
+    - cron: '30 5 * * *'
+  # Allows manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    name: Ping Supabase Database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keep-alive query to Supabase PostgREST
+        run: |
+          SUPABASE_URL="${{ secrets.SUPABASE_URL || 'https://vkybaqvqcqbnuwdbjmow.supabase.co' }}"
+          SUPABASE_KEY="${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZreWJhcXZxY3FibnV3ZGJqbW93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc1ODk2NjksImV4cCI6MjA3MzE2NTY2OX0.7sRjHWuxjffh6hUbHqFiYW-5cjlZH9EgqIkvlGMIzT4' }}"
+          
+          echo "Sending keep-alive ping to Supabase: $SUPABASE_URL"
+          
+          # Query PostgREST endpoint to generate real database activity
+          HTTP_STATUS=$(curl -s -o response.json -w "%{http_code}" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            "$SUPABASE_URL/rest/v1/invoices?select=id&limit=1")
+          
+          echo "HTTP Status Code: $HTTP_STATUS"
+          cat response.json
+          echo ""
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "✅ Supabase ping successful! Inactivity timer reset."
+          else
+            echo "⚠️ Unexpected status code: $HTTP_STATUS"
+            exit 1
+          fi

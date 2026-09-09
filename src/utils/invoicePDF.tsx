@@ -3,16 +3,14 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { CurrencyProvider } from "@/contexts/CurrencyContext";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { InvoiceData, ClientData, CompanyData, ItemData } from "@/types/invoice";
-
-export type { InvoiceData, ClientData, CompanyData, ItemData };
+import { InvoiceData, ClientData, CompanyData, ItemData, InvoiceTemplateId } from "@/types/invoice";
 
 export const generateInvoiceHTML = async (
   invoice: InvoiceData,
   client: ClientData,
   items: ItemData[],
   company: CompanyData,
-  template: 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate' = 'corporate',
+  template: InvoiceTemplateId = 'corporate',
   currencySymbol: string = '₹'
 ): Promise<string> => {
   const tempContainer = document.createElement('div');
@@ -92,7 +90,7 @@ export const generateInvoicePDFBlob = async (
   client: ClientData,
   items: ItemData[],
   company: CompanyData,
-  template: 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate' = 'corporate',
+  template: InvoiceTemplateId = 'corporate',
   currencySymbol: string = '₹'
 ): Promise<Blob> => {
   const printHTML = await generateInvoiceHTML(invoice, client, items, company, template, currencySymbol);
