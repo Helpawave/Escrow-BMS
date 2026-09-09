@@ -52,11 +52,16 @@ const ClientsPage = () => {
   }, [vendorsData]);
 
   const rawClients = data?.clients || [];
-  // Exclude clients that have become vendors (they belong exclusively to Vendors page)
+  // Exclude clients that have become vendors and deduplicate identical client records
   const clients = useMemo(() => {
+    const seenNames = new Set<string>();
     return rawClients.filter(c => {
       const cleanName = (c.name || '').trim().toLowerCase();
-      return !vendorNames.has(cleanName) && !vendorIds.has(c.id);
+      if (!cleanName) return false;
+      if (vendorNames.has(cleanName) || vendorIds.has(c.id)) return false;
+      if (seenNames.has(cleanName)) return false;
+      seenNames.add(cleanName);
+      return true;
     });
   }, [rawClients, vendorNames, vendorIds]);
 
@@ -123,10 +128,11 @@ const ClientsPage = () => {
       setSelectedClientIds([]);
       queryClient.invalidateQueries({ queryKey: ['clients'] });
     } catch (err: any) {
+      console.error('Error deleting clients:', err);
       toast({
         variant: "destructive",
-        title: "Deletion Failed",
-        description: err.message || "Failed to delete selected clients."
+        title: "Error",
+        description: "Failed to delete selected clients."
       });
     } finally {
       setDeletingBulk(false);
@@ -137,16 +143,30 @@ const ClientsPage = () => {
     queryClient.invalidateQueries({ queryKey: ['clients'] });
   }, [queryClient]);
 
-  // Auto-cleanup stale client records in database for parties converted to vendors
+  // Auto-cleanup duplicate client records and stale converted vendors in database
   useEffect(() => {
-    if (vendorNames.size > 0 && rawClients.length > 0 && user?.id) {
+    if (rawClients.length > 0 && user?.id) {
       const activeUserId = user.id;
-      const staleClientIds = rawClients
-        .filter(c => {
-          const cleanName = (c.name || '').trim().toLowerCase();
-          return vendorNames.has(cleanName) || vendorIds.has(c.id);
-        })
-        .map(c => c.id);
+      const staleClientIds: string[] = [];
+      const seenNames = new Set<string>();
+
+      rawClients.forEach(c => {
+        const cleanName = (c.name || '').trim().toLowerCase();
+        if (!cleanName) return;
+
+        // Converted to vendor
+        if (vendorNames.has(cleanName) || vendorIds.has(c.id)) {
+          staleClientIds.push(c.id);
+          return;
+        }
+
+        // Duplicate client record in DB
+        if (seenNames.has(cleanName)) {
+          staleClientIds.push(c.id);
+        } else {
+          seenNames.add(cleanName);
+        }
+      });
 
       if (staleClientIds.length > 0) {
         supabase
@@ -283,39 +303,50 @@ const ClientsPage = () => {
           message: 'Client profile has been successfully synchronized with your records.'
         });
       } else {
-        let insertedData: any = null;
-        let insertErr: any = null;
-        try {
-          const res = await supabase
-            .from('clients')
-            .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
-            .select();
-          insertedData = res.data;
-          insertErr = res.error;
-        } catch (e) {
-          insertErr = e;
-        }
+        // Prevent duplicate creation: check if client with this name already exists for this user
+        const { data: existingClients } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('user_id', activeUserId)
+          .ilike('name', finalizedData.name)
+          .limit(1);
 
-        // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
-        if (insertErr || !insertedData || insertedData.length === 0) {
-          console.warn("Client full insert warning, retrying with core schema:", insertErr);
-          const coreData = {
-            id: crypto.randomUUID(),
-            user_id: activeUserId,
-            name: finalizedData.name,
-            email: finalizedData.email || '',
-            phone: formData.phone || ''
-          };
-          const { data: fbData, error: fbErr } = await supabase
+        if (existingClients && existingClients.length > 0) {
+          // Update existing client record instead of creating duplicate
+          await supabase
             .from('clients')
-            .insert([coreData])
-            .select();
-          
-          if (fbErr) {
-            console.error("Client fallback insert error:", fbErr);
-            throw fbErr;
+            .update({ ...finalizedData, user_id: activeUserId })
+            .eq('id', existingClients[0].id);
+        } else {
+          let insertErr: any = null;
+          try {
+            const res = await supabase
+              .from('clients')
+              .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }]);
+            insertErr = res.error;
+          } catch (e) {
+            insertErr = e;
           }
-          insertedData = fbData;
+
+          // Fallback ONLY if the primary insert actually returned a schema error
+          if (insertErr) {
+            console.warn("Client full insert warning, retrying with core schema:", insertErr);
+            const coreData = {
+              id: crypto.randomUUID(),
+              user_id: activeUserId,
+              name: finalizedData.name,
+              email: finalizedData.email || '',
+              phone: formData.phone || ''
+            };
+            const { error: fbErr } = await supabase
+              .from('clients')
+              .insert([coreData]);
+            
+            if (fbErr) {
+              console.error("Client fallback insert error:", fbErr);
+              throw fbErr;
+            }
+          }
         }
 
         // Unified Client/Party Sync: Auto-create in parties table for Ledger & CRM

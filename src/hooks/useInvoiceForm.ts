@@ -344,6 +344,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   }, [user]);
 
+  const lastSelectedPartyRef = useRef<string | null>(null);
+
   const handleLedgerPartySelect = useCallback(async (partyId: string, customAmount?: number) => {
     setSelectedLedgerPartyId(partyId);
     const party = ledgerParties.find(p => p.id === partyId);
@@ -356,23 +358,42 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     // Match with client by name
     let matchedClient = clients.find(c => c.name.toLowerCase() === party.party_name.toLowerCase());
     
-    // If not found in clients, auto-create client on the fly for seamless invoice linkage
+    // If not found in local clients, check DB before inserting to prevent duplicate creation
     if (!matchedClient && user) {
       try {
-        const { data: newClientData } = await supabase
+        const { data: existingClientData } = await supabase
           .from('clients')
-          .insert([{
-            id: crypto.randomUUID(),
-            user_id: user.id,
-            name: party.party_name,
-            phone: party.phone || '',
-            email: ''
-          }])
-          .select()
-          .single();
-        if (newClientData) {
-          matchedClient = newClientData as unknown as Client;
-          setClients(prev => [...prev, matchedClient!]);
+          .select('*')
+          .eq('user_id', user.id)
+          .ilike('name', party.party_name.trim())
+          .limit(1);
+
+        if (existingClientData && existingClientData.length > 0) {
+          matchedClient = existingClientData[0] as Client;
+          setClients(prev => {
+            if (prev.some(c => c.id === matchedClient!.id)) return prev;
+            return [...prev, matchedClient!];
+          });
+        } else {
+          const { data: newClientData } = await supabase
+            .from('clients')
+            .insert([{
+              id: crypto.randomUUID(),
+              user_id: user.id,
+              name: party.party_name.trim(),
+              phone: party.phone || '',
+              email: ''
+            }])
+            .select()
+            .maybeSingle();
+
+          if (newClientData) {
+            matchedClient = newClientData as unknown as Client;
+            setClients(prev => {
+              if (prev.some(c => c.id === matchedClient!.id)) return prev;
+              return [...prev, matchedClient!];
+            });
+          }
         }
       } catch (err) {
         console.warn("Could not auto-link client for ledger billing:", err);
@@ -435,7 +456,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   useEffect(() => {
     if (billingType === 'ledger' && ledgerParties.length > 0) {
       const targetPartyId = searchParams.get('partyId') || selectedLedgerPartyId;
-      if (targetPartyId) {
+      if (targetPartyId && lastSelectedPartyRef.current !== targetPartyId) {
+        lastSelectedPartyRef.current = targetPartyId;
         handleLedgerPartySelect(targetPartyId);
       }
     }

@@ -203,39 +203,49 @@ const VendorsPage = () => {
           message: 'Vendor profile has been successfully updated.'
         });
       } else {
-        let insertedData: any = null;
-        let insertErr: any = null;
-        try {
-          const res = await supabase
-            .from('vendors')
-            .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }])
-            .select();
-          insertedData = res.data;
-          insertErr = res.error;
-        } catch (e) {
-          insertErr = e;
-        }
+        // Prevent duplicate creation: check if vendor with this name already exists
+        const { data: existingVendors } = await supabase
+          .from('vendors')
+          .select('id')
+          .eq('user_id', activeUserId)
+          .ilike('name', finalizedData.name)
+          .limit(1);
 
-        // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
-        if (insertErr || !insertedData || insertedData.length === 0) {
-          console.warn("Vendor full insert warning, retrying with core schema:", insertErr);
-          const coreData = {
-            id: crypto.randomUUID(),
-            user_id: activeUserId,
-            name: finalizedData.name,
-            email: finalizedData.email || '',
-            phone: formData.phone || ''
-          };
-          const { data: fbData, error: fbErr } = await supabase
+        if (existingVendors && existingVendors.length > 0) {
+          await supabase
             .from('vendors')
-            .insert([coreData])
-            .select();
-          
-          if (fbErr) {
-            console.error("Vendor fallback insert error:", fbErr);
-            throw fbErr;
+            .update({ ...finalizedData, user_id: activeUserId })
+            .eq('id', existingVendors[0].id);
+        } else {
+          let insertErr: any = null;
+          try {
+            const res = await supabase
+              .from('vendors')
+              .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }]);
+            insertErr = res.error;
+          } catch (e) {
+            insertErr = e;
           }
-          insertedData = fbData;
+
+          // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
+          if (insertErr) {
+            console.warn("Vendor full insert warning, retrying with core schema:", insertErr);
+            const coreData = {
+              id: crypto.randomUUID(),
+              user_id: activeUserId,
+              name: finalizedData.name,
+              email: finalizedData.email || '',
+              phone: formData.phone || ''
+            };
+            const { error: fbErr } = await supabase
+              .from('vendors')
+              .insert([coreData]);
+            
+            if (fbErr) {
+              console.error("Vendor fallback insert error:", fbErr);
+              throw fbErr;
+            }
+          }
         }
 
         // Sync to Account Ledger (parties table with status 'give')
