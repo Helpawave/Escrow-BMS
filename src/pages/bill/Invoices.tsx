@@ -18,7 +18,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen, Banknote, Smartphone, ArrowRightCircle, Sparkles } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as baseSupabase } from "@/integrations/supabase/client";
+const supabase = baseSupabase as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrency } from "@/contexts/CurrencyContext";

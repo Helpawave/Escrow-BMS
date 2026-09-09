@@ -226,8 +226,8 @@ const CreateInvoicePage = () => {
         setNewVendorFormData={setNewVendorFormData}
         handleCreateVendor={handleCreateVendor}
         creatingVendor={creatingVendor}
-        newProductFormData={newProductFormData}
-        setNewProductFormData={setNewProductFormData}
+        newProductFormData={newProductFormData as any}
+        setNewProductFormData={setNewProductFormData as any}
         creatingProduct={creatingProduct}
         productSearchQuery={productSearchQuery}
         setProductSearchQuery={setProductSearchQuery}
