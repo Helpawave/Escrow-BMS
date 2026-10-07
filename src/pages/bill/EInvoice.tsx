@@ -17,14 +17,18 @@ import { useCurrency } from "@/contexts/CurrencyContext";
 import { cn } from "@/lib/utils";
 import { SuccessModal } from "@/components/SuccessModal";
 import { Check, ChevronsUpDown, CalendarIcon, FileText, Truck, Plus, Trash2, Download, History, Eye, Package, Search, Minus, ShieldAlert, ArrowRight, Scan, Tag, X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { generateEInvoicePDF, generateEWayBillPDF } from "@/utils/eInvoicePDF";
+import { adjustStock, formatCategory } from "@/utils/inventory";
 import { EInvoiceTemplate } from "@/components/EInvoiceTemplate";
 import { EWayBillTemplate } from "@/components/EWayBillTemplate";
 import { ResponsiveInvoiceWrapper } from "@/components/ResponsiveInvoiceWrapper";
+import { CompleteProfileModal } from "@/components/CompleteProfileModal";
 import { format } from "date-fns";
 import { type HSNCode } from '@/types/hsn';
+import { DataTablePagination } from "@/components/DataTablePagination";
 
 type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
@@ -197,7 +201,7 @@ const mapProductUnitToInvoiceUnit = (unit: string | undefined): string => {
 };
 
 const EInvoicePage = () => {
-  const { user } = useAuth();
+  const { user, profile: authProfile, companyProfile, effectiveUserId } = useAuth();
   const { toast } = useToast();
   const [clients, setClients] = useState<Client[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -205,44 +209,55 @@ const EInvoicePage = () => {
   const [activeTab, setActiveTab] = useState("einvoice");
   const [historyTab, setHistoryTab] = useState("einvoice-history");
 
+  const activeProfile = profile || authProfile || companyProfile;
+  const activeGstin = activeProfile?.gstin?.trim();
+  const targetUserId = effectiveUserId || user?.id;
+
   // History data
   const [eInvoiceHistory, setEInvoiceHistory] = useState<EInvoiceHistoryItem[]>([]);
   const [eWayBillHistory, setEWayBillHistory] = useState<EWayBillHistoryItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalCount, setTotalCount] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const ITEMS_PER_PAGE = 50;
 
   const fetchHistory = useCallback(async () => {
-    if (!user?.id) return;
+    if (!targetUserId) return;
     setHistoryLoading(true);
     try {
-      const from = (currentPage - 1) * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize - 1;
 
       if (historyTab === 'einvoice-history') {
         const { data, error, count } = await supabase
           .from('e_invoices')
           .select('*', { count: 'exact' })
-          .eq('user_id', user.id)
+          .eq('user_id', targetUserId)
           .order('created_at', { ascending: false })
           .range(from, to);
 
         if (error) throw error;
         setEInvoiceHistory((data || []) as unknown as EInvoiceHistoryItem[]);
-        if (count !== null) setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
+        if (count !== null) {
+          setTotalCount(count);
+          setTotalPages(Math.max(1, Math.ceil(count / pageSize)));
+        }
       } else {
         const { data, error, count } = await supabase
           .from('e_way_bills')
           .select('*', { count: 'exact' })
-          .eq('user_id', user.id)
+          .eq('user_id', targetUserId)
           .order('created_at', { ascending: false })
           .range(from, to);
 
         if (error) throw error;
         setEWayBillHistory((data || []) as unknown as EWayBillHistoryItem[]);
-        if (count !== null) setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
+        if (count !== null) {
+          setTotalCount(count);
+          setTotalPages(Math.max(1, Math.ceil(count / pageSize)));
+        }
       }
     } catch (error) {
       console.error('Error fetching history:', error);
@@ -250,7 +265,7 @@ const EInvoicePage = () => {
     } finally {
       setHistoryLoading(false);
     }
-  }, [user?.id, currentPage, historyTab, toast]);
+  }, [targetUserId, currentPage, pageSize, historyTab, toast]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -320,7 +335,7 @@ const EInvoicePage = () => {
   const [newProductDialogOpen, setNewProductDialogOpen] = useState(false);
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [newProductFormData, setNewProductFormData] = useState({
-    name: '', type: 'product' as const, category: 'general', sales_price: '',
+    name: '', type: 'product' as const, category: 'General', sales_price: '',
     price_with_tax: true, tax_rate: '18', unit: 'pcs',
     opening_stock: '', description: '',
     purchase_price: '', sku: '', discount: '',
@@ -346,22 +361,25 @@ const EInvoicePage = () => {
 
 
   const fetchInitialData = useCallback(async () => {
-    if (!user?.id) return;
+    if (!targetUserId) return;
     try {
       setLoading(true);
+      const clientToUse = serviceSupabase || supabase;
       const [clientsRes, profileRes, productsRes, invoicesRes] = await Promise.all([
-        supabase.from('clients').select('id, name, email, gstin, address, state, postal_code').eq('user_id', user.id),
-        supabase.from('profiles').select('*').eq('id', user.id).single(),
-        supabase.from('products').select('id, name, sku, price, tax_rate, opening_stock, unit, hsn_code').eq('user_id', user.id).order('name'),
-        supabase.from('invoices').select(`
+        clientToUse.from('clients').select('id, name, email, gstin, address, state, postal_code, hide_contact_details').eq('user_id', targetUserId),
+        clientToUse.from('profiles').select('*').eq('user_id', targetUserId).maybeSingle(),
+        clientToUse.from('products').select('id, name, sku, price, tax_rate, opening_stock, unit, hsn_code').eq('user_id', targetUserId).order('name'),
+        clientToUse.from('invoices').select(`
           id, invoice_number, client_id, total_amount, issue_date, 
           invoice_items (description, quantity, rate, tax_rate, products (unit, hsn_code))
-        `).eq('user_id', user.id).order('created_at', { ascending: false }).limit(50)
+        `).eq('user_id', targetUserId).order('created_at', { ascending: false }).limit(50)
       ]);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setClients((clientsRes.data as any) || []);
-      setProfile(profileRes.data as unknown as Profile);
+      if (profileRes.data) {
+        setProfile(profileRes.data as unknown as Profile);
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setProducts((productsRes.data as any) || []);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -371,13 +389,13 @@ const EInvoicePage = () => {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [targetUserId]);
 
   useEffect(() => {
-    if (user) {
+    if (targetUserId) {
       fetchInitialData();
     }
-  }, [user, fetchInitialData]);
+  }, [targetUserId, fetchInitialData]);
 
   const handleInvoiceSelect = (invoiceId: string, target: 'einvoice' | 'ewaybill') => {
     const selected = invoices.find(inv => inv.id === invoiceId);
@@ -439,10 +457,11 @@ const EInvoicePage = () => {
   // Dynamically import HSN codes only when search is opened to reduce initial bundle size
   useEffect(() => {
     if (showHSNDialog && hsnCodesData.length === 0) {
-      fetch('/data/hsnCodes.json')
-        .then(res => res.json())
-        .then(data => setHsnCodesData(data))
-        .catch(err => console.error('Failed to load HSN codes:', err));
+      import('@/data/hsnCodes.json').then(module => {
+        setHsnCodesData(module.default);
+      }).catch(err => {
+        console.error('Failed to load HSN codes:', err);
+      });
     }
   }, [showHSNDialog, hsnCodesData.length]);
 
@@ -463,7 +482,7 @@ const EInvoicePage = () => {
           discount: Number(newProductFormData.discount) || 0,
           tax_rate: Number(newProductFormData.tax_rate),
           unit: newProductFormData.unit,
-          category: newProductFormData.category || 'general',
+          category: newProductFormData.category ? formatCategory(newProductFormData.category) : 'General',
           type: newProductFormData.type,
           description: newProductFormData.description,
           opening_stock: newProductFormData.opening_stock,
@@ -490,7 +509,7 @@ const EInvoicePage = () => {
 
       // Reset and close
       setNewProductFormData({
-        name: '', type: 'product', category: 'general', sales_price: '',
+        name: '', type: 'product', category: 'General', sales_price: '',
         price_with_tax: true, tax_rate: '18', unit: 'pcs',
         opening_stock: '', description: '',
         purchase_price: '', sku: '', discount: '',
@@ -661,8 +680,9 @@ const EInvoicePage = () => {
         toast({ variant: "destructive", title: "Error", description: "Cannot generate E-Invoice with a total amount of {currencySymbol}0. Please add items with valid rates." });
         return;
       }
+      const clientToUse = serviceSupabase || supabase;
       const eInvoicePayload = {
-        user_id: user?.id || "",
+        user_id: targetUserId,
         client_id: eInvoiceData.client_id,
         invoice_type: eInvoiceData.invoice_type,
         invoice_number: eInvoiceData.invoice_number,
@@ -682,7 +702,7 @@ const EInvoicePage = () => {
       };
 
       // Save to database
-      const { error } = await supabase
+      const { error } = await clientToUse
         .from('e_invoices')
         .insert(eInvoicePayload);
 
@@ -691,20 +711,7 @@ const EInvoicePage = () => {
       // Deduct stock for E-Invoice items
       for (const item of eInvoiceItems) {
         if (item.product_id && item.quantity > 0) {
-          const { data: product } = await supabase
-            .from('products')
-            .select('opening_stock')
-            .eq('id', item.product_id)
-            .single();
-
-          if (product) {
-            const currentStock = parseFloat((product as any).opening_stock || "0");
-            const newStock = currentStock - item.quantity;
-            await supabase
-              .from('products')
-              .update({ opening_stock: newStock.toString() })
-              .eq('id', item.product_id);
-          }
+          await adjustStock(item.product_id, -item.quantity);
         }
       }
 
@@ -718,7 +725,7 @@ const EInvoicePage = () => {
         },
         eInvoiceItems,
         selectedClient,
-        profile as Profile
+        activeProfile as Profile
       );
 
       toast({ title: "Success", description: "E-Invoice created and downloaded successfully!" });
@@ -777,8 +784,9 @@ const EInvoicePage = () => {
         toast({ variant: "destructive", title: "Error", description: "Cannot generate E-Way Bill with a total value of {currencySymbol}0. Please add items with valid values." });
         return;
       }
+      const clientToUse = serviceSupabase || supabase;
       const eWayBillPayload = {
-        user_id: user?.id || "",
+        user_id: targetUserId,
         client_id: eWayBillData.client_id,
         document_type: eWayBillData.document_type,
         document_number: eWayBillData.document_number,
@@ -807,7 +815,7 @@ const EInvoicePage = () => {
       };
 
       // Save to database
-      const { error } = await supabase
+      const { error } = await clientToUse
         .from('e_way_bills')
         .insert(eWayBillPayload);
 
@@ -816,20 +824,7 @@ const EInvoicePage = () => {
       // Deduct stock for E-Way Bill items
       for (const item of eWayBillItems) {
         if (item.product_id && item.quantity > 0) {
-          const { data: product } = await supabase
-            .from('products')
-            .select('opening_stock')
-            .eq('id', item.product_id)
-            .single();
-
-          if (product) {
-            const currentStock = parseFloat((product as any).opening_stock || "0");
-            const newStock = currentStock - item.quantity;
-            await supabase
-              .from('products')
-              .update({ opening_stock: newStock.toString() })
-              .eq('id', item.product_id);
-          }
+          await adjustStock(item.product_id, -item.quantity);
         }
       }
 
@@ -838,7 +833,7 @@ const EInvoicePage = () => {
         { ...eWayBillData, total_value: totalValue },
         eWayBillItems,
         selectedClient,
-        profile as Profile
+        activeProfile as Profile
       );
 
       toast({ title: "Success", description: "E-Way Bill created and downloaded successfully!" });
@@ -929,7 +924,7 @@ const EInvoicePage = () => {
             postal_code: selectedClient.postal_code || "",
             hide_contact_details: selectedClient.hide_contact_details
           },
-          profile!
+          activeProfile!
         );
       } else {
         const ewb = item as EWayBillHistoryItem;
@@ -959,7 +954,7 @@ const EInvoicePage = () => {
             postal_code: selectedClient.postal_code || "",
             hide_contact_details: selectedClient.hide_contact_details
           },
-          profile!
+          activeProfile!
         );
       }
       toast({ title: "Success", description: "PDF generated successfully" });
@@ -969,7 +964,7 @@ const EInvoicePage = () => {
     }
   };
 
-  if (loading) {
+  if (loading && !activeProfile) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
@@ -977,7 +972,7 @@ const EInvoicePage = () => {
     );
   }
 
-  if (!profile?.gstin) {
+  if (!activeGstin) {
     return (
       <div className="container mx-auto p-4 md:p-6 min-h-[70vh] flex items-center justify-center">
         <Card className="max-w-md w-full p-4 md:p-8 text-center border-border/50 shadow-xl bg-card/50 backdrop-blur-sm relative overflow-hidden group">
@@ -1011,9 +1006,12 @@ const EInvoicePage = () => {
 
   return (
     <div className="container mx-auto p-4 md:p-6 space-y-6">
-      <div className="flex items-center gap-2 mb-6">
-        <FileText className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl md:text-3xl font-bold">E-Invoice & E-Way Bill</h1>
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-2">
+          <FileText className="h-6 w-6 text-primary" />
+          <h1 className="text-2xl md:text-3xl font-bold">E-Invoice & E-Way Bill</h1>
+        </div>
+        <StaffHeaderBadge />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -1707,29 +1705,16 @@ const EInvoicePage = () => {
                       </Table>
 
                       {/* Pagination Controls */}
-                      {totalPages > 1 && (
-                        <div className="flex justify-center items-center space-x-2 mt-6">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                          >
-                            Previous
-                          </Button>
-                          <span className="text-sm text-muted-foreground">
-                            Page {currentPage} of {totalPages}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                          >
-                            Next
-                          </Button>
-                        </div>
-                      )}
+                      <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalCount={totalCount}
+                        pageSize={pageSize}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={setPageSize}
+                        entityName="e-invoices"
+                        isLoading={historyLoading}
+                      />
                     </div>
                   )}
                 </TabsContent>
@@ -1801,29 +1786,16 @@ const EInvoicePage = () => {
                       </Table>
 
                       {/* Pagination Controls */}
-                      {totalPages > 1 && (
-                        <div className="flex justify-center items-center space-x-2 mt-6">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                          >
-                            Previous
-                          </Button>
-                          <span className="text-sm text-muted-foreground">
-                            Page {currentPage} of {totalPages}
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                          >
-                            Next
-                          </Button>
-                        </div>
-                      )}
+                      <DataTablePagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalCount={totalCount}
+                        pageSize={pageSize}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={setPageSize}
+                        entityName="e-way bills"
+                        isLoading={historyLoading}
+                      />
                     </div>
                   )}
                 </TabsContent>
@@ -1842,7 +1814,7 @@ const EInvoicePage = () => {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" asChild className="h-12 px-6 font-black rounded-xl border-2 uppercase text-[10px] tracking-widest hidden md:flex">
-                  <Link to="/inventory/products">Manage Catalog</Link>
+                  <Link to="/products">Manage Catalog</Link>
                 </Button>
                 <Button
                   variant="hero"
@@ -1877,9 +1849,11 @@ const EInvoicePage = () => {
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
                   <SelectItem value="general">General</SelectItem>
-                  <SelectItem value="it">IT Services</SelectItem>
+                  <SelectItem value="it">IT & Software</SelectItem>
                   <SelectItem value="hardware">Hardware</SelectItem>
                   <SelectItem value="consulting">Consulting</SelectItem>
+                  <SelectItem value="retail">Retail</SelectItem>
+                  <SelectItem value="others">Others</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1904,7 +1878,9 @@ const EInvoicePage = () => {
                     (p.category || "").toLowerCase().includes(productSearchQuery.toLowerCase()) ||
                     (p.sku || "").toLowerCase().includes(productSearchQuery.toLowerCase()) ||
                     (p.hsn_code || "").toLowerCase().includes(productSearchQuery.toLowerCase());
-                  const matchesCategory = productCategory === "all" || p.category === productCategory;
+                  const matchesCategory = productCategory === "all" || 
+                    (p.category || "").toLowerCase() === productCategory.toLowerCase() ||
+                    formatCategory(p.category).toLowerCase() === productCategory.toLowerCase();
                   return matchesSearch && matchesCategory;
                 })
                 .map((product) => (
@@ -1916,6 +1892,7 @@ const EInvoicePage = () => {
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase font-black tracking-widest opacity-60">
                           <span>{product.sku || 'No SKU'}</span>
                           {product.hsn_code && <span>• HSN: {product.hsn_code}</span>}
+                          <span>• {formatCategory(product.category)}</span>
                         </div>
                         <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">
                           {currencySymbol}{product.price.toLocaleString()}
@@ -1983,7 +1960,9 @@ const EInvoicePage = () => {
                         (p.category || "").toLowerCase().includes(productSearchQuery.toLowerCase()) ||
                         (p.sku || "").toLowerCase().includes(productSearchQuery.toLowerCase()) ||
                         (p.hsn_code || "").toLowerCase().includes(productSearchQuery.toLowerCase());
-                      const matchesCategory = productCategory === "all" || p.category === productCategory;
+                      const matchesCategory = productCategory === "all" || 
+                        (p.category || "").toLowerCase() === productCategory.toLowerCase() ||
+                        formatCategory(p.category).toLowerCase() === productCategory.toLowerCase();
                       return matchesSearch && matchesCategory;
                     })
                     .map((product) => (
@@ -1991,7 +1970,7 @@ const EInvoicePage = () => {
                         <TableCell className="px-6">
                            <div className="flex flex-col gap-0.5">
                               <span className="font-black text-foreground text-sm leading-tight tracking-tight">{product.name}</span>
-                              <span className="text-[9px] font-black text-primary/60 uppercase tracking-widest">{product.category || 'Standard Category'}</span>
+                              <span className="text-[9px] font-black text-primary/60 uppercase tracking-widest">{formatCategory(product.category)}</span>
                            </div>
                         </TableCell>
                         <TableCell className="px-4 text-center">
@@ -2144,10 +2123,12 @@ const EInvoicePage = () => {
                           <SelectValue placeholder="Select Category" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="general">General</SelectItem>
-                          <SelectItem value="it">IT & Software</SelectItem>
-                          <SelectItem value="consulting">Consulting</SelectItem>
-                          <SelectItem value="others">Others</SelectItem>
+                          <SelectItem value="General">General</SelectItem>
+                          <SelectItem value="IT & Software">IT & Software</SelectItem>
+                          <SelectItem value="Hardware">Hardware</SelectItem>
+                          <SelectItem value="Consulting">Consulting</SelectItem>
+                          <SelectItem value="Retail">Retail</SelectItem>
+                          <SelectItem value="Others">Others</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -2435,7 +2416,7 @@ const EInvoicePage = () => {
       />
 
       <Dialog open={isViewHistoryOpen} onOpenChange={setIsViewHistoryOpen}>
-        <DialogContent className="sm:max-w-[95vw] w-full max-h-[96vh] p-0 overflow-hidden rounded-3xl border-none shadow-2xl bg-white flex flex-col">
+        <DialogContent hideClose className="sm:max-w-[95vw] w-full max-h-[96vh] p-0 overflow-hidden rounded-3xl border-none shadow-2xl bg-white flex flex-col">
           <DialogHeader className="px-8 py-5 bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
             <div className="flex items-center justify-between">
               <div>
@@ -2493,6 +2474,8 @@ const EInvoicePage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <CompleteProfileModal featureName="generating e-invoices and e-way bills" />
     </div>
   );
 };

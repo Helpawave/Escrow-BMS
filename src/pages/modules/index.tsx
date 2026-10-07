@@ -41,6 +41,7 @@ const BillCreateInvoice = React.lazy(() => import('../bill/CreateInvoice'));
 const BillClients = React.lazy(() => import('../bill/Clients'));
 const BillVendors = React.lazy(() => import('../bill/Vendors'));
 const BillPurchaseInvoices = React.lazy(() => import('../bill/PurchaseInvoices'));
+const BillDownpaymentInvoices = React.lazy(() => import('../bill/DownpaymentInvoices'));
 const BillProducts = React.lazy(() => import('../bill/Products'));
 const BillPayments = React.lazy(() => import('../bill/Payments'));
 const BillExpenses = React.lazy(() => import('../bill/Expenses'));
@@ -126,6 +127,8 @@ export function BillingModule() {
         <Route path="/clients" element={<BillClients />} />
         <Route path="/vendors" element={<BillVendors />} />
         <Route path="/purchase-invoices" element={<BillPurchaseInvoices />} />
+        <Route path="/downpayment-invoices" element={<BillDownpaymentInvoices />} />
+        <Route path="/create-downpayment" element={<BillCreateInvoice />} />
         <Route path="/products" element={<BillProducts />} />
         <Route path="/products/new" element={<InventoryAddProduct />} />
         <Route path="/add-product" element={<InventoryAddProduct />} />

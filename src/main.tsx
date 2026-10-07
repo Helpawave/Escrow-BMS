@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import './mobile-optimizations.css'
 import App from './App.tsx'
 
 // Global handler for stale build chunk loading errors (deployment cache mismatch recovery)

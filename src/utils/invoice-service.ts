@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { 
   Invoice, 
   InvoiceItem, 
@@ -23,23 +23,47 @@ export interface FullInvoiceData {
  * This includes the invoice details, line items, client details, 
  * user settings, and user profile.
  */
-export async function fetchFullInvoiceData(invoiceId: string, userId: string): Promise<FullInvoiceData> {
-  const [invoiceRes, itemsRes, settingsRes, profileRes] = await Promise.all([
-    supabase.from('invoices').select('*, clients(*)').eq('id', invoiceId).single(),
-    supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('created_at', { ascending: true }),
-    supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle(),
-    supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+export async function fetchFullInvoiceData(invoiceId: string, userId?: string): Promise<FullInvoiceData> {
+  const clientToUse = serviceSupabase || supabase;
+  const [invoiceRes, itemsRes] = await Promise.all([
+    clientToUse.from('invoices').select('*, clients(*)').eq('id', invoiceId).maybeSingle(),
+    clientToUse
+      .from('invoice_items')
+      .select('*, products(id, name, description, hsn_code, unit, type, opening_stock)')
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: true })
   ]);
 
   if (invoiceRes.error) throw invoiceRes.error;
   if (!invoiceRes.data) throw new Error('Invoice not found');
   if (itemsRes.error) throw itemsRes.error;
 
-  const invoiceData = invoiceRes.data as unknown as (Invoice & { clients: Client });
-  
+  const invoiceData = invoiceRes.data as unknown as (Invoice & { clients: Client; user_id?: string });
+  const effectiveOwnerId = invoiceData.user_id || userId || '';
+
+  const [settingsRes, profileRes] = await Promise.all([
+    effectiveOwnerId ? (clientToUse as any).from('user_settings').select('*').eq('user_id', effectiveOwnerId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+    effectiveOwnerId ? (clientToUse as any).from('profiles').select('*').eq('user_id', effectiveOwnerId).maybeSingle() : Promise.resolve({ data: null, error: null })
+  ]);
+
+  const rawItems = (itemsRes.data || []) as any[];
+  const formattedItems: InvoiceItem[] = rawItems.map(item => ({
+    ...item,
+    product_name: item.products?.name || item.product_name || '',
+    name: item.products?.name || item.name || item.product_name || '',
+    hsn_code: item.hsn_code || item.products?.hsn_code || '',
+    product: item.products ? {
+      name: item.products.name,
+      opening_stock: item.products.opening_stock,
+      type: item.products.type,
+      unit: item.products.unit,
+      hsn_code: item.products.hsn_code,
+    } : undefined
+  }));
+
   return {
     invoice: invoiceData as unknown as Invoice,
-    items: (itemsRes.data || []) as unknown as InvoiceItem[],
+    items: formattedItems,
     client: invoiceData.clients,
     settings: (settingsRes.data as unknown as UserSettings) || null,
     profile: profileRes.data || null,
@@ -66,17 +90,57 @@ export function formatCompanyData(profile: unknown, userEmail?: string): Company
     ifsc_code: (p?.ifsc_code as string) || "",
     account_holder_name: (p?.account_holder_name as string) || "",
     account_type: (p?.account_type as string) || "",
-    hide_company_details: (p?.hide_company_details as boolean) ?? false
+    hide_company_details: (p?.hide_company_details as boolean) ?? false,
+    upi_id: (p?.upi_id as string) || "",
+    upi_qr_url: (p?.upi_qr_url as string) || "",
   };
 }
+
+const isGenericPaymentDue = (terms?: string | null) => {
+  if (!terms || !terms.trim()) return true;
+  const t = terms.trim().toLowerCase();
+  return (
+    t === 'payment due within 30 days' ||
+    t === 'payment due on receipt.' ||
+    t === 'payment due on receipt' ||
+    t === 'payment due as per terms' ||
+    t === 'standard corporate terms apply.' ||
+    t === 'standard payment terms apply.' ||
+    t === 'payment is due within the stipulated time frame.'
+  );
+};
 
 /**
  * Formats invoice data for the PDF utility.
  */
-export function formatInvoiceData(invoice: Invoice) {
+export function formatInvoiceData(
+  invoice: Invoice, 
+  defaultTerms?: string | null,
+  defaultPaymentTerms?: string | null
+): InvoiceData {
+  const match = (defaultPaymentTerms || '').match(/\d+/);
+  const paymentDays = match ? parseInt(match[0], 10) : 30;
+
+  const isGeneric = isGenericPaymentDue(invoice.terms);
+  const effectiveTerms = invoice.terms && invoice.terms.trim() && !isGeneric
+    ? invoice.terms.trim()
+    : (defaultTerms && defaultTerms.trim() 
+        ? defaultTerms.trim() 
+        : (paymentDays === 0 ? 'Payment due on receipt' : `Payment due within ${paymentDays} days`));
+
+  let effectiveDueDate = invoice.due_date;
+  if (isGeneric && invoice.issue_date && invoice.status !== 'paid' && paymentDays) {
+    const nextDue = new Date(new Date(invoice.issue_date).getTime() + paymentDays * 24 * 60 * 60 * 1000);
+    effectiveDueDate = nextDue.toISOString().split('T')[0];
+  }
+
   return {
     invoice_number: invoice.invoice_number,
     issue_date: invoice.issue_date,
+    due_date: effectiveDueDate,
+    payment_date: invoice.payment_date,
+    paid_at: invoice.paid_at,
+    updated_at: (invoice as unknown as Record<string, unknown>).updated_at as string | undefined,
     status: invoice.status,
     subtotal: invoice.subtotal || 0,
     discount_amount: invoice.discount_amount || 0,
@@ -84,7 +148,8 @@ export function formatInvoiceData(invoice: Invoice) {
     total_amount: invoice.total_amount,
     currency: invoice.currency,
     notes: invoice.notes,
-    terms: invoice.terms
+    terms: effectiveTerms,
+    payment_terms: invoice.payment_terms
   };
 }
 

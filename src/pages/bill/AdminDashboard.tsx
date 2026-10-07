@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAdmin } from '@/contexts/AdminContext';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { createClient } from '@supabase/supabase-js';
+import { supabase, serviceSupabase as serviceRoleSupabase } from '@/integrations/supabase/client';
 import { safelyToLocaleDate, safelyFormatDate } from "@/utils/dateUtils";
+import { generateAccountId } from "@/utils/accountId";
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -40,6 +40,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
   Trash2,
@@ -80,8 +82,19 @@ import {
   Eye,
   Menu,
   X,
-  ChevronRight
+  ChevronRight,
+  ChevronDown,
+  MoreVertical
 } from 'lucide-react';
+import BrandLogo from '@/components/BrandLogo';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -103,7 +116,7 @@ import {
   Bar
 } from 'recharts';
 
-import { UserData, RawUserData, RevenueData, AuditLog, SystemSetting } from '@/types/admin';
+import { UserData, RawUserData, RevenueData, AuditLog, SystemSetting, AccountDeletionRequest, UserType } from '@/types/admin';
 
 
 
@@ -119,7 +132,6 @@ const WhatsAppIcon = ({ className }: { className?: string }) => (
 
 const AdminDashboard = () => {
   const { isAdminAuthenticated, isInitializing, logout } = useAdmin();
-  const { toast } = useToast();
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,7 +139,7 @@ const AdminDashboard = () => {
   const [resetPasswordEmail, setResetPasswordEmail] = useState<string>('');
   const [newPassword, setNewPassword] = useState('');
   const [activeTab, setActiveTab] = useState("overview");
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -141,6 +153,7 @@ const AdminDashboard = () => {
   const [usersPageSize, setUsersPageSize] = useState(10);
   const [userDetailsOpen, setUserDetailsOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
+  const [userToToggleBlock, setUserToToggleBlock] = useState<UserData | null>(null);
   const [totalUsersCount, setTotalUsersCount] = useState(0);
   const [totalActiveUsersCount, setTotalActiveUsersCount] = useState(0);
   const [totalInvoicesCount, setTotalInvoicesCount] = useState(0);
@@ -166,72 +179,20 @@ const AdminDashboard = () => {
   const [userDeleteCheckbox1, setUserDeleteCheckbox1] = useState(false);
   const [userDeleteCheckbox2, setUserDeleteCheckbox2] = useState(false);
 
-  const [selectedUserSetting, setSelectedUserSetting] = useState<{ whatsapp_provider: string } | null>(null);
+  // Account Deletion Requests states
+  const [deletionRequests, setDeletionRequests] = useState<AccountDeletionRequest[]>([]);
+  const [deletionRequestsLoading, setDeletionRequestsLoading] = useState(false);
+  const [deletionSearch, setDeletionSearch] = useState('');
+  const [deletionStatusFilter, setDeletionStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'cancelled'>('all');
+  const [requestToApprove, setRequestToApprove] = useState<AccountDeletionRequest | null>(null);
+  const [requestToReject, setRequestToReject] = useState<AccountDeletionRequest | null>(null);
+  const [rejectionNotes, setRejectionNotes] = useState('');
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [approveConfirmText, setApproveConfirmText] = useState('');
+
+  const [selectedUserSetting, setSelectedUserSetting] = useState<{ whatsapp_provider: string; user_type?: UserType | null } | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
 
-  // Module management dialog state
-  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
-  const [targetModuleUser, setTargetModuleUser] = useState<UserData | null>(null);
-  const [userModules, setUserModules] = useState<string[]>(['billing', 'payroll', 'ledger', 'inventory', 'crm', 'daily-hisab']);
-  const [isSavingModules, setIsSavingModules] = useState(false);
-
-  const ALL_SYSTEM_MODULES = [
-    { key: 'billing', label: 'Billing & Invoices', desc: 'Invoices, Quotations, Payments & GST', icon: FileText },
-    { key: 'payroll', label: 'Payroll & HR', desc: 'Salary, Employee Directory, Attendance & Leaves', icon: Users },
-    { key: 'ledger', label: 'Account Ledger', desc: 'Double-entry bookkeeping, P&L, Balance Sheet', icon: CreditCard },
-    { key: 'inventory', label: 'Inventory & Stock', desc: 'Stock tracking, Warehouses, Barcodes', icon: Database },
-    { key: 'crm', label: 'CRM & Deals', desc: 'Lead tracking, Sales Pipelines, Contacts', icon: MessageSquare },
-    { key: 'daily-hisab', label: 'Daily Hisab', desc: 'Simple cash in/out register', icon: Calendar },
-  ];
-
-  const handleOpenModuleModal = (user: UserData) => {
-    setTargetModuleUser(user);
-    const rawAllowed = (user as any).allowed_modules;
-    if (Array.isArray(rawAllowed) && rawAllowed.length > 0) {
-      setUserModules(rawAllowed);
-    } else {
-      setUserModules(['billing', 'payroll', 'ledger', 'inventory', 'crm', 'daily-hisab']);
-    }
-    setModuleDialogOpen(true);
-  };
-
-  const handleToggleModuleKey = (key: string) => {
-    if (userModules.includes(key)) {
-      setUserModules(userModules.filter(k => k !== key));
-    } else {
-      setUserModules([...userModules, key]);
-    }
-  };
-
-  const handleSaveUserModules = async () => {
-    if (!targetModuleUser) return;
-    setIsSavingModules(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ allowed_modules: userModules })
-        .eq('id', targetModuleUser.user_id);
-
-      if (error) throw error;
-
-      localStorage.setItem(`bms_permissions_${targetModuleUser.user_id}`, JSON.stringify(userModules));
-
-      toast({
-        title: "Module Visibility Saved",
-        description: `Allowed modules updated for ${targetModuleUser.company_name || targetModuleUser.email}.`,
-      });
-      setModuleDialogOpen(false);
-      loadDashboardData(true);
-    } catch (err: any) {
-      toast({
-        title: "Error Saving Modules",
-        description: err.message || "Failed to update module permissions",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSavingModules(false);
-    }
-  };
 
   useEffect(() => {
     if (!selectedUser) {
@@ -242,18 +203,38 @@ const AdminDashboard = () => {
     const fetchSelectedUserSettings = async () => {
       setLoadingSettings(true);
       try {
-        const { data, error } = await (supabase as any)
+        const client = serviceRoleSupabase || supabase;
+        const { data, error } = await (client as any)
           .from('user_settings')
-          .select('whatsapp_provider')
+          .select('whatsapp_provider, user_type')
           .eq('user_id', selectedUser.user_id)
           .maybeSingle();
 
-        if (error) throw error;
-        if (data) {
-          setSelectedUserSetting(data);
-        } else {
-          setSelectedUserSetting({ whatsapp_provider: 'meta' });
+        if (error) console.warn('fetchSelectedUserSettings notice:', error);
+
+        let resolvedType = data?.user_type || selectedUser.user_type || null;
+
+        // Fallback to system_settings if not yet present in user_settings
+        if (!resolvedType) {
+          const { data: sysData } = await (client as any)
+            .from('system_settings')
+            .select('value')
+            .eq('key', `user_type_${selectedUser.user_id}`)
+            .maybeSingle();
+
+          if (sysData?.value) {
+            let val = sysData.value;
+            try { val = typeof val === 'string' ? JSON.parse(val) : val; } catch {}
+            if (['normal', 'automobile', 'food_kitchen'].includes(val)) {
+              resolvedType = val as UserType;
+            }
+          }
         }
+
+        setSelectedUserSetting({
+          whatsapp_provider: data?.whatsapp_provider || 'meta',
+          user_type: resolvedType
+        });
       } catch (err) {
         console.error('Error fetching selected user settings:', err);
       } finally {
@@ -268,14 +249,23 @@ const AdminDashboard = () => {
     if (!selectedUser) return;
     try {
       setLoadingSettings(true);
-      const { error } = await (supabase as any)
+      const client = serviceRoleSupabase || supabase;
+      const { data: existing } = await client
         .from('user_settings')
-        .upsert({
-          user_id: selectedUser.user_id,
-          whatsapp_provider: provider
-        }, { onConflict: 'user_id' });
+        .select('id, user_id')
+        .eq('user_id', selectedUser.user_id)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (existing) {
+        await client
+          .from('user_settings')
+          .update({ whatsapp_provider: provider, updated_at: new Date().toISOString() })
+          .eq('user_id', selectedUser.user_id);
+      } else {
+        await client
+          .from('user_settings')
+          .insert({ user_id: selectedUser.user_id, whatsapp_provider: provider });
+      }
 
       setSelectedUserSetting(prev => prev ? { ...prev, whatsapp_provider: provider } : { whatsapp_provider: provider });
 
@@ -310,14 +300,23 @@ const AdminDashboard = () => {
 
     try {
       setLoading(true);
-      const { error } = await (supabase as any)
+      const client = serviceRoleSupabase || supabase;
+      const { data: existing } = await client
         .from('user_settings')
-        .upsert({
-          user_id: userId,
-          whatsapp_provider: nextProvider
-        }, { onConflict: 'user_id' });
+        .select('id, user_id')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (existing) {
+        await client
+          .from('user_settings')
+          .update({ whatsapp_provider: nextProvider, updated_at: new Date().toISOString() })
+          .eq('user_id', userId);
+      } else {
+        await client
+          .from('user_settings')
+          .insert({ user_id: userId, whatsapp_provider: nextProvider });
+      }
 
       toast({
         title: "Settings Updated",
@@ -338,6 +337,94 @@ const AdminDashboard = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpdateUserType = async (userId: string, newType: UserType) => {
+    const prevUsers = [...users];
+    // 1. Instant optimistic UI feedback
+    setUsers(prev => prev.map(u => u.user_id === userId ? { ...u, user_type: newType } : u));
+    if (selectedUser?.user_id === userId) {
+      setSelectedUserSetting(prev => prev ? { ...prev, user_type: newType } : { whatsapp_provider: 'meta', user_type: newType });
+    }
+
+    try {
+      const client = serviceRoleSupabase || supabase;
+      let dbSaved = false;
+
+      // Tier 1: Upsert directly into user_settings table
+      try {
+        const { error: usErr } = await client
+          .from('user_settings')
+          .upsert({
+            user_id: userId,
+            user_type: newType,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id' });
+
+        if (!usErr) {
+          dbSaved = true;
+        } else {
+          console.warn('user_settings upsert returned error, attempting update fallback:', usErr);
+          const { error: updErr } = await client
+            .from('user_settings')
+            .update({ user_type: newType, updated_at: new Date().toISOString() })
+            .eq('user_id', userId);
+          if (!updErr) dbSaved = true;
+        }
+      } catch (usEx) {
+        console.warn('Direct user_settings update attempt failed:', usEx);
+      }
+
+      // Tier 2: Upsert into system_settings table as universal fallback
+      try {
+        const { error: sysErr } = await client
+          .from('system_settings')
+          .upsert({
+            key: `user_type_${userId}`,
+            value: newType,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+
+        if (!sysErr) {
+          dbSaved = true;
+        } else {
+          console.warn('system_settings upsert error:', sysErr);
+        }
+      } catch (sysEx) {
+        console.warn('system_settings upsert failed:', sysEx);
+      }
+
+      // Tier 3: Trigger RPC admin_update_user_type if installed in database
+      try {
+        await (client as any).rpc('admin_update_user_type', {
+          target_user_id: userId,
+          new_type: newType
+        });
+      } catch {}
+
+      if (!dbSaved) {
+        throw new Error("Unable to save user type to database. Please check Supabase connection.");
+      }
+
+      const typeLabels: Record<UserType, string> = {
+        normal: 'Normal 📋',
+        automobile: 'Automobile 🚗',
+        food_kitchen: 'Food / Cloud Kitchen 🍛',
+      };
+      toast({
+        title: "User Type Updated",
+        description: `Business mode set to "${typeLabels[newType]}"`
+      });
+    } catch (err: any) {
+      // Revert only if completely failed to save to any tier
+      setUsers(prevUsers);
+      console.error('Error updating user type:', err);
+      toast({
+        title: "Update Failed",
+        description: err.message || "Failed to update user type",
+        variant: "destructive"
+      });
     }
   };
 
@@ -384,20 +471,7 @@ const AdminDashboard = () => {
 
   const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
-  const isSuperAdminAccount = (user?: { email?: string | null; company_name?: string | null } | null, prof?: { role?: string | null; full_name?: string | null; email?: string | null } | null) => {
-    const email = (user?.email || prof?.email || '').toLowerCase().trim();
-    const company = (user?.company_name || '').toLowerCase().trim();
-    const fullName = (prof?.full_name || '').toLowerCase().trim();
-    const role = (prof?.role || '').toLowerCase().trim();
-
-    return (
-      email === 'admin_bms@escrowbms.com' ||
-      role === 'super_admin' ||
-      company.includes('superadmin') ||
-      fullName.includes('superadmin') ||
-      email.includes('admin_bms')
-    );
-  };
+  const { toast } = useToast();
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -410,41 +484,79 @@ const AdminDashboard = () => {
       });
       if (adminData) {
         const userList = adminData as (RawUserData & { total_count: number })[];
+        // Extract total count from the first record if available
+        if (userList.length > 0) {
+          setTotalUsersCount(Number(userList[0].total_count));
+        } else {
+          setTotalUsersCount(0);
+        }
 
-        // Merge profiles table to guarantee subscription_expires_at, is_paid, and plan_type are up to date!
-        const { data: profs } = await supabase.from('profiles').select('*');
-        const profMap = new Map((profs || []).map((p: any) => [p.id || p.user_id, p]));
+        const client = serviceRoleSupabase || supabase;
+        const typeOverrides: Record<string, UserType> = {};
+        try {
+          const keys = userList.map(u => `user_type_${u.user_id}`);
+          if (keys.length > 0) {
+            const { data: sysData } = await client
+              .from('system_settings')
+              .select('key, value')
+              .in('key', keys);
+            if (sysData) {
+              sysData.forEach((s: any) => {
+                const uid = s.key.replace('user_type_', '');
+                let val = s.value;
+                try { val = typeof val === 'string' ? JSON.parse(val) : val; } catch {}
+                if (['normal', 'automobile', 'food_kitchen'].includes(val)) {
+                  typeOverrides[uid] = val as UserType;
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Error reading system_settings user_types:', err);
+        }
+
+        // Query user_settings table for all users to get their direct business configuration
+        const userSettingsMap: Record<string, UserType> = {};
+        try {
+          const uids = userList.map(u => u.user_id);
+          if (uids.length > 0) {
+            const { data: usData } = await client
+              .from('user_settings')
+              .select('user_id, user_type')
+              .in('user_id', uids);
+            if (usData) {
+              usData.forEach((row: any) => {
+                if (row.user_id && ['normal', 'automobile', 'food_kitchen'].includes(row.user_type)) {
+                  userSettingsMap[row.user_id] = row.user_type as UserType;
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Error reading user_settings user_types:', err);
+        }
 
         const mappedUsers: UserData[] = userList
-          .filter(u => {
-            const prof: any = profMap.get(u.user_id) || {};
-            return !isSuperAdminAccount(u, prof);
-          })
-          .map(u => {
-            const prof: any = profMap.get(u.user_id) || {};
-            const expiresAt = prof.subscription_expires_at || u.subscription_expires_at || null;
-            const hasFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
-            const isPaid = !!(prof.is_paid || u.is_paid || hasFutureExpiry);
-            return {
-              user_id: u.user_id,
-              company_name: u.company_name || prof.company_name,
-              email: u.email || prof.email,
-              mobile: u.mobile || prof.mobile || null,
-              created_at: u.created_at || prof.created_at,
-              last_sign_in_at: u.last_sign_in_at,
-              last_invoice_created_at: u.last_invoice_created_at,
-              invoice_count: Number(u.invoice_count || 0),
-              client_count: Number(u.client_count || 0),
-              subscription_expires_at: expiresAt,
-              plan_type: prof.plan_type || u.plan_type || (hasFutureExpiry ? 'pro' : 'free'),
-              is_blocked: !!(prof.is_blocked || u.is_blocked),
-              is_paid: isPaid,
-              whatsapp_provider: u.whatsapp_provider || 'meta'
-            };
-          });
+          .map(u => ({
+            user_id: u.user_id,
+            company_name: u.company_name,
+            email: u.email,
+            mobile: u.mobile || null,
+            created_at: u.created_at,
+            last_sign_in_at: u.last_sign_in_at,
+            last_invoice_created_at: u.last_invoice_created_at,
+            invoice_count: Number(u.invoice_count || 0),
+            client_count: Number(u.client_count || 0),
+            subscription_expires_at: u.subscription_expires_at,
+            plan_type: u.plan_type,
+            is_blocked: !!u.is_blocked,
+            is_paid: !!u.is_paid,
+            whatsapp_provider: u.whatsapp_provider || 'meta',
+            user_type: (u.user_type as UserType) || userSettingsMap[u.user_id] || typeOverrides[u.user_id] || 'normal'
+          }));
         setUsers(mappedUsers);
-        setTotalUsersCount(mappedUsers.length);
-        setTotalActiveUsersCount(mappedUsers.filter(u => !u.is_blocked).length);
+
+        // Synchronize selected user if modal is open - removed from here to prevent loop
         return;
       }
     } catch (error) {
@@ -497,10 +609,7 @@ const AdminDashboard = () => {
         .select('key, value')
         .in('key', ['maintenance_mode', 'public_signups', 'platform_broadcast']);
 
-      if (error) {
-        // Table system_settings may not exist in database schema, fallback gracefully
-        return;
-      }
+      if (error) throw error;
 
       if (data) {
         const settings = data as unknown as { key: string; value: string | boolean }[];
@@ -511,29 +620,23 @@ const AdminDashboard = () => {
         setMaintenanceMode(maintenance?.value === 'true' || maintenance?.value === true);
         setPublicSignups(signups?.value === 'true' || signups?.value === true);
       }
-    } catch {
-      // Fallback silently without throwing error toasts
+    } catch (error: unknown) {
+      console.error('Error fetching system settings:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load system settings.",
+        variant: "destructive",
+      });
     }
-  }, []);
+  }, [toast]);
 
   const fetchSystemStats = useCallback(async () => {
     try {
-      const { data: profs } = await supabase.from('profiles').select('*');
-      const nonAdminProfs = (profs || []).filter((p: any) => !isSuperAdminAccount(p, p));
-      
       const { data, error } = await (supabase as any).rpc('admin_get_stats');
-      if (error) {
-        console.warn('admin_get_stats error:', error);
-      }
-      if (nonAdminProfs.length > 0) {
-        setTotalUsersCount(nonAdminProfs.length);
-        setTotalActiveUsersCount(nonAdminProfs.filter((p: any) => !p.is_blocked).length);
-      } else if (data) {
+      if (error) throw error;
+      if (data) {
         setTotalUsersCount(Number(data.total_users || 0));
         setTotalActiveUsersCount(Number(data.active_users || 0));
-      }
-
-      if (data) {
         setTotalInvoicesCount(Number(data.total_invoices || 0));
         setTotalClientsCount(Number(data.total_clients || 0));
       }
@@ -542,22 +645,145 @@ const AdminDashboard = () => {
     }
   }, []);
 
+  const fetchDeletionRequests = useCallback(async () => {
+    try {
+      setDeletionRequestsLoading(true);
+      const { data, error } = await (supabase as any)
+        .from('account_deletion_requests')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching deletion requests:', error);
+        return;
+      }
+      if (data) {
+        setDeletionRequests(data as unknown as AccountDeletionRequest[]);
+      }
+    } catch (err) {
+      console.error('Error fetching deletion requests:', err);
+    } finally {
+      setDeletionRequestsLoading(false);
+    }
+  }, []);
+
+  const handleApproveDeletion = async () => {
+    if (!requestToApprove) return;
+    try {
+      setIsProcessingAction(true);
+      const { error } = await (supabase as any).rpc('admin_approve_and_delete_user', {
+        p_request_id: requestToApprove.id,
+        p_target_user_id: requestToApprove.user_id
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Account Permanently Deleted",
+        description: `Account for ${requestToApprove.user_email} and all data have been purged.`
+      });
+
+      setRequestToApprove(null);
+      setApproveConfirmText('');
+      await Promise.all([fetchDeletionRequests(), loadDashboardData(true)]);
+    } catch (err: any) {
+      console.error('Error approving deletion:', err);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.message || "Failed to purge account"
+      });
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
+  const handleRejectDeletion = async () => {
+    if (!requestToReject) return;
+    try {
+      setIsProcessingAction(true);
+      const { error } = await (supabase as any).rpc('admin_reject_deletion_request', {
+        p_request_id: requestToReject.id,
+        p_admin_notes: rejectionNotes.trim() || null
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Deletion Request Declined",
+        description: `Request for ${requestToReject.user_email} has been rejected.`
+      });
+
+      setRequestToReject(null);
+      setRejectionNotes('');
+      await fetchDeletionRequests();
+    } catch (err: any) {
+      console.error('Error rejecting deletion request:', err);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.message || "Failed to reject deletion request"
+      });
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
   const loadDashboardData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     await Promise.all([
       fetchUsers(),
       fetchAuditLogs(),
       fetchSystemSettings(),
-      fetchSystemStats()
+      fetchSystemStats(),
+      fetchDeletionRequests()
     ]);
     if (!silent) setLoading(false);
-  }, [fetchUsers, fetchAuditLogs, fetchSystemSettings, fetchSystemStats]);
+  }, [fetchUsers, fetchAuditLogs, fetchSystemSettings, fetchSystemStats, fetchDeletionRequests]);
 
   useEffect(() => {
     if (isAdminAuthenticated) {
       loadDashboardData();
     }
   }, [isAdminAuthenticated, loadDashboardData]);
+
+  // Realtime subscription for account deletion requests
+  useEffect(() => {
+    if (!isAdminAuthenticated) return;
+
+    const channel = supabase
+      .channel('admin_deletion_requests_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'account_deletion_requests'
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newReq = payload.new as AccountDeletionRequest;
+            setDeletionRequests(prev => [newReq, ...prev.filter(r => r.id !== newReq.id)]);
+            toast({
+              title: "⚠️ New Deletion Request",
+              description: `${newReq.user_email} requested account deletion: "${newReq.reason}"`,
+              variant: "destructive"
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedReq = payload.new as AccountDeletionRequest;
+            setDeletionRequests(prev => prev.map(r => r.id === updatedReq.id ? updatedReq : r));
+          } else if (payload.eventType === 'DELETE') {
+            const deleted = payload.old as { id: string };
+            setDeletionRequests(prev => prev.filter(r => r.id !== deleted.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isAdminAuthenticated, toast]);
 
   useEffect(() => {
     if (!isAdminAuthenticated) return;
@@ -568,6 +794,7 @@ const AdminDashboard = () => {
 
     return () => clearInterval(timer);
   }, [isAdminAuthenticated, loadDashboardData]);
+
 
   // Sync selectedUser when the users list updates (e.g. after extension)
   useEffect(() => {
@@ -712,13 +939,26 @@ const AdminDashboard = () => {
 
     try {
       setLoading(true);
-      const { error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
-        .rpc('admin_reset_password', {
-          target_user_id: resetPasswordId,
-          new_password: newPassword
-        });
+      let resetErr: any = null;
+      try {
+        const { error } = await (serviceRoleSupabase as any).auth.admin.updateUserById(
+          resetPasswordId,
+          { password: newPassword, email_confirm: true }
+        );
+        resetErr = error;
+      } catch (e) {
+        resetErr = e;
+      }
 
-      if (error) throw error;
+      if (resetErr) {
+        // Fallback to RPC if admin API throws
+        const { error: rpcErr } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
+          .rpc('admin_reset_password', {
+            target_user_id: resetPasswordId,
+            new_password: newPassword
+          });
+        if (rpcErr) throw rpcErr;
+      }
 
       toast({
         title: "Success",
@@ -747,46 +987,21 @@ const AdminDashboard = () => {
 
     try {
       setIsExtending(true);
-      const daysToAdd = parseInt(extensionDays) || 30;
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + daysToAdd);
+      const { error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
+        .rpc('admin_extend_subscription', {
+          target_user_id: extendUserId,
+          days_to_add: parseInt(extensionDays)
+        });
 
-      const targetPlanType = daysToAdd >= 300 ? 'pro_yearly' : (daysToAdd < 0 ? 'free' : 'pro_monthly');
-
-      // Update profiles table with extended expiry and plan_type
-      const { error: profileErr } = await supabase
-        .from('profiles')
-        .update({
-          plan_type: targetPlanType
-        })
-        .eq('id', extendUserId);
-
-      if (profileErr) {
-        await supabase
-          .from('profiles')
-          .update({
-            plan_type: targetPlanType
-          })
-          .eq('user_id', extendUserId);
-      }
-
-      // Try RPC fallback if present
-      try {
-        await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
-          .rpc('admin_extend_subscription', {
-            target_user_id: extendUserId,
-            days_to_add: daysToAdd
-          });
-      } catch {
-        /* RPC fallback */
-      }
+      if (error) throw error;
 
       toast({
-        title: "Plan Extended Successfully",
-        description: `Plan extended by ${daysToAdd} days (${targetPlanType}) for ${extendUserEmail}.`,
+        title: "Adjustment Success",
+        description: `Protocol updated successfully for ${extendUserEmail}`,
       });
 
       setExtendUserId(null);
+      // Small delay to ensure DB consistency before re-fetching
       await new Promise(resolve => setTimeout(resolve, 300));
       await loadDashboardData(true);
     } catch (error: unknown) {
@@ -847,18 +1062,38 @@ const AdminDashboard = () => {
   };
 
   const getSubscriptionStatus = (expiresAt: string | null, planType: string | null, isPaid: boolean = false, createdAt?: string) => {
-    const hasFutureExpiry = expiresAt ? new Date(expiresAt).getTime() > Date.now() : false;
-    
-    if (isPaid || hasFutureExpiry) {
-      const label = planType ? (planType.charAt(0).toUpperCase() + planType.slice(1)) : 'Pro';
-      return { status: `Paid Plan - ${label}`, color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
-    }
+    let expiry: Date;
 
-    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+    if (expiresAt) {
+      expiry = new Date(expiresAt);
+    } else {
       return { status: 'Expired', color: 'bg-rose-100 text-rose-600 border-rose-200' };
     }
 
-    return { status: 'Free Trial', color: 'bg-blue-100 text-blue-600 border-blue-200' };
+    const diff = expiry.getTime() - new Date().getTime();
+    const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    
+    // Dynamically calculate typeLabel based on daysLeft if the db planType is incorrect due to manual extension
+    const typeLabel = (daysLeft > 300 || planType === 'yearly') ? 'Yearly' : 'Monthly';
+
+    if (diff <= 0) {
+      return { status: 'Expired', color: 'bg-rose-100 text-rose-600 border-rose-200' };
+    }
+
+    if (isPaid) {
+      return { status: `Paid Plan - ${typeLabel}`, color: 'bg-blue-100 text-blue-600 border-blue-200' };
+    }
+
+    // Special case for the users who were manually extended (e.g. 1 year trials)
+    if (daysLeft > 300) {
+      return { status: `Free Trial - Yearly`, color: 'bg-emerald-100 text-emerald-600 border-emerald-200' };
+    }
+
+    if (daysLeft <= 7) {
+      return { status: 'Expiring Soon', color: 'bg-amber-100 text-amber-600 border-amber-200' };
+    }
+
+    return { status: `Free Trial - ${typeLabel}`, color: 'bg-emerald-100 text-emerald-600 border-emerald-200' };
   };
 
   const getSubscriptionCountdown = (expiresAt: string | null) => {
@@ -895,6 +1130,24 @@ const AdminDashboard = () => {
     }
   }, [usersPage, totalUserPages]);
 
+  const pendingDeletionCount = useMemo(() => {
+    return deletionRequests.filter(r => r.status === 'pending').length;
+  }, [deletionRequests]);
+
+  const filteredDeletionRequests = useMemo(() => {
+    return deletionRequests.filter((req) => {
+      const matchesStatus = deletionStatusFilter === 'all' || req.status === deletionStatusFilter;
+      const search = deletionSearch.toLowerCase().trim();
+      const matchesSearch = !search ||
+        req.user_email.toLowerCase().includes(search) ||
+        (req.company_name && req.company_name.toLowerCase().includes(search)) ||
+        req.reason.toLowerCase().includes(search) ||
+        (req.feedback && req.feedback.toLowerCase().includes(search));
+      return matchesStatus && matchesSearch;
+    });
+  }, [deletionRequests, deletionStatusFilter, deletionSearch]);
+
+
   if (isInitializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -910,466 +1163,855 @@ const AdminDashboard = () => {
     return <Navigate to="/admin" replace />;
   }
 
-  const navItems = [
-    { id: 'overview', label: 'Overview & Analytics', icon: TrendingUp, desc: 'Platform metrics' },
-    { id: 'users', label: 'Organizations & Users', icon: Users, badge: users.length, desc: 'Multi-tenant directory' },
-    { id: 'system', label: 'System & Security', icon: Settings, desc: 'Logs & Guard rails' },
+  const adminNavItems = [
+    {
+      id: 'overview',
+      label: 'Dashboard Overview',
+      icon: LayoutDashboard,
+      badge: null,
+      badgeColor: '',
+    },
+    {
+      id: 'users',
+      label: 'Users & Businesses',
+      icon: Users,
+      badge: totalUsersCount > 0 ? totalUsersCount.toLocaleString('en-IN') : null,
+      badgeColor: 'bg-primary/10 text-primary',
+    },
+    {
+      id: 'deletion-requests',
+      label: 'Deletion Requests',
+      icon: Trash2,
+      badge: pendingDeletionCount > 0 ? `${pendingDeletionCount}` : null,
+      badgeColor: 'bg-rose-500 text-white animate-pulse',
+    },
+    {
+      id: 'system',
+      label: 'System Settings',
+      icon: ShieldCheck,
+      badge: maintenanceMode ? 'Locked' : null,
+      badgeColor: 'bg-amber-500/20 text-amber-600',
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-indigo-600 selection:text-white transition-colors duration-200 flex">
-      {/* Mobile Sidebar Overlay */}
-      {mobileNavOpen && (
-        <div 
-          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-40 md:hidden"
-          onClick={() => setMobileNavOpen(false)}
-        />
-      )}
-
-      {/* Desktop & Mobile Left Sidebar */}
-      <aside className={`fixed top-0 bottom-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between transition-transform duration-300 md:translate-x-0 ${
-        mobileNavOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
-      }`}>
-        <div className="flex flex-col flex-1 overflow-y-auto">
-          {/* Brand Header */}
-          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-                <img src="/logo.png" alt="Escrow BMS" className="w-6 h-6 object-contain" onError={(e) => { (e.target as any).style.display = 'none'; }} />
-              </div>
-              <div>
-                <h2 className="font-black text-sm tracking-tight text-slate-900 dark:text-white">Escrow BMS</h2>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Superadmin</span>
-                </div>
-              </div>
-            </div>
-            <button 
-              onClick={() => setMobileNavOpen(false)}
-              className="md:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
+      {/* Top Admin Header matching main website Header style */}
+      <header className="bg-background border-b border-border px-4 md:px-6 py-2.5 md:py-3 shrink-0 z-40 backdrop-blur-md bg-background/95">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden flex items-center gap-1.5 font-bold text-xs h-9 px-2.5 border-border"
             >
-              <X className="w-4 h-4" />
-            </button>
+              <Menu className="h-4 w-4" />
+              <span>Menu</span>
+            </Button>
+            <BrandLogo size="md" asLink to="/admin/dashboard" />
+            <Badge variant="outline" className="hidden sm:inline-flex items-center gap-1.5 bg-primary/10 text-primary border-primary/20 text-[11px] font-bold px-2.5 py-0.5 rounded-full">
+              <Shield className="w-3 h-3 text-primary" />
+              Admin Console
+            </Badge>
           </div>
 
-          {/* Navigation Links */}
-          <div className="p-3 space-y-1.5">
-            <p className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">Navigation</p>
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = activeTab === item.id;
-              return (
+          <div className="flex items-center space-x-2 md:space-x-3">
+            <ThemeToggle />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20">
+                  <ShieldCheck className="w-4 h-4 text-primary" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 bg-background border z-50">
+                <DropdownMenuLabel>
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-bold flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-primary" />
+                      Super Administrator
+                    </p>
+                    <p className="text-xs text-muted-foreground">admin@escrowbill.com</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setActiveTab('overview')} className="cursor-pointer">
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Dashboard Overview
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setActiveTab('users')} className="cursor-pointer">
+                  <Users className="mr-2 h-4 w-4" />
+                  Users & Businesses
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setActiveTab('system')} className="cursor-pointer">
+                  <Settings className="mr-2 h-4 w-4" />
+                  System Security
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout} className="text-rose-600 focus:text-rose-600 font-semibold cursor-pointer">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout Admin
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Body: Sidebar + Main Content Area */}
+      <div className="flex flex-1 min-h-0 relative overflow-hidden">
+        {/* Mobile Navigation Drawer */}
+        <div
+          className={cn(
+            "lg:hidden fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm transition-opacity duration-300 ease-in-out",
+            isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"
+          )}
+          onClick={() => setIsMobileMenuOpen(false)}
+        >
+          <div
+            className={cn(
+              "w-[280px] h-full bg-background border-r border-border shadow-2xl transition-transform duration-300 ease-in-out transform flex flex-col justify-between",
+              isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-center justify-between bg-muted/30 shrink-0">
+              <div className="flex items-center gap-2">
+                <BrandLogo size="md" />
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[10px] font-bold">Admin</Badge>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(false)} className="rounded-full">
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            
+            <div className="p-4 space-y-1 overflow-hidden">
+              {adminNavItems.map((item) => (
                 <button
                   key={item.id}
+                  type="button"
                   onClick={() => {
                     setActiveTab(item.id);
-                    setMobileNavOpen(false);
+                    setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all text-left ${
-                    active
-                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
-                  }`}
+                  className={cn(
+                    "w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all text-sm font-medium",
+                    activeTab === item.id
+                      ? "bg-secondary text-primary font-semibold shadow-xs"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <Icon className={`w-4 h-4 ${active ? 'text-white' : 'text-slate-400'}`} />
+                  <div className="flex items-center gap-3">
+                    <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-primary" : "text-muted-foreground")} />
                     <span>{item.label}</span>
                   </div>
-                  {item.badge !== undefined && (
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      active ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                    }`}>
+                  {item.badge && (
+                    <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full", item.badgeColor)}>
                       {item.badge}
                     </span>
                   )}
                 </button>
-              );
-            })}
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-border bg-muted/10 shrink-0 mt-auto">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={logout}
+                className="w-full flex items-center justify-center gap-2 text-xs font-semibold h-9 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Sign Out
+              </Button>
+            </div>
           </div>
         </div>
 
-        {/* Sidebar Footer Controls */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 space-y-3 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Theme</span>
-            <ThemeToggle />
+        {/* Desktop Navigation Sidebar matching main website Navigation style */}
+        <aside className="hidden lg:flex w-64 bg-background border-r border-border flex-col justify-between shrink-0 h-full overflow-hidden select-none">
+          {/* Desktop Navigation Items */}
+          <div className="p-3">
+            <nav className="space-y-1">
+              {adminNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-all text-sm font-medium",
+                    activeTab === item.id
+                      ? "bg-secondary text-primary font-semibold shadow-xs"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-primary" : "text-muted-foreground")} />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge && (
+                    <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full", item.badgeColor)}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </nav>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/60">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold truncate text-slate-800 dark:text-slate-200">Root Superadmin</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">admin_bms@escrowbms.com</p>
-              </div>
-            </div>
-          </div>
-
-          <Button 
-            onClick={logout} 
-            variant="ghost" 
-            className="w-full justify-start text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl"
-          >
-            <LogOut className="w-3.5 h-3.5 mr-2" />
-            Exit Console
-          </Button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <div className="flex-1 md:pl-64 flex flex-col min-h-screen">
-        {/* Top Navbar */}
-        <header className="sticky top-0 z-30 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 md:px-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setMobileNavOpen(true)}
-              className="md:hidden p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                {activeTab === 'overview' && 'Platform Overview & Analytics'}
-                {activeTab === 'users' && 'Multi-Tenant Organization Directory'}
-                {activeTab === 'system' && 'Infrastructure & Security Controls'}
-              </h1>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:block">
-                {activeTab === 'overview' && 'Real-time metrics on user growth, activity, and subscriptions'}
-                {activeTab === 'users' && 'Manage business access, module licenses, and plan durations'}
-                {activeTab === 'system' && 'System audit logs, platform guards, and global broadcast'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full text-xs font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              All Systems Operational
-            </span>
+          {/* Desktop Sidebar Footer - Fixed at the very bottom/last */}
+          <div className="p-4 border-t border-border bg-muted/10 shrink-0 mt-auto">
             <Button
-              onClick={() => loadDashboardData(true)}
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="h-8 rounded-lg border-slate-200 dark:border-slate-700 font-semibold text-xs"
-              disabled={loading}
+              onClick={logout}
+              className="w-full flex items-center justify-center gap-2 text-xs font-semibold h-9 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
             >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-              Sync
+              <LogOut className="w-3.5 h-3.5" />
+              Sign Out
             </Button>
           </div>
-        </header>
+        </aside>
 
-        {/* Body Container */}
-        <main className="p-4 md:p-8 space-y-6 flex-1">
-          {/* 4 Professional SaaS KPI Stat Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Card 1: Organizations */}
-            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Companies</span>
-                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-600 dark:text-blue-400">
-                  <Users className="w-4 h-4" />
-                </div>
+        {/* Main Content Area */}
+        <main className="flex-1 min-w-0 flex flex-col relative bg-slate-50/50 dark:bg-slate-950 h-full overflow-y-auto">
+          <div className="flex-1 p-4 lg:p-8 space-y-6 max-w-7xl w-full mx-auto">
+            {/* Content Top Header Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border/60">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground flex items-center gap-2.5">
+                  {activeTab === 'overview' && 'Dashboard Overview'}
+                  {activeTab === 'users' && 'Users & Businesses'}
+                  {activeTab === 'deletion-requests' && 'Account Deletion Requests'}
+                  {activeTab === 'system' && 'System Settings'}
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+                  {activeTab === 'overview' && 'Platform statistics, user growth, and subscription breakdown'}
+                  {activeTab === 'users' && 'Manage registered businesses, user types, and billing tiers'}
+                  {activeTab === 'deletion-requests' && 'Review user-requested account deletions and manage data'}
+                  {activeTab === 'system' && 'Maintenance controls, signup access, and platform settings'}
+                </p>
               </div>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalUsersCount}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Registered tenant accounts</p>
+
+              {/* Quick tab switcher pill bar */}
+              <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-xl border border-border/50 shrink-0 overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('overview')}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap", activeTab === 'overview' ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground")}
+                >
+                  Overview
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('users')}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap", activeTab === 'users' ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground")}
+                >
+                  Users
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('deletion-requests')}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1", activeTab === 'deletion-requests' ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground")}
+                >
+                  Deletions
+                  {pendingDeletionCount > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('system')}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap", activeTab === 'system' ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground")}
+                >
+                  System
+                </button>
+              </div>
             </div>
 
-            {/* Card 2: Active Users */}
-            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Workspaces</span>
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalActiveUsersCount}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Verified active businesses</p>
-            </div>
-
-            {/* Card 3: Invoices */}
-            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Invoices</span>
-                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                  <FileText className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalInvoicesCount}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Issued across all stores</p>
-            </div>
-
-            {/* Card 4: Clients */}
-            <div className="rounded-2xl p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-700">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Clients & Parties</span>
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600 dark:text-amber-400">
-                  <Users className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{totalClientsCount}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Connected party records</p>
-            </div>
-          </div>
-
-          {/* Views based on activeTab */}
-          {activeTab === 'overview' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 rounded-2xl">
-                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
-                      <Activity className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
-                      User & Organization Growth
-                    </CardTitle>
-                    <CardDescription className="text-xs">New business registrations over the last 14 days</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-[280px] w-full pt-4">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={growthData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94A3B8" opacity={0.2} />
-                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
-                        <Tooltip
-                          contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
-                        />
-                        <Area type="monotone" dataKey="users" stroke="#6366F1" strokeWidth={2.5} fillOpacity={0.15} fill="#6366F1" />
-                        <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={2.5} fillOpacity={0.1} fill="#10B981" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 rounded-2xl">
-                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
-                      <PieChartIcon className="w-4 h-4 mr-2 text-emerald-600 dark:text-emerald-400" />
-                      Subscription Distribution
-                    </CardTitle>
-                    <CardDescription className="text-xs">Active plans across Pro Yearly, Pro Monthly, and Free Trial</CardDescription>
-                  </CardHeader>
-                  <CardContent className="h-[280px] w-full pt-4 flex flex-col items-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={planData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={55}
-                          outerRadius={80}
-                          paddingAngle={4}
-                          dataKey="value"
-                        >
-                          {planData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip
-                          contentStyle={{ borderRadius: '12px', backgroundColor: '#0f172a', border: '1px solid #334155', color: '#fff' }}
-                        />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="flex flex-wrap gap-3 justify-center mt-2">
-                      {planData.map((p, i) => (
-                        <div key={i} className="flex items-center gap-2 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{p.name}: {p.value}</span>
-                        </div>
-                      ))}
+            {/* Global Key Stats Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+              {[
+                { label: 'Total Users', value: totalUsersCount, icon: <Users className="w-5 h-5 text-blue-500" />, bgColor: 'bg-blue-500/10' },
+                { label: 'Active Users', value: totalActiveUsersCount, icon: <CheckCircle className="w-5 h-5 text-emerald-500" />, bgColor: 'bg-emerald-500/10' },
+                { label: 'Total Invoices', value: totalInvoicesCount, icon: <FileText className="w-5 h-5 text-indigo-500" />, bgColor: 'bg-indigo-500/10' },
+                { label: 'Total Clients', value: totalClientsCount, icon: <Users className="w-5 h-5 text-amber-500" />, bgColor: 'bg-amber-500/10' },
+              ].map((stat, i) => (
+                <Card key={i} className="relative overflow-hidden border shadow-sm transition-all bg-card">
+                  <div className="p-3.5 sm:p-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className={`p-2 rounded-xl shrink-0 flex items-center justify-center ${stat.bgColor}`}>
+                        {stat.icon}
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { label: 'API Gateway Latency', value: '38ms', status: 'Optimal', icon: <Activity className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> },
-                  { label: 'Database Connections', value: '16/100', status: 'Healthy', icon: <Database className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> },
-                  { label: 'Server Load', value: '5.2%', status: 'Normal', icon: <Cpu className="w-4 h-4 text-amber-600 dark:text-amber-400" /> },
-                ].map((comp, i) => (
-                  <div key={i} className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-900 shadow-sm flex items-center gap-3.5">
-                    <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl">
-                      {comp.icon}
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{comp.label}</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">{comp.value}</p>
-                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold uppercase tracking-wider">{comp.status}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-muted-foreground truncate">{stat.label}</p>
+                      <p className="text-xl sm:text-2xl font-bold mt-1 text-foreground break-words leading-tight py-0.5">{stat.value.toLocaleString('en-IN')}</p>
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                    {stat.icon}
+                  </div>
+                </Card>
+              ))}
             </div>
-          )}
 
-          {activeTab === 'users' && (
-            <Card className="border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 rounded-2xl">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-5 gap-4">
-                <div>
-                  <CardTitle className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <Users className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    Multi-Tenant Organization Directory
-                  </CardTitle>
-                  <CardDescription className="text-xs mt-0.5">
-                    Manage company workspaces, feature module licenses, and plan durations.
-                  </CardDescription>
+            {/* Account Deletion Requests Banner */}
+            {pendingDeletionCount > 0 && (
+              <div className="p-4 md:p-5 rounded-xl border border-rose-200 dark:border-rose-900 bg-rose-50/80 dark:bg-rose-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-rose-950 dark:text-rose-100">
+                      {pendingDeletionCount} Account Deletion Request{pendingDeletionCount > 1 ? 's' : ''} Pending
+                    </h4>
+                    <p className="text-xs text-rose-800/80 dark:text-rose-300/80 mt-0.5">
+                      Business user{pendingDeletionCount > 1 ? 's have' : ' has'} requested account deletion.
+                    </p>
+                  </div>
                 </div>
-                <div className="flex gap-3 items-center">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setActiveTab('deletion-requests')}
+                  className="font-semibold text-xs shrink-0 gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Review Requests
+                </Button>
+              </div>
+            )}
+
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
+
+
+          <TabsContent value="overview" className="space-y-6 outline-none">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="border shadow-sm overflow-hidden bg-white dark:bg-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-lg font-bold flex items-center">
+                    <Activity className="w-4 h-4 mr-2 text-blue-500" />
+                    User Growth
+                  </CardTitle>
+                  <CardDescription>Platform adoption over the last 14 days</CardDescription>
+                </CardHeader>
+                <CardContent className="h-[300px] w-full pt-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={growthData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748B', fontSize: 12 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748B', fontSize: 12 }} />
+                      <Tooltip
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Area type="monotone" dataKey="users" stroke="#3B82F6" strokeWidth={3} fillOpacity={0.1} fill="#3B82F6" />
+                      <Area type="monotone" dataKey="pro" stroke="#10B981" strokeWidth={3} fillOpacity={0} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card className="border shadow-sm overflow-hidden bg-white dark:bg-slate-800">
+                <CardHeader>
+                  <CardTitle className="text-lg font-bold flex items-center">
+                    <PieChartIcon className="w-4 h-4 mr-2 text-emerald-500" />
+                    Subscription Mix
+                  </CardTitle>
+                  <CardDescription>Distribution of Free vs Pro users</CardDescription>
+                </CardHeader>
+                <CardContent className="h-[300px] w-full pt-0 flex flex-col items-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={planData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {planData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex gap-6 mt-4">
+                    {planData.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i] }} />
+                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{p.name}: {p.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[
+                { label: 'API Latency', value: '45ms', status: 'Optimal', icon: <Activity className="w-5 h-5 text-blue-500" /> },
+                { label: 'DB Connections', value: '12/100', status: 'Healthy', icon: <Database className="w-5 h-5 text-emerald-500" /> },
+                { label: 'CPU Usage', value: '8%', status: 'Normal', icon: <Cpu className="w-5 h-5 text-amber-500" /> },
+              ].map((comp, i) => (
+                <Card key={i} className="border-none shadow-sm bg-white dark:bg-slate-800/50">
+                  <CardContent className="p-4 md:p-6">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                        {comp.icon}
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{comp.label}</p>
+                        <p className="text-lg font-bold">{comp.value}</p>
+                        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider">{comp.status}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="users" className="space-y-6 outline-none">
+            <Card className="border shadow-sm overflow-hidden bg-white dark:bg-slate-800">
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border/60 p-4 sm:p-6 gap-4">
+                <div>
+                  <CardTitle className="text-xl font-bold">User Directory</CardTitle>
+                  <CardDescription>Manage profile access, business categorization, and billing for all platform users</CardDescription>
+                </div>
+                <div className="flex items-center gap-3">
                   <div className="relative">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input
-                      placeholder="Search company, email, phone..."
-                      className="pl-10 w-full sm:w-[280px] h-9 rounded-xl bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs font-medium"
+                      placeholder="Search users..."
+                      className="pl-9 w-[220px] sm:w-[280px] h-9 rounded-xl bg-slate-50 dark:bg-slate-900 border-border text-xs"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
-                  <Button onClick={() => loadDashboardData(false)} variant="outline" size="icon" className="h-9 w-9 rounded-xl border-slate-200 dark:border-slate-700" disabled={loading}>
+                  <Button onClick={() => loadDashboardData(false)} variant="outline" size="icon" className="h-9 w-9 rounded-xl shrink-0" disabled={loading}>
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="pt-2">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-slate-100 dark:border-slate-800 hover:bg-transparent">
-                      <TableHead className="font-bold text-xs uppercase tracking-wider">Company / Organization</TableHead>
-                      <TableHead className="font-bold text-xs uppercase tracking-wider">Contact</TableHead>
-                      <TableHead className="font-bold text-xs uppercase tracking-wider">Created</TableHead>
-                      <TableHead className="font-bold text-xs uppercase tracking-wider">Account Status</TableHead>
-                      <TableHead className="font-bold text-xs uppercase tracking-wider">Subscription Tier</TableHead>
-                      <TableHead className="text-right font-bold text-xs uppercase tracking-wider pr-6">Management</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      Array.from({ length: 5 }).map((_, i) => (
-                        <TableRow key={i} className="border-slate-100 dark:border-slate-800">
-                          <TableCell colSpan={6} className="py-4">
-                            <Skeleton className="h-10 w-full rounded-xl" />
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      users.length === 0 ? (
-                        <TableRow className="border-slate-100 dark:border-slate-800">
-                          <TableCell colSpan={6} className="text-center py-20">
-                            <div className="flex flex-col items-center">
-                              <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4">
-                                <Search className="w-8 h-8 text-slate-400" />
-                              </div>
-                              <p className="text-slate-500 dark:text-slate-400 font-bold text-base">No registered accounts matching "{searchTerm}"</p>
+              <CardContent className="p-0">
+                {/* Mobile Card View (< 768px) */}
+                <div className="md:hidden divide-y divide-border">
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="p-4 space-y-3">
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="w-10 h-10 rounded-xl" />
+                          <div className="space-y-1 flex-1">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-3 w-44" />
+                          </div>
+                        </div>
+                        <Skeleton className="h-8 w-full rounded-lg" />
+                      </div>
+                    ))
+                  ) : users.length === 0 ? (
+                    <div className="text-center py-12 px-4">
+                      <Search className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm font-bold">No users found matching "{searchTerm}"</p>
+                    </div>
+                  ) : (
+                    users.map((user) => (
+                      <div key={user.user_id} className="p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center font-bold text-sm text-primary shrink-0">
+                              {user.company_name?.[0]?.toUpperCase() || 'U'}
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        users.map((user) => (
-                          <TableRow key={user.user_id} className="group border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                            <TableCell className="py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs border border-indigo-200 dark:border-indigo-800">
-                                  {user.company_name?.[0]?.toUpperCase() || 'U'}
-                                </div>
-                                <div>
-                                  <p className="font-bold text-slate-900 dark:text-white text-sm">{user.company_name || 'Individual Merchant'}</p>
-                                  <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">{user.email}</p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                                <Phone className="w-3.5 h-3.5 text-slate-400" />
-                                <span className="text-xs font-semibold">{user.mobile || 'Not provided'}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{safelyToLocaleDate(user.created_at)}</p>
-                            </TableCell>
-                            <TableCell>
-                              {user.is_blocked ? (
-                                <Badge className="rounded-full bg-rose-50 text-rose-600 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900 text-[11px] font-bold">Suspended</Badge>
-                              ) : (
-                                <Badge className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900 text-[11px] font-bold">Active</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {(() => {
-                                const sub = getSubscriptionStatus(user.subscription_expires_at, user.plan_type, user.is_paid, user.created_at);
-                                return <Badge className={`rounded-full shadow-none text-[11px] font-bold ${sub.color}`}>{sub.status}</Badge>;
-                              })()}
-                            </TableCell>
-                            <TableCell className="text-right pr-6">
-                              <div className="flex justify-end gap-1.5">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40"
-                                  title="Manage Allowed Modules (Billing, Payroll, Ledger, Inventory, CRM)"
-                                  onClick={() => handleOpenModuleModal(user)}
-                                >
-                                  <LayoutDashboard className="w-4 h-4" />
-                                </Button>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-sm truncate">{user.company_name || 'Individual Profile'}</p>
+                              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/50 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                              #{generateAccountId(user.user_id)}
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(generateAccountId(user.user_id));
+                                toast({ title: "Copied!", description: `Account ID #${generateAccountId(user.user_id)} copied.` });
+                              }}
+                              className="text-muted-foreground hover:text-foreground p-1"
+                              title="Copy ID"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
 
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                                  onClick={() => {
-                                    setSelectedUser(user);
-                                    setUserDetailsOpen(true);
-                                  }}
-                                  title="User Audit Details"
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
+                        <div className="grid grid-cols-2 gap-2 text-xs py-2 border-y border-border/50">
+                          <div>
+                            <span className="text-muted-foreground text-[10px] uppercase font-bold block">Mobile</span>
+                            <span className="font-semibold">{user.mobile || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground text-[10px] uppercase font-bold block">Joined</span>
+                            <span className="font-semibold">{safelyToLocaleDate(user.created_at)}</span>
+                          </div>
+                        </div>
 
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                                  title="Extend Plan (+30 Days)"
-                                  onClick={() => {
-                                    setExtendUserId(user.user_id);
-                                    setExtendUserEmail(user.email);
-                                  }}
-                                >
-                                  <Clock className="w-4 h-4" />
-                                </Button>
+                        <div className="flex items-center justify-between gap-2 pt-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Select
+                              value={user.user_type || 'normal'}
+                              onValueChange={(val) => handleUpdateUserType(user.user_id, val as UserType)}
+                            >
+                              <SelectTrigger className="h-7 px-2 text-[11px] font-bold rounded-lg border w-fit">
+                                <span className="flex items-center gap-1">
+                                  <span>{user.user_type === 'automobile' ? '🚗 Auto' : user.user_type === 'food_kitchen' ? '🍛 Kitchen' : '📋 Normal'}</span>
+                                </span>
+                              </SelectTrigger>
+                              <SelectContent align="start">
+                                <SelectItem value="normal">📋 Normal</SelectItem>
+                                <SelectItem value="automobile">🚗 Automobile</SelectItem>
+                                <SelectItem value="food_kitchen">🍛 Food / Kitchen</SelectItem>
+                              </SelectContent>
+                            </Select>
 
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                  title="Delete User"
-                                  onClick={() => {
-                                    setUserToDelete(user);
-                                    setDeleteConfirmText("");
-                                    setUserDeleteCheckbox1(false);
-                                    setUserDeleteCheckbox2(false);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
+                            {user.is_blocked ? (
+                              <Badge variant="outline" className="text-[10px] font-bold bg-rose-50 text-rose-600 border-rose-200">Blocked</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] font-bold bg-emerald-50 text-emerald-600 border-emerald-200">Active</Badge>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50"
+                              onClick={() => { setSelectedUser(user); setUserDetailsOpen(true); }}
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 rounded-lg text-emerald-600 hover:bg-emerald-50"
+                              onClick={() => { setExtendUserId(user.user_id); setExtendUserEmail(user.email); }}
+                              title="Extend Plan"
+                            >
+                              <Clock className="w-4 h-4" />
+                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 rounded-lg">
+                                  <MoreVertical className="w-4 h-4" />
                                 </Button>
-                              </div>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem onClick={() => handleToggleWhatsappProvider(user.user_id, user.whatsapp_provider || 'meta')}>
+                                  <WhatsAppIcon className="w-3.5 h-3.5 mr-2 text-emerald-600" />
+                                  <span>WhatsApp Mode</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { setResetPasswordId(user.user_id); setResetPasswordEmail(user.email); setNewPassword(""); }}>
+                                  <Key className="w-3.5 h-3.5 mr-2 text-amber-600" />
+                                  <span>Reset Password</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setUserToToggleBlock(user)}>
+                                  {user.is_blocked ? <CheckCircle className="w-3.5 h-3.5 mr-2 text-emerald-600" /> : <Shield className="w-3.5 h-3.5 mr-2 text-rose-600" />}
+                                  <span>{user.is_blocked ? "Unblock Account" : "Block Account"}</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => { setUserToDelete(user); setDeleteConfirmText(""); setUserDeleteCheckbox1(false); setUserDeleteCheckbox2(false); }} className="text-rose-600 font-semibold">
+                                  <Trash2 className="w-3.5 h-3.5 mr-2" />
+                                  <span>Purge Account</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Desktop Table View (>= 768px) */}
+                <div className="hidden md:block w-full overflow-x-hidden">
+                  <Table className="w-full table-fixed">
+                    <colgroup>
+                      <col style={{ width: '140px' }} />
+                      <col />
+                      <col style={{ width: '145px' }} />
+                      <col style={{ width: '120px' }} />
+                      <col style={{ width: '160px' }} />
+                      <col style={{ width: '125px' }} />
+                    </colgroup>
+                    <TableHeader>
+                      <TableRow className="border-border hover:bg-transparent">
+                        <TableHead className="font-bold w-[140px] pl-4 pr-2">Account ID</TableHead>
+                        <TableHead className="font-bold pl-4 pr-3">Business & User</TableHead>
+                        <TableHead className="font-bold w-[145px] px-3 whitespace-nowrap">Contact & Joined</TableHead>
+                        <TableHead className="font-bold w-[120px] px-2">Type</TableHead>
+                        <TableHead className="font-bold w-[160px] px-3 whitespace-nowrap">Plan & Status</TableHead>
+                        <TableHead className="text-right font-bold w-[125px] pr-4 pl-1">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {loading ? (
+                        Array.from({ length: 5 }).map((_, i) => (
+                          <TableRow key={i}>
+                            <TableCell colSpan={6} className="py-4">
+                              <Skeleton className="h-10 w-full rounded-lg" />
                             </TableCell>
                           </TableRow>
                         ))
-                      )
-                    )}
-                  </TableBody>
-                </Table>
-                <div className="mt-6 flex flex-col gap-4 border-t border-slate-100 dark:border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      ) : (
+                        users.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="text-center py-20">
+                              <div className="flex flex-col items-center">
+                                <div className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full mb-4">
+                                  <Search className="w-8 h-8 text-slate-400" />
+                                </div>
+                                <p className="text-slate-500 dark:text-slate-400 font-bold text-lg">No users found matching "{searchTerm}"</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          users.map((user) => (
+                            <TableRow key={user.user_id} className="group border-border transition-colors hover:bg-muted/40">
+                              {/* Account ID */}
+                              <TableCell className="py-3 pl-4 pr-2 w-[140px]">
+                                <div className="flex items-center gap-1.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/50 px-2 py-0.5 rounded-md w-fit font-mono shrink-0">
+                                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                                    #{generateAccountId(user.user_id)}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(generateAccountId(user.user_id));
+                                      toast({
+                                        title: "Copied!",
+                                        description: `Account ID #${generateAccountId(user.user_id)} copied.`
+                                      });
+                                    }}
+                                    className="text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors p-0.5"
+                                    title="Copy Account ID"
+                                  >
+                                    <Copy className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </TableCell>
+
+                              {/* Organization & Email */}
+                              <TableCell className="py-3 pl-4 pr-3">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-8 h-8 rounded-lg bg-blue-600/10 flex items-center justify-center font-bold text-xs text-blue-600 shrink-0">
+                                    {user.company_name?.[0]?.toUpperCase() || 'U'}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="font-bold text-xs sm:text-sm text-foreground truncate" title={user.company_name || 'Individual Profile'}>
+                                      {user.company_name || 'Individual Profile'}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground truncate" title={user.email}>
+                                      {user.email}
+                                    </p>
+                                  </div>
+                                </div>
+                              </TableCell>
+
+                              {/* Contact & Joined */}
+                              <TableCell className="py-3 px-3 w-[145px]">
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-1 text-foreground text-xs font-semibold truncate">
+                                    <Phone className="w-3 h-3 text-muted-foreground shrink-0" />
+                                    <span className="truncate">{user.mobile || 'No mobile'}</span>
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground pl-4 truncate">
+                                    {safelyToLocaleDate(user.created_at)}
+                                  </p>
+                                </div>
+                              </TableCell>
+
+                              {/* User Type Selector */}
+                              <TableCell className="py-3 px-2 w-[120px]">
+                                <Select
+                                  value={user.user_type || 'normal'}
+                                  onValueChange={(val) => handleUpdateUserType(user.user_id, val as UserType)}
+                                >
+                                  <SelectTrigger
+                                    className={`h-8 px-2 rounded-lg border text-xs font-semibold w-full max-w-[115px] flex items-center justify-between transition-all ${
+                                      user.user_type === 'automobile'
+                                        ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 text-amber-700 dark:text-amber-300'
+                                        : user.user_type === 'food_kitchen'
+                                        ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-200 text-purple-700 dark:text-purple-300'
+                                        : 'bg-muted/40 border-border text-foreground'
+                                    }`}
+                                    title="Click to switch business category"
+                                  >
+                                    <span className="flex items-center gap-1.5 truncate">
+                                      <span>{user.user_type === 'automobile' ? '🚗' : user.user_type === 'food_kitchen' ? '🍛' : '📋'}</span>
+                                      <span className="truncate">{user.user_type === 'automobile' ? 'Auto' : user.user_type === 'food_kitchen' ? 'Kitchen' : 'Normal'}</span>
+                                    </span>
+                                  </SelectTrigger>
+                                  <SelectContent align="start" className="rounded-xl">
+                                    <SelectItem value="normal">
+                                      <span className="flex items-center gap-2">📋 <span>Normal</span></span>
+                                    </SelectItem>
+                                    <SelectItem value="automobile">
+                                      <span className="flex items-center gap-2">🚗 <span>Automobile</span></span>
+                                    </SelectItem>
+                                    <SelectItem value="food_kitchen">
+                                      <span className="flex items-center gap-2">🍛 <span>Food / Cloud Kitchen</span></span>
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </TableCell>
+
+                              {/* Plan & Status */}
+                              <TableCell className="py-3 px-3 w-[160px]">
+                                <div className="flex flex-col gap-1 w-fit">
+                                  {(() => {
+                                    const sub = getSubscriptionStatus(user.subscription_expires_at, user.plan_type, user.is_paid, user.created_at);
+                                    return (
+                                      <Badge className={`rounded-full shadow-none text-[10px] font-bold px-2 py-0.5 whitespace-nowrap w-fit ${sub.color}`}>
+                                        {sub.status}
+                                      </Badge>
+                                    );
+                                  })()}
+                                  {user.is_blocked ? (
+                                    <Badge variant="outline" className="rounded-full text-[10px] font-bold px-2 py-0 bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/40 w-fit">
+                                      Blocked
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="rounded-full text-[10px] font-bold px-2 py-0 bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/40 w-fit">
+                                      Active
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+
+                              {/* Actions */}
+                              <TableCell className="text-right pr-4 pl-1 py-3 w-[125px]">
+                                <div className="flex items-center justify-end gap-1.5 w-full ml-auto">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 shrink-0"
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setUserDetailsOpen(true);
+                                    }}
+                                    title="User Details & Activity Analysis"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </Button>
+
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 shrink-0"
+                                    title="Extend Access Plan"
+                                    onClick={() => {
+                                      setExtendUserId(user.user_id);
+                                      setExtendUserEmail(user.email);
+                                    }}
+                                  >
+                                    <Clock className="w-4 h-4" />
+                                  </Button>
+
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 w-8 p-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted shrink-0"
+                                        title="Account Operations"
+                                      >
+                                        <MoreVertical className="w-4 h-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-52 rounded-xl z-50">
+                                      <DropdownMenuItem
+                                        onClick={() => handleToggleWhatsappProvider(user.user_id, user.whatsapp_provider || 'meta')}
+                                        className="cursor-pointer text-xs flex items-center justify-between"
+                                      >
+                                        <span className="flex items-center gap-2">
+                                          <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>WhatsApp Mode</span>
+                                        </span>
+                                        <Badge variant="outline" className="text-[9px] font-bold px-1.5 py-0">
+                                          {user.whatsapp_provider === 'personal' ? 'wa.me' : 'API'}
+                                        </Badge>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setResetPasswordId(user.user_id);
+                                          setResetPasswordEmail(user.email);
+                                          setNewPassword("");
+                                        }}
+                                        className="cursor-pointer text-xs flex items-center gap-2"
+                                      >
+                                        <Key className="w-3.5 h-3.5 text-amber-600" />
+                                        <span>Reset Password</span>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuItem
+                                        onClick={() => setUserToToggleBlock(user)}
+                                        className="cursor-pointer text-xs flex items-center gap-2"
+                                      >
+                                        {user.is_blocked ? (
+                                          <>
+                                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>Unblock Account</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Shield className="w-3.5 h-3.5 text-rose-600" />
+                                            <span>Block Account</span>
+                                          </>
+                                        )}
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuSeparator />
+
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setUserToDelete(user);
+                                          setDeleteConfirmText("");
+                                          setUserDeleteCheckbox1(false);
+                                          setUserDeleteCheckbox2(false);
+                                        }}
+                                        className="cursor-pointer text-xs flex items-center gap-2 text-rose-600 focus:text-rose-600 font-semibold"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Purge Account</span>
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="mt-6 flex flex-col gap-4 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      Showing {userRangeStart}-{userRangeEnd} of {totalUsersCount} organizations
+                    <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                      Show {userRangeStart}-{userRangeEnd} of {totalUsersCount} users
                     </p>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Page Size</span>
+                      <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Rows</span>
                       <Select value={String(usersPageSize)} onValueChange={(value) => setUsersPageSize(Number(value))}>
-                        <SelectTrigger className="h-8 w-[80px] rounded-lg border-slate-200 dark:border-slate-700 font-bold text-xs">
+                        <SelectTrigger className="h-9 w-[86px] rounded-xl border-slate-200 font-bold dark:border-slate-700">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1403,7 +2045,6 @@ const AdminDashboard = () => {
                             <PaginationLink
                               href="#"
                               isActive={page === safeUsersPage}
-                              className={page === safeUsersPage ? "bg-indigo-600 text-white rounded-lg border-none font-bold" : ""}
                               onClick={(event) => {
                                 event.preventDefault();
                                 setUsersPage(page);
@@ -1429,41 +2070,42 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
-          )}
+          </TabsContent>
 
-          {activeTab === 'system' && (
+
+          <TabsContent value="system" className="space-y-6 outline-none">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
-                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 rounded-2xl h-fit">
-                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
-                      <History className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
-                      Platform Security & Audit Logs
+                <Card className="border-none shadow-md bg-white dark:bg-slate-800/50 backdrop-blur-md dark:bg-slate-800/50 h-fit">
+                  <CardHeader>
+                    <CardTitle className="text-lg font-bold flex items-center">
+                      <History className="w-4 h-4 mr-2" />
+                      Platform Audit Logs
                     </CardTitle>
-                    <CardDescription className="text-xs">Administrative actions and security policy events</CardDescription>
+                    <CardDescription>Real-time security events tracking</CardDescription>
                   </CardHeader>
-                  <CardContent className="pt-4">
-                    <div className="space-y-3">
+                  <CardContent>
+                    <div className="space-y-4">
                       {auditLogs.length > 0 ? (
                         auditLogs.map((log) => (
-                          <div key={log.id} className="flex items-start gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-                            <div className={`p-2.5 rounded-xl ${log.action.includes('Blocked') ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400'}`}>
-                              <Shield className="w-4 h-4" />
+                          <div key={log.id} className="flex items-start gap-4 p-4 rounded-xl bg-white dark:bg-slate-800/50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800">
+                            <div className={`p-2 rounded-lg ${log.action.includes('Blocked') ? 'bg-rose-100' : 'bg-blue-100'}`}>
+                              <Shield className={`w-4 h-4 ${log.action.includes('Blocked') ? 'text-rose-600' : 'text-blue-600'}`} />
                             </div>
                             <div className="flex-1">
                               <div className="flex justify-between mb-1">
-                                <p className="text-sm font-bold text-slate-900 dark:text-white">{log.action}</p>
-                                <span className="text-[10px] text-slate-400 font-mono">{log.time}</span>
+                                <p className="text-sm font-bold">{log.action}</p>
+                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{log.time}</span>
                               </div>
-                              <p className="text-xs text-slate-600 dark:text-slate-300">Target Workspace: {log.target}</p>
-                              <p className="text-[10px] text-slate-400 mt-1">Initiated by: {log.admin}</p>
+                              <p className="text-xs text-slate-600 dark:text-slate-400">Target: {log.target}</p>
+                              <p className="text-[10px] text-slate-400 mt-1 italic">Initiated by: {log.admin}</p>
                             </div>
                           </div>
                         ))
                       ) : (
                         <div className="text-center py-10">
-                          <History className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-                          <p className="text-slate-500 dark:text-slate-400 font-medium text-xs">No recent platform security incidents recorded</p>
+                          <History className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                          <p className="text-slate-500 dark:text-slate-400 font-medium text-sm">No recent platform activity recorded</p>
                         </div>
                       )}
                     </div>
@@ -1472,17 +2114,17 @@ const AdminDashboard = () => {
               </div>
 
               <div className="space-y-6">
-                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 rounded-2xl overflow-hidden">
-                  <CardHeader className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 pb-4">
-                    <CardTitle className="text-base font-bold flex items-center text-slate-900 dark:text-white">
-                      <Settings className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
-                      Platform Guard Rails
+                <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden border border-slate-100 dark:border-slate-800">
+                  <CardHeader className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800">
+                    <CardTitle className="text-lg font-bold flex items-center">
+                      <Settings className="w-4 h-4 mr-2 text-primary" />
+                      Platform Guards
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6 pt-6">
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">Maintenance Mode</p>
+                        <p className="text-sm font-bold">Maintenance Mode</p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">Lock the platform for updates</p>
                       </div>
                       <AlertDialog open={showMaintenanceDialog} onOpenChange={setShowMaintenanceDialog}>
@@ -1524,7 +2166,7 @@ const AdminDashboard = () => {
 
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">Public Signups</p>
+                        <p className="text-sm font-bold">Public Signups</p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400">Enable new user registration</p>
                       </div>
                       <AlertDialog open={showSignupsDialog} onOpenChange={setShowSignupsDialog}>
@@ -1561,9 +2203,9 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
 
-                <Card className="border border-slate-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 rounded-2xl overflow-hidden relative">
-                  <CardHeader className="bg-blue-50/50 dark:bg-blue-950/20 border-b border-slate-100 dark:border-slate-800">
-                    <CardTitle className="text-base font-bold flex items-center text-blue-600 dark:text-blue-400">
+                <Card className="border-none shadow-md bg-white dark:bg-slate-900 overflow-hidden relative border border-slate-100 dark:border-slate-800">
+                  <CardHeader className="bg-blue-600/5 dark:bg-blue-600/10 border-b border-blue-50 dark:border-blue-900/20">
+                    <CardTitle className="text-lg font-bold flex items-center text-blue-600 dark:text-blue-400">
                       <Megaphone className="w-4 h-4 mr-2" />
                       Platform Broadcast
                     </CardTitle>
@@ -1572,24 +2214,237 @@ const AdminDashboard = () => {
                     <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 font-medium">Send a notice to all logged-in users instantly.</p>
                     <Input
                       placeholder="Enter notice text..."
-                      className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 h-10 mb-3"
+                      className="bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 h-10 mb-3 focus-visible:ring-blue-600 focus-visible:ring-1"
                       value={broadcastMessage}
                       onChange={(e) => setBroadcastMessage(e.target.value)}
                     />
                     <Button
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                      className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold"
                       onClick={handlePublishBroadcast}
                       disabled={isPublishingBroadcast}
                     >
                       {isPublishingBroadcast ? 'Publishing...' : 'Publish Announcement'}
                     </Button>
                   </CardContent>
+                  <div className="absolute top-0 right-0 p-4 opacity-[0.03] dark:opacity-[0.05] pointer-events-none">
+                    <Megaphone className="w-24 h-24" />
+                  </div>
                 </Card>
               </div>
             </div>
-          )}
-        </main>
+          </TabsContent>
+
+          <TabsContent value="deletion-requests" className="space-y-6 outline-none">
+            {/* Header Card */}
+            <Card className="border shadow-sm bg-white dark:bg-slate-800">
+              <CardHeader className="pb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                      <Trash2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl font-bold flex items-center gap-2 text-slate-950 dark:text-slate-100">
+                        <span>Account Deletion & Data Wipeout Requests</span>
+                        {pendingDeletionCount > 0 && (
+                          <Badge variant="destructive" className="font-bold text-[10px]">
+                            {pendingDeletionCount} Pending
+                          </Badge>
+                        )}
+                      </CardTitle>
+                      <CardDescription className="text-xs">
+                        Review, approve permanent data erasure, or decline business account deletion requests
+                      </CardDescription>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchDeletionRequests()}
+                    disabled={deletionRequestsLoading}
+                    className="h-9 gap-1.5 font-bold text-xs"
+                  >
+                    <RefreshCw className={cn("w-3.5 h-3.5", deletionRequestsLoading && "animate-spin")} />
+                    Refresh
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+                {/* Search & Status Filters */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      placeholder="Search by email, company name, or reason..."
+                      value={deletionSearch}
+                      onChange={(e) => setDeletionSearch(e.target.value)}
+                      className="pl-9 h-10 text-xs bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(['all', 'pending', 'approved', 'rejected', 'cancelled'] as const).map((status) => {
+                      const count = status === 'all' 
+                        ? deletionRequests.length 
+                        : deletionRequests.filter(r => r.status === status).length;
+                      return (
+                        <Button
+                          key={status}
+                          type="button"
+                          variant={deletionStatusFilter === status ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setDeletionStatusFilter(status)}
+                          className={cn(
+                            "h-8 text-xs font-bold capitalize transition-all",
+                            deletionStatusFilter === status && status === 'pending' && "bg-amber-600 hover:bg-amber-700 text-white",
+                            deletionStatusFilter === status && status === 'approved' && "bg-emerald-600 hover:bg-emerald-700 text-white",
+                            deletionStatusFilter === status && status === 'rejected' && "bg-rose-600 hover:bg-rose-700 text-white"
+                          )}
+                        >
+                          {status} ({count})
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Requests Table */}
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-slate-50/80 dark:bg-slate-900/80">
+                      <TableRow>
+                        <TableHead className="text-xs font-bold uppercase tracking-wider py-3.5">User / Business</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wider py-3.5">Reason & Feedback</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wider py-3.5">Requested Date</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wider py-3.5">Status</TableHead>
+                        <TableHead className="text-xs font-bold uppercase tracking-wider py-3.5 text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredDeletionRequests.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="py-12 text-center text-slate-500">
+                            <div className="flex flex-col items-center justify-center gap-2">
+                              <ShieldCheck className="w-8 h-8 text-slate-400" />
+                              <p className="text-sm font-semibold">No deletion requests found</p>
+                              <p className="text-xs text-slate-400">
+                                {deletionSearch ? "No requests match your search criteria." : "There are currently no deletion requests in this category."}
+                              </p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredDeletionRequests.map((req) => (
+                          <TableRow key={req.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors">
+                            <TableCell className="py-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-xs text-slate-900 dark:text-white">{req.user_email}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                                  <span>{req.company_name || 'Individual Profile'}</span>
+                                  <span>•</span>
+                                  <span className="font-mono font-semibold text-primary">#{generateAccountId(req.user_id)}</span>
+                                </div>
+                              </div>
+                            </TableCell>
+
+                            <TableCell className="py-3 max-w-xs">
+                              <div className="space-y-1">
+                                <div className="inline-block px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                                  {req.reason}
+                                </div>
+                                {req.feedback && (
+                                  <p className="text-xs text-slate-500 italic line-clamp-2">
+                                    "{req.feedback}"
+                                  </p>
+                                )}
+                                {req.admin_notes && (
+                                  <div className="text-[10px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 p-1.5 rounded border border-rose-200 dark:border-rose-900/50">
+                                    <strong>Admin Note:</strong> {req.admin_notes}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+
+                            <TableCell className="py-3">
+                              <div className="space-y-0.5 text-xs text-slate-600 dark:text-slate-400">
+                                <p className="font-medium">{safelyToLocaleDate(req.created_at)}</p>
+                                <p className="text-[10px] text-slate-400">{new Date(req.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                              </div>
+                            </TableCell>
+
+                            <TableCell className="py-3">
+                              {req.status === 'pending' && (
+                                <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold text-[10px] uppercase">
+                                  Pending Review
+                                </Badge>
+                              )}
+                              {req.status === 'approved' && (
+                                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-bold text-[10px] uppercase">
+                                  Purged / Deleted
+                                </Badge>
+                              )}
+                              {req.status === 'rejected' && (
+                                <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 font-bold text-[10px] uppercase">
+                                  Declined
+                                </Badge>
+                              )}
+                              {req.status === 'cancelled' && (
+                                <Badge variant="outline" className="text-slate-500 font-bold text-[10px] uppercase">
+                                  User Cancelled
+                                </Badge>
+                              )}
+                            </TableCell>
+
+                            <TableCell className="py-3 text-right">
+                              {req.status === 'pending' ? (
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setRequestToReject(req);
+                                      setRejectionNotes('');
+                                    }}
+                                    className="h-8 text-xs font-bold border-slate-300 dark:border-slate-700"
+                                  >
+                                    Decline
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => {
+                                      setRequestToApprove(req);
+                                      setApproveConfirmText('');
+                                    }}
+                                    className="h-8 text-xs font-bold gap-1 shadow-sm"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Purge Account
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-slate-400 italic">
+                                  {req.processed_at ? `Resolved on ${safelyToLocaleDate(req.processed_at)}` : 'Closed'}
+                                </span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
+    </main>
+  </div>
 
       {/* User Details Dialog */}
       <Dialog open={userDetailsOpen} onOpenChange={setUserDetailsOpen}>
@@ -1607,7 +2462,18 @@ const AdminDashboard = () => {
                     <p className="font-bold text-xl leading-tight">{selectedUser.company_name || 'Individual Profile'}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">System UID</p>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">7-Digit Account ID</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-mono font-black text-primary bg-primary/10 px-2.5 py-1 rounded-md">
+                        #{generateAccountId(selectedUser.user_id)}
+                      </span>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(generateAccountId(selectedUser.user_id)); toast({ title: "Copied", description: "Account ID copied to clipboard" }); }}>
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">System UUID</p>
                     <div className="flex items-center gap-2">
                       <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded font-mono text-slate-600">{selectedUser.user_id}</code>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(selectedUser.user_id); toast({ title: "Copied", description: "UID copied to clipboard" }); }}>
@@ -1637,6 +2503,22 @@ const AdminDashboard = () => {
                       <Phone className="w-4 h-4 opacity-50" />
                       <p className="text-sm font-bold">{selectedUser.mobile || 'Not provided'}</p>
                     </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Business / User Type</p>
+                    <Select
+                      value={selectedUserSetting?.user_type || selectedUser.user_type || 'normal'}
+                      onValueChange={(val) => handleUpdateUserType(selectedUser.user_id, val as UserType)}
+                    >
+                      <SelectTrigger className="h-9 px-3 rounded-xl border text-xs font-bold w-full max-w-[220px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start" className="rounded-xl">
+                        <SelectItem value="normal">📋 Normal Business</SelectItem>
+                        <SelectItem value="automobile">🚗 Automobile / Downpayment</SelectItem>
+                        <SelectItem value="food_kitchen">🍛 Food / Cloud Kitchen</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </div>
@@ -1706,14 +2588,12 @@ const AdminDashboard = () => {
 
                   <div className="flex flex-col gap-1">
                     <p className="text-2xl font-black tracking-tight flex items-center gap-3">
-                      {(selectedUser.subscription_expires_at || (selectedUser.plan_type && selectedUser.plan_type !== 'free'))
-                        ? `Paid Plan (${selectedUser.plan_type ? selectedUser.plan_type.toUpperCase() : 'PRO'})`
-                        : `Free Trial Tier`}
+                      {selectedUser.subscription_expires_at ? 'Paid Plan' : `Free Plan (${selectedUser.plan_type ? (selectedUser.plan_type.charAt(0).toUpperCase() + selectedUser.plan_type.slice(1)) : 'Monthly'})`}
                       <Sparkles className="w-5 h-5 text-amber-500 animate-pulse" />
                     </p>
                     <p className="text-xs text-slate-400 font-medium italic">
-                      {(selectedUser.subscription_expires_at || (selectedUser.plan_type && selectedUser.plan_type !== 'free'))
-                        ? "Active Subscription (Granted & Verified by Admin)"
+                      {selectedUser.subscription_expires_at
+                        ? `Valid through ${safelyToLocaleDate(selectedUser.subscription_expires_at)}`
                         : "No active plan detected (grant access from Extend Plan)"}
                     </p>
                   </div>
@@ -1723,10 +2603,8 @@ const AdminDashboard = () => {
                       <Clock className="w-4 h-4 text-primary animate-spin-slow" />
                       <p className="text-xs font-bold text-slate-300">Countdown to Inactivation:</p>
                     </div>
-                    <p className="text-xl font-black text-emerald-400 font-mono tabular-nums leading-none">
-                      {(selectedUser.subscription_expires_at || (selectedUser.plan_type && selectedUser.plan_type !== 'free'))
-                        ? "ACTIVE PRO ACCESS (UNLIMITED)"
-                        : getSubscriptionCountdown(selectedUser.subscription_expires_at)}
+                    <p className="text-xl font-black text-primary font-mono tabular-nums leading-none">
+                      {getSubscriptionCountdown(selectedUser.subscription_expires_at)}
                     </p>
                   </div>
                 </div>
@@ -1965,69 +2843,193 @@ const AdminDashboard = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Module Access Control Dialog */}
-      <Dialog open={moduleDialogOpen} onOpenChange={setModuleDialogOpen}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-xl font-bold font-heading">
-              <LayoutDashboard className="w-5 h-5 text-purple-600" />
-              Manage Workspace Modules
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              Select which modules are enabled for <span className="font-bold text-slate-900 dark:text-white">{targetModuleUser?.company_name || targetModuleUser?.email}</span>. Unchecked modules will be automatically removed from their sidebar navigation.
-            </DialogDescription>
-          </DialogHeader>
+      {/* Block / Unblock User Confirmation Dialog */}
+      <AlertDialog open={!!userToToggleBlock} onOpenChange={(open) => !open && setUserToToggleBlock(null)}>
+        <AlertDialogContent className="rounded-2xl border-none shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-bold text-2xl flex items-center gap-2">
+              {userToToggleBlock?.is_blocked ? (
+                <>
+                  <CheckCircle className="w-6 h-6 text-emerald-600" />
+                  <span>Unblock User Account?</span>
+                </>
+              ) : (
+                <>
+                  <Shield className="w-6 h-6 text-rose-600" />
+                  <span>Block User Account?</span>
+                </>
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600 dark:text-slate-400 pt-2">
+              {userToToggleBlock?.is_blocked
+                ? `Restoring dashboard access for ${userToToggleBlock.company_name || userToToggleBlock.email}. They will be able to log in immediately.`
+                : `Temporarily suspending access for ${userToToggleBlock?.company_name || userToToggleBlock?.email}. They will be logged out and cannot sign in until unblocked.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl font-bold">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (userToToggleBlock) {
+                  toggleBlockUser(userToToggleBlock.user_id);
+                  setUserToToggleBlock(null);
+                }
+              }}
+              className={cn("rounded-xl font-bold", userToToggleBlock?.is_blocked ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-rose-600 hover:bg-rose-500 text-white')}
+            >
+              {userToToggleBlock?.is_blocked ? 'Confirm Unblock' : 'Restrict Access'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-          <div className="space-y-2.5 py-3">
-            {ALL_SYSTEM_MODULES.map((mod) => {
-              const Icon = mod.icon;
-              const isChecked = userModules.includes(mod.key);
-              return (
-                <div 
-                  key={mod.key} 
-                  onClick={() => handleToggleModuleKey(mod.key)}
-                  className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer select-none ${
-                    isChecked 
-                      ? 'bg-purple-50/60 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900/40 shadow-sm' 
-                      : 'bg-slate-50/40 border-slate-200/60 dark:bg-slate-900/50 dark:border-slate-800 opacity-60'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-xl ${isChecked ? 'bg-purple-600 text-white shadow-md' : 'bg-slate-200 text-slate-500 dark:bg-slate-800'}`}>
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-black text-slate-900 dark:text-white">{mod.label}</p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{mod.desc}</p>
-                    </div>
-                  </div>
-                  <Checkbox 
-                    checked={isChecked} 
-                    onCheckedChange={() => handleToggleModuleKey(mod.key)} 
-                    className="data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
-                  />
-                </div>
-              );
-            })}
+      {/* Approve Deletion Modal */}
+      <Dialog open={!!requestToApprove} onOpenChange={(open) => !open && setRequestToApprove(null)}>
+        <DialogContent className="max-w-md rounded-2xl p-0 overflow-hidden border-border bg-card shadow-2xl">
+          <div className="bg-rose-50 dark:bg-rose-950/40 p-5 border-b border-rose-200 dark:border-rose-900/50 flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <DialogTitle className="text-lg font-black text-rose-950 dark:text-rose-100">
+                Confirm Permanent Account Purge
+              </DialogTitle>
+              <DialogDescription className="text-xs text-rose-800/80 dark:text-rose-300/80 mt-1">
+                This operation will irreversibly wipe out the user and cascade across all databases.
+              </DialogDescription>
+            </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <Button variant="outline" onClick={() => setModuleDialogOpen(false)} className="rounded-xl font-bold text-xs">
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSaveUserModules} 
-              disabled={isSavingModules}
-              className="bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs gap-2 shadow-lg shadow-purple-600/20"
-            >
-              {isSavingModules && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              Save Module Visibility
-            </Button>
-          </DialogFooter>
+          {requestToApprove && (
+            <div className="p-5 space-y-4">
+              <div className="p-3.5 rounded-xl bg-muted/40 border border-border text-xs space-y-1.5">
+                <p><strong>User Email:</strong> {requestToApprove.user_email}</p>
+                <p><strong>Business Name:</strong> {requestToApprove.company_name || 'Individual Profile'}</p>
+                <p><strong>Account ID:</strong> #{generateAccountId(requestToApprove.user_id)}</p>
+                <p><strong>Reason:</strong> {requestToApprove.reason}</p>
+                {requestToApprove.feedback && (
+                  <p><strong>Feedback:</strong> {requestToApprove.feedback}</p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-purge-confirm" className="text-xs font-semibold text-foreground">
+                  Type <span className="font-black text-rose-600">DELETE</span> to authorize permanent purge:
+                </Label>
+                <Input
+                  id="admin-purge-confirm"
+                  value={approveConfirmText}
+                  onChange={(e) => setApproveConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  className="h-10 text-xs font-mono font-bold uppercase tracking-wider text-center"
+                />
+              </div>
+
+              <DialogFooter className="pt-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRequestToApprove(null)}
+                  disabled={isProcessingAction}
+                  className="h-10 text-xs font-bold"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={isProcessingAction || approveConfirmText.trim().toUpperCase() !== 'DELETE'}
+                  onClick={handleApproveDeletion}
+                  className="h-10 text-xs font-bold uppercase tracking-wider gap-2 shadow-sm"
+                >
+                  {isProcessingAction ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Purging Data...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Approve & Delete User
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Decline Deletion Modal */}
+      <Dialog open={!!requestToReject} onOpenChange={(open) => !open && setRequestToReject(null)}>
+        <DialogContent className="max-w-md rounded-2xl p-0 overflow-hidden border-border bg-card shadow-2xl">
+          <div className="bg-slate-50 dark:bg-slate-900 p-5 border-b border-border flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Shield className="w-5 h-5" />
+            </div>
+            <div>
+              <DialogTitle className="text-lg font-black text-foreground">
+                Decline Account Deletion Request
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-1">
+                Provide an explanation for the user on why this deletion request cannot be executed at this time.
+              </DialogDescription>
+            </div>
+          </div>
+
+          {requestToReject && (
+            <div className="p-5 space-y-4">
+              <div className="p-3.5 rounded-xl bg-muted/40 border border-border text-xs space-y-1">
+                <p><strong>User:</strong> {requestToReject.user_email}</p>
+                <p><strong>Reason:</strong> {requestToReject.reason}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-rejection-notes" className="text-xs font-semibold text-foreground">
+                  Reason for Declining (Sent to User) *
+                </Label>
+                <Textarea
+                  id="admin-rejection-notes"
+                  value={rejectionNotes}
+                  onChange={(e) => setRejectionNotes(e.target.value)}
+                  placeholder="e.g. Please clear open invoices first, or contact support regarding license verification..."
+                  className="min-h-[85px] text-xs resize-y"
+                />
+              </div>
+
+              <DialogFooter className="pt-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRequestToReject(null)}
+                  disabled={isProcessingAction}
+                  className="h-10 text-xs font-bold"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={isProcessingAction || !rejectionNotes.trim()}
+                  onClick={handleRejectDeletion}
+                  className="h-10 text-xs font-bold uppercase tracking-wider gap-2 shadow-sm"
+                >
+                  {isProcessingAction ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Decline & Notify User"
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
+
 };
 
 export default AdminDashboard;

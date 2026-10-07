@@ -33,7 +33,8 @@ import {
   Landmark,
   Wallet,
   Filter,
-  FileCheck
+  FileCheck,
+  Clock
 } from "lucide-react";
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -41,15 +42,19 @@ import { useToast } from "@/hooks/use-toast";
 import { usePayments, usePendingPaymentInvoices, PendingInvoiceItem } from "@/hooks/usePayments";
 import { Payment } from "@/types/invoice";
 import { useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { safelyToLocaleDate } from "@/utils/dateUtils";
 import { SuccessModal } from '@/components/SuccessModal';
 import { DeleteConfirmation } from '@/components/DeleteConfirmation';
 import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { cn } from "@/lib/utils";
+import { RecordSalesPaymentModal, PaymentFormData } from "@/components/payments/RecordSalesPaymentModal";
+import { RecordPurchasePaymentModal } from "@/components/payments/RecordPurchasePaymentModal";
+import { DataTablePagination } from "@/components/DataTablePagination";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 const PaymentsPage = () => {
+  const { currencySymbol, formatAmount } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -59,6 +64,7 @@ const PaymentsPage = () => {
   const activeTab: 'sales' | 'purchase' = isPurchasePath ? 'purchase' : 'sales';
 
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const initialSearch = searchParams.get('search') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
@@ -66,11 +72,10 @@ const PaymentsPage = () => {
   const [dateFilter, setDateFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const ITEMS_PER_PAGE = 50;
 
   const { data: paymentsData, isLoading: loading, isFetching: searchLoading } = usePayments({
     page: currentPage,
-    pageSize: ITEMS_PER_PAGE,
+    pageSize,
     searchTerm: debouncedSearch,
     methodFilter,
     dateFilter,
@@ -83,20 +88,34 @@ const PaymentsPage = () => {
   const invoices = invoicesData as unknown as PendingInvoiceItem[];
 
   const payments = paymentsData?.payments || [];
-  const totalPages = paymentsData ? Math.max(1, Math.ceil(paymentsData.totalCount / ITEMS_PER_PAGE)) : 1;
+  const totalPages = paymentsData ? Math.max(1, Math.ceil(paymentsData.totalCount / pageSize)) : 1;
   const queryClient = useQueryClient();
 
-  const [dialogType, setDialogType] = useState<'sales' | 'purchase'>(activeTab);
-  const [formData, setFormData] = useState({
-    invoice_id: '',
-    amount: 0,
-    payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'cash',
-    reference_number: '',
-    notes: ''
-  });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // Separate, dedicated modal states for Sales and Purchase
+  const [salesModalOpen, setSalesModalOpen] = useState(false);
+  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const [editingSalesData, setEditingSalesData] = useState<{
+    id?: string;
+    invoice_id: string;
+    amount: number;
+    payment_date: string;
+    payment_method: string;
+    reference_number: string;
+    notes: string;
+    invoice_number?: string;
+    party_name?: string;
+  } | null>(null);
+  const [editingPurchaseData, setEditingPurchaseData] = useState<{
+    id?: string;
+    invoice_id: string;
+    amount: number;
+    payment_date: string;
+    payment_method: string;
+    reference_number: string;
+    notes: string;
+    invoice_number?: string;
+    party_name?: string;
+  } | null>(null);
   const [paymentToDelete, setPaymentToDelete] = useState<string | null>(null);
 
   // Custom Modal States
@@ -165,47 +184,81 @@ const PaymentsPage = () => {
     setCurrentPage(1);
   }, [activeTab, debouncedSearch, methodFilter, dateFilter, startDate, endDate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleOpenSalesModal = (payment?: Payment) => {
+    if (payment) {
+      const p = payment as unknown as { display_number?: string; party_name?: string };
+      const displayNumber = p.display_number || payment.invoices?.invoice_number || '';
+      const partyName = p.party_name || payment.invoices?.clients?.name || '';
+      const rawDate = String(payment.payment_date || '');
+      const cleanDate = rawDate
+        ? (rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.split(' ')[0])
+        : new Date().toISOString().split('T')[0];
 
-    const errors: string[] = [];
-    if (!formData.invoice_id) {
-      errors.push(dialogType === 'sales' ? "Please select a sales invoice." : "Please select a purchase bill.");
-    }
-    if (!formData.amount || formData.amount <= 0) {
-      errors.push("Please enter a payment amount greater than zero.");
-    }
-    if (!formData.payment_date) {
-      errors.push("Payment date is required.");
-    }
-
-    if (errors.length > 0) {
-      toast({
-        variant: "destructive",
-        title: "Validation Failed",
-        description: (
-          <ul className="list-disc list-inside text-xs mt-1">
-            {errors.map((err, i) => <li key={i}>{err}</li>)}
-          </ul>
-        )
+      setEditingSalesData({
+        id: payment.id,
+        invoice_id: payment.invoice_id || '',
+        invoice_number: displayNumber,
+        party_name: partyName,
+        amount: Number(payment.amount || 0),
+        payment_date: cleanDate,
+        payment_method: payment.payment_method || 'cash',
+        reference_number: payment.reference_number || '',
+        notes: payment.notes || ''
       });
-      return;
+    } else {
+      setEditingSalesData(null);
     }
+    setSalesModalOpen(true);
+  };
 
+  const handleOpenPurchaseModal = (payment?: Payment) => {
+    if (payment) {
+      const p = payment as unknown as { display_number?: string; party_name?: string };
+      const displayNumber = p.display_number || payment.invoices?.invoice_number || '';
+      const partyName = p.party_name || payment.invoices?.clients?.name || '';
+      const rawDate = String(payment.payment_date || '');
+      const cleanDate = rawDate
+        ? (rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.split(' ')[0])
+        : new Date().toISOString().split('T')[0];
+
+      setEditingPurchaseData({
+        id: payment.id,
+        invoice_id: payment.purchase_invoice_id || payment.invoice_id || '',
+        invoice_number: displayNumber,
+        party_name: partyName,
+        amount: Number(payment.amount || 0),
+        payment_date: cleanDate,
+        payment_method: payment.payment_method || 'cash',
+        reference_number: payment.reference_number || '',
+        notes: payment.notes || ''
+      });
+    } else {
+      setEditingPurchaseData(null);
+    }
+    setPurchaseModalOpen(true);
+  };
+
+  const handleSaveSalesPayment = async (data: PaymentFormData, editingId: string | null) => {
     try {
       const clientToUse = serviceSupabase || supabase;
-      const isPurchase = dialogType === 'purchase';
 
       if (editingId) {
-        const updatePayload = {
-          amount: formData.amount,
-          payment_date: formData.payment_date,
-          payment_method: formData.payment_method,
-          reference_number: formData.reference_number,
-          notes: formData.notes,
-          invoice_id: isPurchase ? null : formData.invoice_id,
-          purchase_invoice_id: isPurchase ? formData.invoice_id : null,
+        const rawDate = String(data.payment_date || '');
+        const cleanDate = rawDate
+          ? (rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.split(' ')[0])
+          : new Date().toISOString().split('T')[0];
+
+        const updatePayload: Record<string, unknown> = {
+          amount: Number(data.amount) || 0,
+          payment_date: cleanDate,
+          payment_method: data.payment_method || 'cash',
+          reference_number: data.reference_number || '',
+          notes: data.notes || '',
         };
+
+        if (data.invoice_id && data.invoice_id.trim() !== '') {
+          updatePayload.invoice_id = data.invoice_id;
+        }
 
         const { error } = await clientToUse
           .from('payments')
@@ -214,8 +267,8 @@ const PaymentsPage = () => {
 
         if (error) throw error;
         setSuccessInfo({
-          title: "Payment Updated",
-          message: "The payment record has been successfully modified."
+          title: "Sales Payment Updated",
+          message: "The customer payment record has been successfully modified."
         });
         setShowSuccess(true);
       } else {
@@ -223,22 +276,20 @@ const PaymentsPage = () => {
           ? (staffName || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Staff Member')
           : (companyProfile?.company_name || 'Company Owner');
         
-        const selectedInvoice = invoices.find(inv => inv.id === formData.invoice_id);
-        const invTypeLabel = isPurchase ? 'Purchase Bill' : 'Sales Invoice';
+        const selectedInvoice = invoices.find(inv => inv.id === data.invoice_id);
         const invNumber = selectedInvoice?.invoice_number || '';
-        
-        const baseNote = formData.notes || `${invTypeLabel} #${invNumber} payment`;
+        const baseNote = data.notes || `Sales Invoice #${invNumber} payment`;
         const paymentNotes = `${baseNote} • Created by: ${creatorName}`;
 
         const insertPayload = {
-          amount: formData.amount,
-          payment_date: formData.payment_date,
-          payment_method: formData.payment_method,
-          reference_number: formData.reference_number,
+          amount: data.amount,
+          payment_date: data.payment_date,
+          payment_method: data.payment_method,
+          reference_number: data.reference_number,
           notes: paymentNotes,
           user_id: targetUserId,
-          invoice_id: isPurchase ? null : formData.invoice_id,
-          purchase_invoice_id: isPurchase ? formData.invoice_id : null,
+          invoice_id: data.invoice_id,
+          purchase_invoice_id: null,
         };
 
         const { error } = await clientToUse
@@ -247,68 +298,142 @@ const PaymentsPage = () => {
 
         if (error) throw error;
 
-        // Update invoice / bill status to paid
+        // Update sales invoice status to paid if not already paid
         if (selectedInvoice && selectedInvoice.status !== 'paid') {
-          const targetTable = isPurchase ? 'purchase_invoices' : 'invoices';
           await clientToUse
-            .from(targetTable)
+            .from('invoices')
             .update({ status: 'paid' })
-            .eq('id', formData.invoice_id);
+            .eq('id', data.invoice_id);
         }
 
         setSuccessInfo({
-          title: isPurchase ? "Purchase Payment Recorded" : "Sales Payment Recorded",
-          message: isPurchase
-            ? `Payment to vendor has been recorded for Bill #${invNumber}.`
-            : `Payment from customer has been recorded for Invoice #${invNumber}.`
+          title: "Sales Payment Recorded",
+          message: `Payment from customer has been recorded for Invoice #${invNumber}.`
         });
         setShowSuccess(true);
       }
 
-      resetForm();
       queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices', 'pending-for-payments'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setDialogOpen(false);
+      setSalesModalOpen(false);
     } catch (error: unknown) {
-      console.error('Error saving payment:', error);
-
+      console.error('Error saving sales payment:', error);
       const err = error as { message?: string };
       const errorMessage = err?.message || "An unexpected error occurred.";
 
       toast({
         variant: "destructive",
         title: "Save Failed",
-        description: (
-          <div className="mt-2 text-sm">
-            <p className="font-semibold text-destructive">{errorMessage}</p>
-            <div className="mt-2 p-2 bg-destructive/5 rounded border border-destructive/10 text-[10px]">
-              <p className="font-bold uppercase tracking-widest opacity-70 mb-1">Troubleshooting:</p>
-              <ul className="list-disc list-inside space-y-0.5 opacity-90">
-                <li>Entry ID: {formData.invoice_id || "N/A"}</li>
-                <li>Amount: {formData.amount || "0"}</li>
-              </ul>
-            </div>
-          </div>
-        )
+        description: errorMessage
       });
+      throw error;
+    }
+  };
+
+  const handleSavePurchasePayment = async (data: PaymentFormData, editingId: string | null) => {
+    try {
+      const clientToUse = serviceSupabase || supabase;
+
+      if (editingId) {
+        const rawDate = String(data.payment_date || '');
+        const cleanDate = rawDate
+          ? (rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.split(' ')[0])
+          : new Date().toISOString().split('T')[0];
+
+        const updatePayload: Record<string, unknown> = {
+          amount: Number(data.amount) || 0,
+          payment_date: cleanDate,
+          payment_method: data.payment_method || 'cash',
+          reference_number: data.reference_number || '',
+          notes: data.notes || '',
+        };
+
+        if (data.invoice_id && data.invoice_id.trim() !== '') {
+          updatePayload.purchase_invoice_id = data.invoice_id;
+        }
+
+        const { error } = await clientToUse
+          .from('payments')
+          .update(updatePayload)
+          .eq('id', editingId);
+
+        if (error) throw error;
+        setSuccessInfo({
+          title: "Purchase Payment Updated",
+          message: "The vendor payment record has been successfully modified."
+        });
+        setShowSuccess(true);
+      } else {
+        const creatorName = isStaff
+          ? (staffName || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Staff Member')
+          : (companyProfile?.company_name || 'Company Owner');
+        
+        const selectedInvoice = invoices.find(inv => inv.id === data.invoice_id);
+        const invNumber = selectedInvoice?.invoice_number || '';
+        const baseNote = data.notes || `Purchase Bill #${invNumber} payment`;
+        const paymentNotes = `${baseNote} • Created by: ${creatorName}`;
+
+        const insertPayload = {
+          amount: data.amount,
+          payment_date: data.payment_date,
+          payment_method: data.payment_method,
+          reference_number: data.reference_number,
+          notes: paymentNotes,
+          user_id: targetUserId,
+          invoice_id: null,
+          purchase_invoice_id: data.invoice_id,
+        };
+
+        const { error } = await clientToUse
+          .from('payments')
+          .insert([insertPayload]);
+
+        if (error) throw error;
+
+        // Update purchase bill status to paid if not already paid
+        if (selectedInvoice && selectedInvoice.status !== 'paid') {
+          await clientToUse
+            .from('purchase_invoices')
+            .update({ status: 'paid' })
+            .eq('id', data.invoice_id);
+        }
+
+        setSuccessInfo({
+          title: "Purchase Payment Recorded",
+          message: `Payment to vendor has been recorded for Bill #${invNumber}.`
+        });
+        setShowSuccess(true);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices', 'pending-for-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setPurchaseModalOpen(false);
+    } catch (error: unknown) {
+      console.error('Error saving purchase payment:', error);
+      const err = error as { message?: string };
+      const errorMessage = err?.message || "An unexpected error occurred.";
+
+      toast({
+        variant: "destructive",
+        title: "Save Failed",
+        description: errorMessage
+      });
+      throw error;
     }
   };
 
   const handleEdit = (payment: Payment) => {
-    const isPurchase = payment.invoice_type === 'purchase';
-    setDialogType(isPurchase ? 'purchase' : 'sales');
-    setFormData({
-      invoice_id: (payment.purchase_invoice_id || payment.invoice_id) || '',
-      amount: payment.amount,
-      payment_date: payment.payment_date,
-      payment_method: payment.payment_method || 'cash',
-      reference_number: payment.reference_number || '',
-      notes: payment.notes || ''
-    });
-    setEditingId(payment.id);
-    setDialogOpen(true);
+    const isPurchase = payment.invoice_type === 'purchase' || !!payment.purchase_invoice_id;
+    if (isPurchase) {
+      handleOpenPurchaseModal(payment);
+    } else {
+      handleOpenSalesModal(payment);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -320,6 +445,26 @@ const PaymentsPage = () => {
     if (!paymentToDelete) return;
     try {
       const clientToUse = serviceSupabase || supabase;
+
+      // 1. Fetch payment details before deletion to find associated invoice or purchase bill
+      const { data: rawPaymentRecord } = await clientToUse
+        .from('payments')
+        .select('id, invoice_id, purchase_invoice_id, amount')
+        .eq('id', paymentToDelete)
+        .maybeSingle();
+
+      const paymentRecord = rawPaymentRecord as unknown as {
+        id: string;
+        invoice_id?: string | null;
+        purchase_invoice_id?: string | null;
+        amount?: number | null;
+      } | null;
+
+      const localPayment = payments.find(p => p.id === paymentToDelete);
+      const targetInvoiceId = paymentRecord?.invoice_id || localPayment?.invoice_id;
+      const targetPurchaseId = paymentRecord?.purchase_invoice_id || localPayment?.purchase_invoice_id;
+
+      // 2. Delete the payment
       const { error } = await clientToUse
         .from('payments')
         .delete()
@@ -327,14 +472,121 @@ const PaymentsPage = () => {
 
       if (error) throw error;
 
+      // 3. Revert sales invoice status to 'pending' if no full payment remains
+      if (targetInvoiceId) {
+        // First: check remaining payments for this invoice (after deletion)
+        const { data: rawRemaining } = await clientToUse
+          .from('payments')
+          .select('amount')
+          .eq('invoice_id', targetInvoiceId);
+
+        const remainingTotal = ((rawRemaining as unknown as { amount: number }[]) || [])
+          .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+        // Fetch invoice to compare totals and current status
+        const { data: rawInv } = await clientToUse
+          .from('invoices')
+          .select('id, total_amount, status')
+          .eq('id', targetInvoiceId)
+          .maybeSingle();
+
+        const invRecord = rawInv as unknown as { id: string; total_amount: number; status: string } | null;
+
+        if (invRecord) {
+          // Revert if remaining payments don't fully cover the invoice amount
+          const invoiceTotal = Number(invRecord.total_amount ?? 0);
+          if (remainingTotal < invoiceTotal || remainingTotal === 0) {
+            await clientToUse
+              .from('invoices')
+              .update({ status: 'sent' })
+              .eq('id', targetInvoiceId);
+          }
+        } else {
+          // Invoice not found via primary client — try anon supabase as fallback
+          const { data: rawFallbackInv } = await supabase
+            .from('invoices')
+            .select('id, total_amount, status')
+            .eq('id', targetInvoiceId)
+            .maybeSingle();
+
+          const fallbackInv = rawFallbackInv as unknown as { id: string; total_amount: number; status: string } | null;
+
+          if (fallbackInv) {
+            const invoiceTotal = Number(fallbackInv.total_amount ?? 0);
+            if (remainingTotal < invoiceTotal || remainingTotal === 0) {
+              await supabase
+                .from('invoices')
+                .update({ status: 'sent' })
+                .eq('id', targetInvoiceId);
+            }
+          } else {
+            // Check if targetInvoiceId belongs to a purchase bill (legacy fallback)
+            const { data: rawPinv } = await clientToUse
+              .from('purchase_invoices')
+              .select('id, total_amount')
+              .eq('id', targetInvoiceId)
+              .maybeSingle();
+
+            const pinvRecord = rawPinv as unknown as { id: string; total_amount: number } | null;
+
+            if (pinvRecord) {
+              const { data: rawPRemaining } = await clientToUse
+                .from('payments')
+                .select('amount')
+                .or(`purchase_invoice_id.eq.${targetInvoiceId},invoice_id.eq.${targetInvoiceId}`);
+
+              const purchaseTotal = ((rawPRemaining as unknown as { amount: number }[]) || [])
+                .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+              if (purchaseTotal < Number(pinvRecord.total_amount ?? 0) || purchaseTotal === 0) {
+                await clientToUse
+                  .from('purchase_invoices')
+                  .update({ status: 'pending' })
+                  .eq('id', targetInvoiceId);
+              }
+            }
+          }
+        }
+      }
+
+      // 4. Revert purchase bill status to 'pending' if no full payment remains
+      if (targetPurchaseId) {
+        const { data: rawPinv } = await clientToUse
+          .from('purchase_invoices')
+          .select('id, total_amount')
+          .eq('id', targetPurchaseId)
+          .maybeSingle();
+
+        const pinvRecord = rawPinv as unknown as { id: string; total_amount: number } | null;
+
+        if (pinvRecord) {
+          const { data: rawRemainingPurchase } = await clientToUse
+            .from('payments')
+            .select('id, amount')
+            .or(`purchase_invoice_id.eq.${targetPurchaseId},invoice_id.eq.${targetPurchaseId}`);
+
+          const remainingPurchasePayments = (rawRemainingPurchase as unknown as { id: string; amount: number }[]) || [];
+          const totalPaid = remainingPurchasePayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+          if (totalPaid < Number(pinvRecord.total_amount || 0)) {
+            await clientToUse
+              .from('purchase_invoices')
+              .update({ status: 'pending' })
+              .eq('id', targetPurchaseId);
+          }
+        }
+      }
+
       setSuccessInfo({
         title: "Payment Deleted",
-        message: "The payment record has been permanently removed."
+        message: "The payment record has been removed. The invoice status has been reverted to 'Sent' and 'Mark as Paid' is now available again."
       });
       setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices', 'pending-for-payments'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     } catch (error) {
       console.error('Error deleting payment:', error);
@@ -376,27 +628,6 @@ const PaymentsPage = () => {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
-      invoice_id: '',
-      amount: 0,
-      payment_date: new Date().toISOString().split('T')[0],
-      payment_method: 'cash',
-      reference_number: '',
-      notes: ''
-    });
-    setEditingId(null);
-  };
-
-  // Filter invoices for dialog dropdown based on current dialogType (sales vs purchase)
-  // Strictly display ONLY invoices/bills marked as 'paid' that do NOT have a payment record logged yet
-  const availableInvoices = useMemo(() => {
-    return invoices.filter(
-      inv => String(inv.status || '').toLowerCase().trim() === 'paid' && 
-             inv.type === dialogType &&
-             (!inv.has_payment_record || inv.id === formData.invoice_id)
-    );
-  }, [invoices, dialogType, formData.invoice_id]);
 
   if (loading) {
     return (
@@ -469,299 +700,27 @@ const PaymentsPage = () => {
           </p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button
-              variant="default"
-              size="lg"
-              className={cn(
-                "w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95",
-                activeTab === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : ""
-              )}
-              onClick={() => {
-                setDialogType(activeTab);
-                resetForm();
-              }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              {activeTab === 'sales' ? 'Record Sales Payment' : 'Record Purchase Payment'}
-            </Button>
-          </DialogTrigger>
-
-          <DialogContent hideClose className="sm:max-w-[540px] p-0 overflow-hidden rounded-2xl border border-border/80 shadow-2xl bg-card gap-0 flex flex-col">
-            <DialogHeader className="px-5 py-3.5 border-b border-border/50 shrink-0 bg-muted/15 flex flex-row items-center justify-between gap-3 space-y-0">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className={cn(
-                  "w-8 h-8 rounded-lg shrink-0 flex items-center justify-center",
-                  dialogType === 'purchase' ? "bg-purple-500/10 text-purple-600" : "bg-emerald-500/10 text-emerald-600"
-                )}>
-                  {dialogType === 'purchase' ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4" />}
-                </div>
-                <div className="min-w-0">
-                  <DialogTitle className="text-base font-bold tracking-tight text-foreground truncate">
-                    {editingId 
-                      ? (dialogType === 'purchase' ? 'Edit Purchase Payment' : 'Edit Sales Payment')
-                      : (dialogType === 'purchase' ? 'Record Purchase Payment' : 'Record Sales Payment')}
-                  </DialogTitle>
-                  <DialogDescription className="text-[11px] text-muted-foreground truncate">
-                    {dialogType === 'purchase'
-                      ? 'Record payment outflow to vendor for a purchase bill.'
-                      : 'Record payment receipt from customer for a sales invoice.'}
-                  </DialogDescription>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Switcher within dialog if user wants to change type */}
-                {!editingId && (
-                  <div className="flex items-center p-0.5 bg-background rounded-lg border border-border/70 shadow-2xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDialogType('sales');
-                        setFormData(prev => ({ ...prev, invoice_id: '', amount: 0 }));
-                      }}
-                      className={cn(
-                        "flex items-center gap-1 py-1 px-2.5 rounded-md text-[11px] font-bold transition-all",
-                        dialogType === 'sales'
-                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 font-extrabold"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
-                      <span>Sales</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDialogType('purchase');
-                        setFormData(prev => ({ ...prev, invoice_id: '', amount: 0 }));
-                      }}
-                      className={cn(
-                        "flex items-center gap-1 py-1 px-2.5 rounded-md text-[11px] font-bold transition-all",
-                        dialogType === 'purchase'
-                          ? "bg-purple-500/15 text-purple-700 dark:text-purple-400 font-extrabold"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <ArrowUpRight className="w-3 h-3 text-purple-600" />
-                      <span>Purchase</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Clean non-overlapping Close button */}
-                <button
-                  type="button"
-                  onClick={() => setDialogOpen(false)}
-                  className="w-8 h-8 rounded-lg text-muted-foreground/70 hover:text-foreground hover:bg-muted/80 flex items-center justify-center transition-colors shrink-0"
-                  title="Close dialog"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </DialogHeader>
-
-            {/* Form Content Area with Natural Content Height (No empty bottom space) */}
-            <div className="px-5 py-4 overflow-y-auto max-h-[75vh] custom-scrollbar">
-              <form id="payment-form" onSubmit={handleSubmit} className="space-y-3.5">
-                {/* 1. Select Invoice / Bill (Full Width) */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground">
-                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                      {dialogType === 'purchase' ? 'Select Purchase Bill' : 'Select Sales Invoice'} <span className="text-rose-500">*</span>
-                    </Label>
-                    <span className="text-[10px] text-muted-foreground/80 font-normal">
-                      Only unrecorded paid {dialogType === 'purchase' ? 'bills' : 'invoices'}
-                    </span>
-                  </div>
-                  <Select
-                    value={formData.invoice_id}
-                    onValueChange={(value) => {
-                      const selectedInvoice = invoices.find(inv => inv.id === value);
-                      setFormData({
-                        ...formData,
-                        invoice_id: value,
-                        amount: Number(selectedInvoice?.total_amount || selectedInvoice?.remaining_amount || 0),
-                        payment_method: selectedInvoice?.payment_method || formData.payment_method || 'cash'
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="h-9.5 border-border/60 focus:ring-primary font-medium bg-muted/20 rounded-lg text-xs">
-                      <SelectValue placeholder={
-                        availableInvoices.length === 0 
-                          ? (dialogType === 'purchase' ? "No unrecorded paid purchase bills available" : "No unrecorded paid sales invoices available")
-                          : (dialogType === 'purchase' ? "Select unrecorded paid purchase bill..." : "Select unrecorded paid sales invoice...")
-                      } />
-                    </SelectTrigger>
-                    <SelectContent className="rounded-lg shadow-xl max-h-64">
-                      {availableInvoices.length === 0 ? (
-                        <div className="px-3 py-3 text-center text-xs text-muted-foreground italic">
-                          {dialogType === 'purchase'
-                            ? "No unrecorded paid purchase bills found. Bills that already have payments recorded do not appear here."
-                            : "No unrecorded paid sales invoices found. Invoices that already have payments recorded do not appear here."}
-                        </div>
-                      ) : (
-                        availableInvoices.map((invoice) => (
-                          <SelectItem key={invoice.id} value={invoice.id} className="cursor-pointer py-2">
-                            <div className="flex flex-col gap-0.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-xs sm:text-sm">{invoice.invoice_number}</span>
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      "text-[9px] px-1 py-0 uppercase font-semibold",
-                                      invoice.type === 'purchase'
-                                        ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
-                                        : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400"
-                                    )}
-                                  >
-                                    {invoice.type === 'purchase' ? 'Bill' : 'Invoice'}
-                                  </Badge>
-                                </div>
-                                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400">
-                                  Paid
-                                </span>
-                              </div>
-                              <span className="text-[10px] text-muted-foreground font-medium truncate">
-                                {invoice.party_name} • ₹{Number(invoice.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                {invoice.payment_method && ` • Mode: ${invoice.payment_method.toUpperCase()}`}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-
-                  {/* Compact Quick Summary of Selected Item */}
-                  {formData.invoice_id && (() => {
-                    const selected = invoices.find(inv => inv.id === formData.invoice_id);
-                    if (!selected) return null;
-                    return (
-                      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-muted/40 border border-border/40 text-[11px] animate-in fade-in duration-150">
-                        <span className="text-muted-foreground truncate">
-                          {dialogType === 'purchase' ? 'Vendor' : 'Customer'}: <strong className="text-foreground">{selected.party_name}</strong>
-                        </span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400 shrink-0 ml-2">
-                          Total: ₹{Number(selected.total_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* 2. Row: Amount & Payment Date (2 Columns) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                      {dialogType === 'purchase' ? 'Amount Paid (₹)' : 'Amount Received (₹)'} <span className="text-rose-500">*</span>
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="amount"
-                        type="number"
-                        step="0.01"
-                        value={formData.amount}
-                        onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
-                        required
-                        className="h-9.5 border-border/60 font-black text-sm bg-muted/20 rounded-lg focus:ring-primary shadow-none"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                      Payment Date <span className="text-rose-500">*</span>
-                    </Label>
-                    <Input
-                      id="payment_date"
-                      type="date"
-                      value={formData.payment_date}
-                      onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
-                      required
-                      className="h-9.5 border-border/60 font-medium bg-muted/20 rounded-lg focus:ring-primary text-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* 3. Row: Payment Mode & Reference / Txn ID (2 Columns) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Payment Mode
-                    </Label>
-                    <Select
-                      value={formData.payment_method}
-                      onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
-                    >
-                      <SelectTrigger className="h-9.5 border-border/60 font-medium bg-muted/20 rounded-lg text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-lg">
-                        <SelectItem value="cash">💵 Cash</SelectItem>
-                        <SelectItem value="upi">📱 UPI / GPay / QR</SelectItem>
-                        <SelectItem value="bank_transfer">🏛️ Bank Transfer</SelectItem>
-                        <SelectItem value="cheque">📑 Cheque / DD</SelectItem>
-                        <SelectItem value="credit_card">💳 Credit Card</SelectItem>
-                        <SelectItem value="debit_card">💳 Debit Card</SelectItem>
-                        <SelectItem value="other">⚠️ Other Mode</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Reference / Txn ID
-                    </Label>
-                    <Input
-                      id="reference_number"
-                      value={formData.reference_number}
-                      onChange={(e) => setFormData({ ...formData, reference_number: e.target.value })}
-                      placeholder="e.g. UPI Ref / UTR / Cheque #"
-                      className="h-9.5 border-border/60 font-medium bg-muted/20 rounded-lg text-xs"
-                    />
-                  </div>
-                </div>
-
-                {/* 4. Row: Internal Notes (Compact) */}
-                <div className="space-y-1">
-                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Internal Notes
-                  </Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    placeholder="Optional notes for your accounting records..."
-                    className="h-14 min-h-[56px] border-border/60 font-medium bg-muted/20 rounded-lg p-2.5 resize-none text-xs"
-                  />
-                </div>
-              </form>
-            </div>
-
-            {/* Action Footer */}
-            <div className="px-5 py-3 border-t border-border/40 bg-muted/20 flex items-center justify-end gap-2.5 shrink-0">
-              <Button type="button" variant="outline" size="sm" onClick={() => setDialogOpen(false)} className="h-9 px-4 text-xs">
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                form="payment-form"
-                size="sm"
-                className={cn(
-                  "h-9 px-4 text-xs font-bold shadow-sm",
-                  dialogType === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : ""
-                )}
-              >
-                {editingId 
-                  ? 'Update Payment' 
-                  : (dialogType === 'purchase' ? 'Save Purchase Payment' : 'Save Sales Payment')}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {activeTab === 'sales' ? (
+          <Button
+            variant="default"
+            size="lg"
+            className="w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+            onClick={() => handleOpenSalesModal()}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Record Sales Payment
+          </Button>
+        ) : (
+          <Button
+            variant="default"
+            size="lg"
+            className="w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95 bg-purple-600 hover:bg-purple-700 text-white font-bold"
+            onClick={() => handleOpenPurchaseModal()}
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Record Purchase Payment
+          </Button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -870,7 +829,7 @@ const PaymentsPage = () => {
 
         const totalAmount = isSales ? (stats?.salesTotal ?? 0) : (stats?.purchaseTotal ?? 0);
         const totalCount = isSales ? (stats?.salesRecords ?? 0) : (stats?.purchaseRecords ?? 0);
-        const settledCount = invoices.filter(inv => inv.type === activeTab && String(inv.status || '').toLowerCase().trim() === 'paid').length;
+        const pendingCount = isSales ? (stats?.pendingSalesCount ?? 0) : (stats?.pendingPurchaseCount ?? 0);
 
         const cashAmount = isSales ? (stats?.salesCash ?? 0) : (stats?.purchaseCash ?? 0);
         const cashCount = isSales ? (stats?.salesCashCount ?? 0) : (stats?.purchaseCashCount ?? 0);
@@ -902,12 +861,7 @@ const PaymentsPage = () => {
               {/* 1. Total Received / Total Paid */}
               <Card
                 onClick={() => setMethodFilter('all')}
-                className={cn(
-                  "p-3 sm:p-4 bg-card dark:bg-card border rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer select-none",
-                  methodFilter === 'all'
-                    ? "border-primary/80 ring-2 ring-primary/20 bg-primary/5 dark:bg-primary/10 shadow-md"
-                    : "border-border/70 hover:border-primary/40 hover:bg-muted/30"
-                )}
+                className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer select-none hover:border-primary/40 hover:bg-muted/30"
               >
                 <div className="flex items-center justify-between gap-1.5 mb-1.5">
                   <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Total Received" : "Total Paid"}>
@@ -922,7 +876,7 @@ const PaymentsPage = () => {
                 </div>
                 <div className="my-auto py-0.5 w-full overflow-hidden">
                   <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                    ₹&nbsp;{totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    {formatAmount(Math.round(totalAmount), { decimals: 0 })}
                   </p>
                 </div>
                 <div className="flex items-center justify-between text-[10px] font-semibold mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -953,29 +907,32 @@ const PaymentsPage = () => {
                 </p>
               </Card>
 
-              {/* 3. Paid Invoices / Paid Bills */}
-              <Card className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+              {/* 3. Pending Invoices / Pending Bills */}
+              <Card 
+                onClick={() => navigate(isSales ? '/invoices?status=pending' : '/purchase-invoices?status=pending')}
+                className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer select-none hover:border-amber-500/40 hover:bg-amber-50/10 dark:hover:bg-amber-950/10"
+              >
                 <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Paid Invoices" : "Paid Bills"}>
-                    {isSales ? "Paid Invoices" : "Paid Bills"}
+                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Pending Invoices" : "Pending Bills"}>
+                    {isSales ? "Pending Invoices" : "Pending Bills"}
                   </span>
                   <div className={cn(
                     "w-7 h-7 sm:w-8 sm:h-8 rounded-xl shrink-0 flex items-center justify-center",
-                    isSales ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                    isSales ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-orange-500/10 text-orange-600 dark:text-orange-400"
                   )}>
-                    <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </div>
                 </div>
                 <div className="my-auto py-0.5 w-full overflow-hidden">
                   <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                    {settledCount.toLocaleString('en-IN')}
+                    {pendingCount.toLocaleString('en-IN')}
                   </p>
                 </div>
                 <p className={cn(
                   "text-[10px] font-semibold mt-1.5 pt-1.5 border-t border-border/40 truncate",
-                  isSales ? "text-emerald-600/90 dark:text-emerald-400/90" : "text-purple-600/90 dark:text-purple-400/90"
+                  isSales ? "text-amber-600/90 dark:text-amber-400/90" : "text-orange-600/90 dark:text-orange-400/90"
                 )}>
-                  {isSales ? "Invoices Settled" : "Bills Cleared"}
+                  {isSales ? "Invoices Pending" : "Bills Pending"}
                 </p>
               </Card>
 
@@ -997,7 +954,7 @@ const PaymentsPage = () => {
                     </div>
                     <div className="my-auto py-0.5 w-full overflow-hidden">
                       <p className="text-base sm:text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                        ₹&nbsp;{cashAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        {formatAmount(Math.round(cashAmount), { decimals: 0 })}
                       </p>
                     </div>
                     <div className="flex items-center justify-between text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1021,7 +978,7 @@ const PaymentsPage = () => {
                     </div>
                     <div className="my-auto py-0.5 w-full overflow-hidden">
                       <p className="text-base sm:text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                        ₹&nbsp;{upiAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        {formatAmount(Math.round(upiAmount), { decimals: 0 })}
                       </p>
                     </div>
                     <div className="flex items-center justify-between text-[10px] font-semibold text-violet-600/90 dark:text-violet-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1047,7 +1004,7 @@ const PaymentsPage = () => {
                   </div>
                   <div className="my-auto py-0.5 w-full overflow-hidden">
                     <p className="text-base sm:text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      ₹&nbsp;{cashAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      {formatAmount(Math.round(cashAmount), { decimals: 0 })}
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1072,7 +1029,7 @@ const PaymentsPage = () => {
                   </div>
                   <div className="my-auto py-0.5 w-full overflow-hidden">
                     <p className="text-base sm:text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      ₹&nbsp;{upiAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      {formatAmount(Math.round(upiAmount), { decimals: 0 })}
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-violet-600/90 dark:text-violet-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1097,7 +1054,7 @@ const PaymentsPage = () => {
                   </div>
                   <div className="my-auto py-0.5 w-full overflow-hidden">
                     <p className="text-base sm:text-xl lg:text-2xl font-black text-sky-700 dark:text-sky-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      ₹&nbsp;{bankAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      {formatAmount(Math.round(bankAmount), { decimals: 0 })}
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-sky-600/90 dark:text-sky-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1122,7 +1079,7 @@ const PaymentsPage = () => {
                   </div>
                   <div className="my-auto py-0.5 w-full overflow-hidden">
                     <p className="text-base sm:text-xl lg:text-2xl font-black text-amber-700 dark:text-amber-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      ₹&nbsp;{chequeAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      {formatAmount(Math.round(chequeAmount), { decimals: 0 })}
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-amber-600/90 dark:text-amber-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1147,7 +1104,7 @@ const PaymentsPage = () => {
                   </div>
                   <div className="my-auto py-0.5 w-full overflow-hidden">
                     <p className="text-base sm:text-xl lg:text-2xl font-black text-rose-700 dark:text-rose-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      ₹&nbsp;{cardAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      {formatAmount(Math.round(cardAmount), { decimals: 0 })}
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-rose-600/90 dark:text-rose-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1172,7 +1129,7 @@ const PaymentsPage = () => {
                   </div>
                   <div className="my-auto py-0.5 w-full overflow-hidden">
                     <p className="text-base sm:text-xl lg:text-2xl font-black text-slate-700 dark:text-slate-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      ₹&nbsp;{otherAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                      {formatAmount(Math.round(otherAmount), { decimals: 0 })}
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-slate-600/90 dark:text-slate-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
@@ -1195,7 +1152,7 @@ const PaymentsPage = () => {
                     Matching {isSales ? 'customer collections' : 'vendor disbursements'} for <strong>{dateFilterLabel}</strong>:
                   </span>
                   <span className="font-extrabold text-foreground text-sm">
-                    ₹&nbsp;{(isSales ? (stats?.selectedMethodSalesTotal ?? 0) : (stats?.selectedMethodPurchaseTotal ?? 0)).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    {formatAmount(Math.round(isSales ? (stats?.selectedMethodSalesTotal ?? 0) : (stats?.selectedMethodPurchaseTotal ?? 0)), { decimals: 0 })}
                   </span>
                   <span className="text-muted-foreground text-[11px]">
                     ({isSales ? (stats?.selectedMethodSalesCount ?? 0) : (stats?.selectedMethodPurchaseCount ?? 0)} records found)
@@ -1235,13 +1192,15 @@ const PaymentsPage = () => {
           <Button
             variant="default"
             onClick={() => {
-              setDialogType(activeTab);
-              resetForm();
-              setDialogOpen(true);
+              if (activeTab === 'sales') {
+                handleOpenSalesModal();
+              } else {
+                handleOpenPurchaseModal();
+              }
             }}
             className={cn(
               "font-bold text-xs h-10 px-5",
-              activeTab === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : ""
+              activeTab === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -1249,8 +1208,128 @@ const PaymentsPage = () => {
           </Button>
         </Card>
       ) : (
-        <Card className="overflow-hidden bg-card dark:bg-card border border-border/80 rounded-2xl shadow-sm">
-          <div className="overflow-x-auto">
+        <div className="space-y-3">
+          {/* Mobile Card Layout (md:hidden) */}
+          <div className="md:hidden space-y-3">
+            {payments.map((payment) => {
+              const invoiceType = (payment as unknown as { invoice_type?: string }).invoice_type;
+              const partyName = (payment as unknown as { party_name?: string }).party_name || payment.invoices?.clients?.name || 'Unknown';
+              const displayNumber = (payment as unknown as { display_number?: string }).display_number || payment.invoices?.invoice_number || 'N/A';
+
+              return (
+                <Card key={payment.id} className="p-4 bg-card dark:bg-card border border-border/80 rounded-2xl shadow-sm space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-bold text-foreground">{displayNumber}</span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[8px] px-1.5 py-0.5 font-semibold uppercase",
+                            invoiceType === 'purchase'
+                              ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
+                              : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
+                          )}
+                        >
+                          {invoiceType === 'purchase' ? 'Purchase' : 'Sales'}
+                        </Badge>
+                      </div>
+                      <p className="text-sm font-semibold text-foreground mt-1">{partyName}</p>
+                      <p className="text-xs text-muted-foreground">{safelyToLocaleDate(payment.payment_date)}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className={cn(
+                        "text-base font-black",
+                        invoiceType === 'purchase' ? "text-purple-600 dark:text-purple-400" : "text-emerald-600 dark:text-emerald-400"
+                      )}>
+                        {formatAmount(Math.round(Number(payment.amount || 0)), { decimals: 0 })}
+                      </div>
+                      {payment.reference_number && (
+                        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">Ref: {payment.reference_number}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                    <div className="flex items-center gap-1.5">
+                      {payment.payment_method === 'pending' || !payment.payment_method ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase border border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                            >
+                              <AlertCircle className="w-3 h-3 text-amber-600" />
+                              <span>Select Method</span>
+                              <ChevronDown className="w-3 h-3 opacity-70 ml-0.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-48 p-1.5 rounded-2xl shadow-xl border border-border/80 z-50">
+                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'cash')}>
+                              <Banknote className="w-4 h-4 mr-2 text-emerald-600" /> Cash
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'upi')}>
+                              <Smartphone className="w-4 h-4 mr-2 text-violet-600" /> UPI / Online
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'bank_transfer')}>
+                              <CreditCard className="w-4 h-4 mr-2 text-blue-600" /> Bank Transfer
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'cheque')}>
+                              <FileText className="w-4 h-4 mr-2 text-amber-600" /> Cheque
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'credit_card')}>
+                              <CreditCard className="w-4 h-4 mr-2 text-rose-600" /> Credit Card
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'debit_card')}>
+                              <CreditCard className="w-4 h-4 mr-2 text-indigo-600" /> Debit Card
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[10px] uppercase font-bold px-2 py-0.5",
+                            payment.payment_method === 'cash' ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400" :
+                            payment.payment_method === 'upi' ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400" :
+                            payment.payment_method === 'bank_transfer' ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400" :
+                            payment.payment_method === 'cheque' ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400" :
+                            payment.payment_method === 'credit_card' ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400" :
+                            payment.payment_method === 'debit_card' ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400" :
+                            "dark:bg-slate-800 dark:text-slate-300"
+                          )}
+                        >
+                          {payment.payment_method.replace('_', ' ').toUpperCase()}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(payment)}
+                        className="h-8 px-2.5 text-xs font-semibold"
+                      >
+                        <Edit className="w-3.5 h-3.5 mr-1" /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(payment.id)}
+                        className="h-8 px-2.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          {/* Desktop Table View (hidden md:block) */}
+          <Card className="hidden md:block overflow-hidden bg-card dark:bg-card border border-border/80 rounded-2xl shadow-sm">
+            <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr>
@@ -1309,7 +1388,7 @@ const PaymentsPage = () => {
                           "text-sm font-bold",
                           invoiceType === 'purchase' ? "text-purple-600 dark:text-purple-400" : "text-emerald-600 dark:text-emerald-400"
                         )}>
-                          ₹{Number(payment.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatAmount(Math.round(Number(payment.amount || 0)), { decimals: 0 })}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -1426,38 +1505,42 @@ const PaymentsPage = () => {
             </table>
           </div>
         </Card>
-      )}
+      </div>
+    )}
 
       {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="flex justify-center items-center space-x-2 mt-6">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalCount={paymentsData?.totalCount || 0}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        entityName={activeTab === 'sales' ? 'sales payments' : 'purchase payments'}
+        isLoading={loading}
+      />
 
       <SuccessModal
         isOpen={showSuccess}
         onOpenChange={setShowSuccess}
         title={successInfo.title}
         message={successInfo.message}
+      />
+
+      <RecordSalesPaymentModal
+        open={salesModalOpen}
+        onOpenChange={setSalesModalOpen}
+        invoices={invoices}
+        onSubmit={handleSaveSalesPayment}
+        initialData={editingSalesData}
+      />
+
+      <RecordPurchasePaymentModal
+        open={purchaseModalOpen}
+        onOpenChange={setPurchaseModalOpen}
+        invoices={invoices}
+        onSubmit={handleSavePurchasePayment}
+        initialData={editingPurchaseData}
       />
 
       <DeleteConfirmation

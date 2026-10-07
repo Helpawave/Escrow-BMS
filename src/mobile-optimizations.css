@@ -1,0 +1,115 @@
+/* Mobile-first CSS optimizations */
+html, body {
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Touch interactions */
+* {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Optimize font rendering on mobile */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Improve button touch targets - minimum 44x44px */
+button, .btn, [role="button"], a[role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Better spacing for mobile */
+@media (max-width: 768px) {
+  /* Reduce spacing */
+  .space-y-6 > * + * {
+    margin-top: 1rem !important;
+  }
+  
+  .space-x-4 > * + * {
+    margin-left: 0.75rem !important;
+  }
+  
+  /* Optimize scrolling */
+  .overflow-x-auto, .overflow-y-auto {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .overflow-x-auto::-webkit-scrollbar,
+  .overflow-y-auto::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Premium proportional font sizes for mobile viewports */
+  h1 {
+    font-size: 2.0rem !important;
+    line-height: 2.5rem !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.025em !important;
+  }
+
+  h2 {
+    font-size: 1.625rem !important;
+    line-height: 2.125rem !important;
+    font-weight: 900 !important;
+    letter-spacing: -0.02em !important;
+  }
+
+  h3 {
+    font-size: 1.25rem !important;
+    line-height: 1.625rem !important;
+    font-weight: 800 !important;
+  }
+
+  /* Padding adjustments */
+  .p-6 {
+    padding: 1rem !important;
+  }
+
+  .px-6 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  .py-6 {
+    padding-top: 1rem !important;
+    padding-bottom: 1rem !important;
+  }
+
+  /* Card improvements */
+  .card {
+    border-radius: 0.75rem !important;
+  }
+}
+
+/* Ensure proper mobile viewport */
+@viewport {
+  width: device-width;
+  zoom: 1.0;
+}
+
+/* Fix for iOS Safari bottom bar */
+@supports (-webkit-touch-callout: none) {
+  .min-h-screen {
+    min-height: -webkit-fill-available;
+  }
+}
+
+/* Better button styling for mobile */
+@media (max-width: 768px) {
+  button {
+    font-size: 0.875rem !important;
+    padding: 0.625rem 1rem !important;
+  }
+
+  /* Icon only buttons */
+  button[size="icon"] {
+    padding: 0.5rem !important;
+  }
+}

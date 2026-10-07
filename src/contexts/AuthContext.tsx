@@ -81,6 +81,10 @@ export interface AuthContextValue {
   staffName: string | null;
   companyOwnerId: string | null;
   effectiveUserId: string | null;
+  companyProfile?: Profile | null;
+  ownerName?: string | null;
+  currentUserName?: string;
+  hasPermission?: (permissionKey: string) => boolean;
   signUp: (email: string, password: string, fullName: string, companyName: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
@@ -495,6 +499,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       staffName,
       companyOwnerId,
       effectiveUserId,
+      companyProfile: profile || null,
+      ownerName: profile?.company_name || profile?.full_name || null,
+      currentUserName: user?.user_metadata?.full_name || profile?.full_name || user?.email || '',
+      hasPermission: (permissionKey: string) => staffPermissions.includes(permissionKey),
       signUp,
       signIn,
       signInWithGoogle,

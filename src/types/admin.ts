@@ -1,3 +1,5 @@
+export type UserType = 'normal' | 'automobile' | 'food_kitchen';
+
 export interface UserData {
   user_id: string;
   company_name: string;
@@ -13,6 +15,7 @@ export interface UserData {
   is_blocked: boolean;
   is_paid?: boolean;
   whatsapp_provider?: string | null;
+  user_type?: UserType | null;
   role?: string | null;
 }
 
@@ -31,6 +34,7 @@ export interface RawUserData {
   is_blocked: boolean | null;
   is_paid: boolean | null;
   whatsapp_provider?: string | null;
+  user_type?: UserType | null;
   role?: string | null;
 }
 
@@ -53,3 +57,19 @@ export interface SystemSetting {
   key: string;
   value: string | boolean;
 }
+
+export interface AccountDeletionRequest {
+  id: string;
+  user_id: string;
+  user_email: string;
+  company_name?: string | null;
+  reason: string;
+  feedback?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
+  admin_notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  processed_at?: string | null;
+  processed_by?: string | null;
+}
+

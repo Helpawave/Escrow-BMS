@@ -19,6 +19,7 @@ import { pages } from "@/lib/pageImports";
 import { prefetchPage } from "@/utils/prefetch";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserType } from "@/hooks/useUserType";
 
 interface NavigationProps {
   className?: string;
@@ -85,6 +86,7 @@ export function Navigation({ className, onItemClick }: NavigationProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isStaff, hasPermission } = useAuth();
+  const { isAutomobile } = useUserType();
   
   const [openAccordion, setOpenAccordion] = useState<string | null>(() => {
     const initialMatch = allNavigationItems.find(item =>
@@ -95,44 +97,74 @@ export function Navigation({ className, onItemClick }: NavigationProps) {
 
   const prevPathRef = useRef(location.pathname);
 
-  // Filter navigation items dynamically based on role & permissions
+  // Filter navigation items dynamically based on role & permissions and user type
   const visibleNavigationItems = useMemo(() => {
-    if (!isStaff) {
-      return allNavigationItems;
+    let baseItems: NavItem[] = allNavigationItems;
+
+    if (isStaff) {
+      baseItems = allNavigationItems
+        .filter(item => {
+          if (item.permissionKey === 'dashboard' || item.permissionKey === 'reports' || item.permissionKey === 'roles-permissions') {
+            return false;
+          }
+          if (item.permissionKey === 'settings') {
+            return true;
+          }
+
+          if (item.subItems && item.subItems.length > 0) {
+            const permittedSubItems = item.subItems.filter(si => !si.permissionKey || hasPermission(si.permissionKey));
+            return permittedSubItems.length > 0;
+          }
+
+          return !item.permissionKey || hasPermission(item.permissionKey);
+        })
+        .map(item => {
+          if (item.subItems && item.subItems.length > 0) {
+            const filteredSub = item.subItems.filter(si => !si.permissionKey || hasPermission(si.permissionKey));
+            return {
+              ...item,
+              subItems: filteredSub
+            };
+          }
+          return item;
+        });
     }
 
-    // For Staff users:
-    // 1. Dashboard and Reports are strictly forbidden
-    // 2. Roles & Permissions is strictly forbidden
-    // 3. Only permitted tabs will be shown
-    // 4. Profile / Settings is always visible
-    return allNavigationItems
-      .filter(item => {
-        if (item.permissionKey === 'dashboard' || item.permissionKey === 'reports' || item.permissionKey === 'roles-permissions') {
-          return false;
-        }
-        if (item.permissionKey === 'settings') {
-          return true;
-        }
-
-        if (item.subItems && item.subItems.length > 0) {
-          const permittedSubItems = item.subItems.filter(si => !si.permissionKey || hasPermission(si.permissionKey));
-          return permittedSubItems.length > 0;
-        }
-
-        return !item.permissionKey || hasPermission(item.permissionKey);
-      })
-      .map(item => {
-        if (item.subItems && item.subItems.length > 0) {
-          const filteredSub = item.subItems.filter(si => !si.permissionKey || hasPermission(si.permissionKey));
+    if (isAutomobile) {
+      baseItems = baseItems.map(item => {
+        if (item.label === 'Invoices' && item.subItems) {
+          const updatedSubItems = item.subItems.map(si => {
+            if (si.path === '/invoices') {
+              return { ...si, label: "Sales & Services" };
+            }
+            return si;
+          });
+          const hasDownpayment = updatedSubItems.some(si => si.path.includes('downpayment'));
           return {
             ...item,
-            subItems: filteredSub
+            subItems: hasDownpayment ? updatedSubItems : [
+              ...updatedSubItems,
+              { label: "Downpayment Invoices", path: "/downpayment-invoices", importKey: "DownpaymentInvoices", permissionKey: "invoices" }
+            ]
+          };
+        }
+        if (item.label === 'Payments' && item.subItems) {
+          return {
+            ...item,
+            subItems: item.subItems.map(si => {
+              if (si.path === '/payments') {
+                return { ...si, label: "Sales & Services Payments" };
+              }
+              return si;
+            })
           };
         }
         return item;
       });
-  }, [isStaff, hasPermission]);
+    }
+
+    return baseItems;
+  }, [isStaff, hasPermission, isAutomobile]);
 
   // Sync with route transitions: auto-expand parent if navigating into subItems, auto-collapse if navigating out
   useEffect(() => {
@@ -228,7 +260,9 @@ export function Navigation({ className, onItemClick }: NavigationProps) {
                     {isExpanded && (
                       <ul className="ml-7 space-y-1 mt-1 border-l border-border/50 pl-2">
                         {item.subItems?.map((subItem) => {
-                          const isSubActive = location.pathname === subItem.path;
+                          const isSubActive = subItem.path.includes('?')
+                            ? (location.pathname + location.search) === subItem.path
+                            : (location.pathname === subItem.path && !location.search.includes('type='));
                           return (
                             <li key={subItem.label}>
                               <Link

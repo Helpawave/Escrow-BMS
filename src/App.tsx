@@ -364,6 +364,8 @@ export default function App() {
                           <Route path="/clients" element={<Navigate to="/billing/clients" replace />} />
                           <Route path="/vendors" element={<Navigate to="/billing/vendors" replace />} />
                           <Route path="/purchase-invoices" element={<Navigate to="/billing/purchase-invoices" replace />} />
+                          <Route path="/downpayment-invoices" element={<Navigate to="/billing/downpayment-invoices" replace />} />
+                          <Route path="/create-downpayment" element={<Navigate to="/billing/create-invoice?type=downpayment" replace />} />
                           <Route path="/expenses" element={<Navigate to="/billing/expenses" replace />} />
                           <Route path="/payments" element={<Navigate to="/billing/payments" replace />} />
                           <Route path="/e-invoice" element={<Navigate to="/billing/e-invoice" replace />} />

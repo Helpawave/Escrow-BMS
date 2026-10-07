@@ -11,6 +11,7 @@ export const pages = {
   // Billing Module Pages
   BillDashboard: () => import('@/pages/bill/Dashboard'),
   Invoices: () => import('@/pages/bill/Invoices'),
+  DownpaymentInvoices: () => import('@/pages/bill/DownpaymentInvoices'),
   PurchaseInvoices: () => import('@/pages/bill/PurchaseInvoices'),
   Clients: () => import('@/pages/bill/Clients'),
   Vendors: () => import('@/pages/bill/Vendors'),

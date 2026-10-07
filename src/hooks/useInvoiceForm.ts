@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQueryClient } from "@tanstack/react-query";
-import { supabase as rawSupabase } from "@/integrations/supabase/client";
-const supabase = rawSupabase as any;
+import { supabase as rawSupabase, serviceSupabase as rawServiceSupabase } from "@/integrations/supabase/client";
+const supabase = (rawServiceSupabase || rawSupabase) as any;
+const serviceSupabase = (rawServiceSupabase || rawSupabase) as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Client, Product, Vendor, InvoiceItem, Invoice, PurchaseInvoice, Expense } from '@/types/invoice';
-import { adjustStock, adjustStockBatch } from '@/utils/inventory';
-import { postInvoiceToLedger, syncUserAcrossAllModules } from '@/utils/erpPosting';
+import { adjustStock, formatCategory } from '@/utils/inventory';
+import { postInvoiceToLedger } from '@/utils/erpPosting';
 import { calculateItemAmount as calcItemAmount, generateInvoiceNumber as genInvNum } from '@/utils/invoice-helpers';
 import { type HSNCode } from '@/types/hsn';
 import { type InvoiceFormData } from '@/components/invoice/InvoiceHeader';
+import { useCurrency } from "@/contexts/CurrencyContext";
+import { UncatalogedProductItem, IncompleteItem } from '@/components/invoice/UncatalogedProductsModal';
+import { useUserType } from "@/hooks/useUserType";
 // import hsnData from '@/data/hsnCodes.json'; // Removed static import for bundle optimization
-
-const getProductPrice = (product: Product): number => Number(product.price ?? product.rate ?? 0);
 
 export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const queryClient = useQueryClient();
@@ -28,13 +30,19 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     notes: '',
     terms: 'Payment due within 30 days',
-    status: 'paid'
+    status: 'pending',
+    invoice_number: '',
+    payment_method: 'cash'
   });
   const [items, setItems] = useState<InvoiceItem[]>([
-    { description: '', quantity: 0, rate: 0, discount: 0, tax_rate: 0, amount: 0 }
+    { product_name: '', description: '', quantity: 0, rate: 0, discount: 0, tax_rate: 0, amount: 0 }
   ]);
+  const [uncatalogedModalOpen, setUncatalogedModalOpen] = useState(false);
+  const [uncatalogedItemsList, setUncatalogedItemsList] = useState<UncatalogedProductItem[]>([]);
+  const [incompleteItemsList, setIncompleteItemsList] = useState<IncompleteItem[]>([]);
 
-  const { user, profile } = useAuth();
+  const { user, effectiveUserId, isStaff, companyProfile, profile, staffName, currentUserName } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
   const navigate = useNavigate();
   const { invoiceId: paramsId } = useParams<{ invoiceId?: string }>();
@@ -42,13 +50,29 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const invoiceId = initialId || paramsId;
   const location = useLocation();
   const [searchParams] = useState(() => new URLSearchParams(location.search));
+  const { currencySymbol: globalCurrencySymbol, convertFromINR, convertToINR, inrPerUnit } = useCurrency();
+  const symbolMap: Record<string, string> = {
+    'INR': '₹',
+    'USD': '$',
+    'EUR': '€',
+    'GBP': '£',
+    'DOLLAR': '$',
+    'RUPEE': '₹',
+    'EURO': '€',
+    'POUND': '£'
+  };
+
   const isEditing = Boolean(invoiceId);
   const [invoiceNumber, setInvoiceNumber] = useState<string | null>(null);
   const [invoiceStatus, setInvoiceStatus] = useState<string>('draft');
   const [invoiceCurrency, setInvoiceCurrency] = useState<string>('INR');
-  const [currencySymbol, setCurrencySymbol] = useState<string>('₹');
+  const [currencySymbol, setCurrencySymbol] = useState<string>(globalCurrencySymbol || '₹');
 
-  const targetUserId = profile?.parent_user_id || user?.id;
+  useEffect(() => {
+    if (!isEditing && globalCurrencySymbol) {
+      setCurrencySymbol(globalCurrencySymbol);
+    }
+  }, [globalCurrencySymbol, isEditing]);
 
   const initialBillingType = (
     searchParams.get('type') === 'purchase'
@@ -60,26 +84,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       : 'sales'
   ) as 'sales' | 'purchase' | 'ledger' | 'quotation';
   const [billingType, setBillingType] = useState<'sales' | 'purchase' | 'ledger' | 'quotation'>(initialBillingType);
-  const [ledgerParties, setLedgerParties] = useState<Array<{ id: string; party_name: string; status: 'take' | 'give'; balance: number; last_date?: string; phone?: string }>>([]);
+  const [ledgerParties, setLedgerParties] = useState<Array<{ id: string; party_name: string; status: 'take' | 'give'; balance: number; last_date?: string; phone?: string; system_type?: string }>>([]);
   const [selectedLedgerPartyId, setSelectedLedgerPartyId] = useState<string | null>(searchParams.get('partyId') || null);
-
   const [isPurchase, setIsPurchase] = useState(() => initialBillingType === 'purchase');
-
-  useEffect(() => {
-    const sType = searchParams.get('type') || searchParams.get('billingType');
-    const computedType = (
-      sType === 'purchase'
-        ? 'purchase'
-        : sType === 'ledger'
-        ? 'ledger'
-        : sType === 'quotation'
-        ? 'quotation'
-        : 'sales'
-    ) as 'sales' | 'purchase' | 'ledger' | 'quotation';
-
-    setBillingType(computedType);
-    setIsPurchase(computedType === 'purchase');
-  }, [searchParams]);
+  const [isDownpayment, setIsDownpayment] = useState(() => searchParams.get('type') === 'downpayment');
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [invoiceLoading, setInvoiceLoading] = useState<boolean>(isEditing);
   const [clientSearchOpen, setClientSearchOpen] = useState(false);
@@ -89,9 +97,6 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [newClientFormData, setNewClientFormData] = useState({
     name: '', email: '', phone: '', address: '', city: '',
     state: '', postal_code: '', country: 'India', gstin: '',
-    company_name: '', opening_balance: 0, balance_type: 'to_receive',
-    credit_limit: 0, payment_terms_days: 30, notes: '',
-    discount_percentage: 0, default_currency: 'INR',
     hide_contact_details: false
   });
   const [creatingClient, setCreatingClient] = useState(false);
@@ -110,9 +115,13 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [newProductActiveTab, setNewProductActiveTab] = useState("basic");
   const [newProductFormData, setNewProductFormData] = useState({
-    name: '', description: '', price: 0, sales_price: 0, purchase_price: 0,
-    unit: 'pcs', category: '', hsn_code: '', sku: '',
-    tax_rate: 18, opening_stock: 0, discount: 0, type: 'Goods' as 'Goods' | 'Service'
+    name: '', type: 'product', category: '', sales_price: '',
+    price_with_tax: true, tax_rate: '18', unit: 'pcs',
+    opening_stock: '', description: '',
+    purchase_price: '', sku: '', discount: '',
+    hsn_code: '', barcode: '', alternative_unit: '',
+    as_of_date: new Date().toISOString().split('T')[0], low_stock_warning: false,
+    vendor_id: ''
   });
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [qrPrintStep, setQrPrintStep] = useState<'select' | 'preview'>('select');
@@ -137,9 +146,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     if (showHSNDialog && hsnCodesData.length === 0) {
       const loadHSN = async () => {
         try {
-          const res = await fetch('/data/hsnCodes.json');
-          const data = await res.json();
-          setHsnCodesData(data as HSNCode[]);
+          const module = await import('@/data/hsnCodes.json');
+          setHsnCodesData(module.default as unknown as HSNCode[]);
         } catch (error) {
           console.error('Failed to load HSN codes:', error);
         }
@@ -174,30 +182,80 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const fetchUserSettings = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('user_settings')
-        .select('hide_company_details')
+        .select('hide_company_details, default_currency, default_payment_terms, default_terms')
         .eq('user_id', targetUserId)
-        .single();
+        .maybeSingle();
       if (!error && data) {
-        setHideCompanyDetails((data as unknown as { hide_company_details: boolean }).hide_company_details || false);
+        const s = data as unknown as {
+          hide_company_details?: boolean;
+          default_currency?: string;
+          default_payment_terms?: string;
+          default_terms?: string;
+        };
+        setHideCompanyDetails(s.hide_company_details || false);
+        if (s.default_currency && !isEditing) {
+          const curr = s.default_currency.trim();
+          setInvoiceCurrency(curr);
+          const mapped = symbolMap[curr.toUpperCase()] || symbolMap[curr];
+          if (mapped) setCurrencySymbol(mapped);
+        }
+        if (!isEditing) {
+          setFormData(prev => {
+            const updates: Partial<InvoiceFormData> = {};
+            let paymentDays = 30;
+            if (s.default_payment_terms) {
+              const match = s.default_payment_terms.match(/\d+/);
+              if (match) {
+                const days = parseInt(match[0], 10);
+                if (!isNaN(days) && days >= 0) {
+                  paymentDays = days;
+                  const baseDate = prev.issue_date ? new Date(prev.issue_date) : new Date();
+                  const due = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+                  updates.due_date = due.toISOString().split('T')[0];
+                }
+              }
+            }
+            if (s.default_terms && s.default_terms.trim()) {
+              updates.terms = s.default_terms.trim();
+            } else {
+              updates.terms = paymentDays === 0 ? 'Payment due on receipt' : `Payment due within ${paymentDays} days`;
+            }
+            return { ...prev, ...updates };
+          });
+        }
       }
     } catch (e) {
       console.error('Error fetching user settings:', e);
     }
-  }, [targetUserId]);
+  }, [targetUserId, isEditing]);
 
   const fetchClients = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('clients')
         .select('*')
         .eq('user_id', targetUserId)
         .order('name', { ascending: true });
 
       if (error) throw error;
-      setClients((data as unknown as Client[]) || []);
+      const rawClients = (data as unknown as Client[]) || [];
+      const uniqueClients: Client[] = [];
+      const seenNames = new Set<string>();
+      for (const c of rawClients) {
+        const key = (c.name || '').trim().toLowerCase();
+        if (key && !seenNames.has(key)) {
+          seenNames.add(key);
+          uniqueClients.push(c);
+        } else if (!key) {
+          uniqueClients.push(c);
+        }
+      }
+      setClients(uniqueClients);
     } catch (error) {
       console.error('Error fetching clients:', error);
       toast({
@@ -211,14 +269,27 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const fetchVendors = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('vendors')
         .select('*')
         .eq('user_id', targetUserId)
         .order('name', { ascending: true });
 
       if (error) throw error;
-      setVendors((data as unknown as Vendor[]) || []);
+      const rawVendors = (data as unknown as Vendor[]) || [];
+      const uniqueVendors: Vendor[] = [];
+      const seenNames = new Set<string>();
+      for (const v of rawVendors) {
+        const key = (v.name || '').trim().toLowerCase();
+        if (key && !seenNames.has(key)) {
+          seenNames.add(key);
+          uniqueVendors.push(v);
+        } else if (!key) {
+          uniqueVendors.push(v);
+        }
+      }
+      setVendors(uniqueVendors);
     } catch (error) {
       console.error('Error fetching vendors:', error);
     }
@@ -227,7 +298,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const fetchProducts = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('products')
         .select('*')
         .eq('user_id', targetUserId)
@@ -247,41 +319,35 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   }, [targetUserId, toast]);
 
-  const isUUID = (str?: string) => !!str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
-
   const fetchBillableExpenses = useCallback(async (clientId: string) => {
-    if (!clientId || !isUUID(clientId) || !user?.id) {
-      setBillableExpenses([]);
-      return;
-    }
+    if (!clientId || !targetUserId) return;
     setFetchingExpenses(true);
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('expenses')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .eq('client_id', clientId)
         .eq('is_billable', true);
 
-      if (error) {
-        setBillableExpenses([]);
-      } else {
-        setBillableExpenses((data as unknown as Expense[]) || []);
-      }
-    } catch {
-      setBillableExpenses([]);
+      if (error) throw error;
+      setBillableExpenses((data as unknown as Expense[]) || []);
+    } catch (error) {
+      console.error('Error fetching billable expenses:', error);
     } finally {
       setFetchingExpenses(false);
     }
-  }, [user]);
+  }, [targetUserId]);
 
   const fetchLedgerPartiesWithBalance = useCallback(async () => {
-    if (!user) return;
+    if (!targetUserId) return;
     try {
-      const { data: partiesData, error: pErr } = await supabase
+      const client = (serviceSupabase || supabase) as any;
+      const { data: partiesData, error: pErr } = await client
         .from('parties')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('party_name', { ascending: true });
 
       if (pErr) throw pErr;
@@ -297,7 +363,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       });
 
       try {
-        const { data: latestTxns } = await supabase
+        const { data: latestTxns } = await client
           .from('transactions')
           .select('party_id, credit, debit, created_at')
           .in('party_id', partyIds)
@@ -317,25 +383,20 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           });
         }
       } catch (txnErr) {
-        console.warn("Could not aggregate transactions in useInvoiceForm:", txnErr);
+        console.warn('Could not compute exact ledger balance, falling back to static:', txnErr);
       }
 
       const partiesWithBal = partiesData.map((p: any) => {
-        const info = balMap.get(p.id);
-        const bal = info?.balance ?? 0;
-        // In Accounting & Ledger:
-        // Debit (balance < 0) -> Payable (Dena)
-        // Credit (balance > 0) -> Receivable (Lena)
-        // If balance === 0, fallback to party status
-        const effectiveStatus: 'take' | 'give' = bal < 0 ? 'give' : bal > 0 ? 'take' : ((p.status || 'take') as 'take' | 'give');
+        const computed = balMap.get(p.id);
+        const finalBal = computed ? computed.balance : (Number(p.balance) || 0);
         return {
           id: p.id,
           party_name: p.party_name,
-          status: effectiveStatus,
-          balance: bal,
-          last_date: info?.last_date,
           phone: p.phone,
-          system_type: p.system_type || 'normal'
+          system_type: p.system_type,
+          status: finalBal >= 0 ? ('take' as const) : ('give' as const),
+          balance: Math.abs(finalBal),
+          last_date: computed?.last_date
         };
       });
 
@@ -343,58 +404,32 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } catch (err) {
       console.error('Error fetching ledger parties for billing:', err);
     }
-  }, [user]);
-
-  const lastSelectedPartyRef = useRef<string | null>(null);
+  }, [targetUserId]);
 
   const handleLedgerPartySelect = useCallback(async (partyId: string, customAmount?: number) => {
     setSelectedLedgerPartyId(partyId);
     const party = ledgerParties.find(p => p.id === partyId);
     if (!party) return;
 
-    // Determine Debit (Payable) vs Credit (Receivable)
-    const isPayable = party.balance < 0 || (party.balance === 0 && party.status === 'give');
-    const balanceTypeLabel = isPayable ? 'Payable (Debit)' : 'Receivable (Credit)';
-
-    // Match with client by name
     let matchedClient = clients.find(c => c.name.toLowerCase() === party.party_name.toLowerCase());
-    
-    // If not found in local clients, check DB before inserting to prevent duplicate creation
-    if (!matchedClient && user) {
+
+    if (!matchedClient && targetUserId) {
       try {
-        const { data: existingClientData } = await supabase
+        const client = (serviceSupabase || supabase) as any;
+        const { data: newClientData } = await client
           .from('clients')
-          .select('*')
-          .eq('user_id', user.id)
-          .ilike('name', party.party_name.trim())
-          .limit(1);
-
-        if (existingClientData && existingClientData.length > 0) {
-          matchedClient = existingClientData[0] as Client;
-          setClients(prev => {
-            if (prev.some(c => c.id === matchedClient!.id)) return prev;
-            return [...prev, matchedClient!];
-          });
-        } else {
-          const { data: newClientData } = await supabase
-            .from('clients')
-            .insert([{
-              id: crypto.randomUUID(),
-              user_id: user.id,
-              name: party.party_name.trim(),
-              phone: party.phone || '',
-              email: ''
-            }])
-            .select()
-            .maybeSingle();
-
-          if (newClientData) {
-            matchedClient = newClientData as unknown as Client;
-            setClients(prev => {
-              if (prev.some(c => c.id === matchedClient!.id)) return prev;
-              return [...prev, matchedClient!];
-            });
-          }
+          .insert([{
+            id: crypto.randomUUID(),
+            user_id: targetUserId,
+            name: party.party_name,
+            phone: party.phone || '',
+            email: ''
+          }])
+          .select()
+          .single();
+        if (newClientData) {
+          matchedClient = newClientData as unknown as Client;
+          setClients(prev => [...prev, matchedClient!]);
         }
       } catch (err) {
         console.warn("Could not auto-link client for ledger billing:", err);
@@ -405,20 +440,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       setFormData(prev => ({
         ...prev,
         client_id: matchedClient!.id,
-        notes: `Settlement bill against Account Ledger balance of ₹${Math.abs(party.balance).toLocaleString('en-IN')} (${balanceTypeLabel}).`
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        notes: `Settlement bill for party: ${party.party_name}. Account Ledger balance: ₹${Math.abs(party.balance).toLocaleString('en-IN')} (${balanceTypeLabel}).`
+        notes: `Settlement bill against Account Ledger balance of ₹${Math.abs(party.balance).toLocaleString()} (${party.status === 'take' ? 'Receivable' : 'Payable'}).`
       }));
     }
 
-    const billAmount = customAmount !== undefined ? customAmount : (Math.abs(party.balance) || 0);
-
+    const billAmount = customAmount !== undefined ? customAmount : Math.abs(party.balance);
     setItems([
       {
-        description: `Ledger Balance Settlement - ${party.party_name} (${balanceTypeLabel})`,
+        product_name: `Ledger Settlement (${party.party_name})`,
+        description: `Settlement balance adjustment against ledger statement (${party.status === 'take' ? 'Receivable' : 'Payable'})`,
         quantity: 1,
         rate: billAmount,
         discount: 0,
@@ -426,15 +456,43 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         amount: billAmount
       }
     ]);
-  }, [ledgerParties, clients, user]);
+  }, [ledgerParties, clients, targetUserId]);
 
-  const handleSetBillingType = useCallback((type: 'sales' | 'purchase' | 'ledger') => {
+  const handleSetBillingType = useCallback((type: 'sales' | 'purchase' | 'ledger' | 'quotation') => {
     setBillingType(type);
     setIsPurchase(type === 'purchase');
     if (type === 'ledger') {
       fetchLedgerPartiesWithBalance();
     }
   }, [fetchLedgerPartiesWithBalance]);
+
+  useEffect(() => {
+    const sType = searchParams.get('type') || searchParams.get('billingType');
+    const computedType = (
+      sType === 'purchase'
+        ? 'purchase'
+        : sType === 'ledger'
+        ? 'ledger'
+        : sType === 'quotation'
+        ? 'quotation'
+        : 'sales'
+    ) as 'sales' | 'purchase' | 'ledger' | 'quotation';
+
+    setBillingType(computedType);
+    setIsPurchase(computedType === 'purchase');
+    if (computedType === 'ledger') {
+      fetchLedgerPartiesWithBalance();
+    }
+  }, [searchParams, fetchLedgerPartiesWithBalance]);
+
+  useEffect(() => {
+    if (billingType === 'ledger' && ledgerParties.length > 0) {
+      const targetPartyId = searchParams.get('partyId') || selectedLedgerPartyId;
+      if (targetPartyId) {
+        handleLedgerPartySelect(targetPartyId);
+      }
+    }
+  }, [billingType, ledgerParties, searchParams, selectedLedgerPartyId, handleLedgerPartySelect]);
 
   useEffect(() => {
     if (formData.client_id) {
@@ -445,80 +503,80 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   }, [formData.client_id, fetchBillableExpenses]);
 
   useEffect(() => {
-    if (user) {
+    if (targetUserId) {
       fetchClients();
       fetchVendors();
       fetchProducts();
       fetchUserSettings();
       fetchLedgerPartiesWithBalance();
     }
-  }, [user, fetchClients, fetchProducts, fetchUserSettings, fetchVendors, fetchLedgerPartiesWithBalance]);
+  }, [targetUserId, fetchClients, fetchProducts, fetchUserSettings, fetchVendors, fetchLedgerPartiesWithBalance]);
+
+  // Enhancement for Cloud Kitchen (food_kitchen user type or Geeta): Pre-fill single Client and Product
+  const { isFoodKitchen } = useUserType();
+  const isCloudKitchenUser = isFoodKitchen || 
+    targetUserId === 'dddbc465-7743-42c6-88f0-039a4332711d' || 
+    profile?.company_name?.toLowerCase().includes('geeta') || 
+    companyProfile?.company_name?.toLowerCase().includes('geeta') ||
+    user?.email === 'krishnayadav240225@gmail.com';
+
+  const hasAutoFilledGeeta = useRef(false);
 
   useEffect(() => {
-    if (billingType === 'ledger' && ledgerParties.length > 0) {
-      const targetPartyId = searchParams.get('partyId') || selectedLedgerPartyId;
-      if (targetPartyId && lastSelectedPartyRef.current !== targetPartyId) {
-        lastSelectedPartyRef.current = targetPartyId;
-        handleLedgerPartySelect(targetPartyId);
-      }
-    }
-  }, [billingType, ledgerParties, searchParams, selectedLedgerPartyId, handleLedgerPartySelect]);
+    if (!isEditing && !isPurchase && isCloudKitchenUser && !hasAutoFilledGeeta.current) {
+      if (clients.length > 0 && products.length > 0) {
+        hasAutoFilledGeeta.current = true;
+        // 1. Pre-select client (Krishna Yadav or first client)
+        const kitchenClient = clients.find(c => c.name?.toLowerCase().includes('krishna')) || clients[0];
+        if (kitchenClient && !formData.client_id) {
+          setFormData(prev => ({ ...prev, client_id: kitchenClient.id }));
+        }
 
-  // Handle pre-filled product for Purchase Bill (e.g. from Low Stock Reorder 1-Click Modal)
-  const hasPrefilledRef = useRef(false);
-  useEffect(() => {
-    if (isEditing || hasPrefilledRef.current) return;
+        // 2. Pre-fill product item (Biryani or first product)
+        const kitchenProduct = products.find(p => p.name?.toLowerCase().includes('biryani')) || products[0];
+        if (kitchenProduct) {
+          const qty = 1;
+          const rate = Number(kitchenProduct.price || 0);
+          const disc = Number(kitchenProduct.discount || 0);
+          const tax = Number(kitchenProduct.tax_rate || 0);
+          const amt = calcItemAmount(qty, rate, disc, tax);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const prefillData = (location.state as any)?.prefillProduct;
-    const prefillId = prefillData?.id || searchParams.get('prefillProductId') || searchParams.get('productId');
-    const prefillQty = Number(prefillData?.quantity || searchParams.get('qty') || 1);
-    const prefillRate = Number(prefillData?.rate || searchParams.get('rate') || 0);
-    const prefillSupplier = prefillData?.supplier || searchParams.get('supplier') || '';
-
-    if (isPurchase && (prefillData || prefillId)) {
-      hasPrefilledRef.current = true;
-
-      const matchedProd = products.find(p => String(p.id) === String(prefillId)) || prefillData;
-      const rateToUse = prefillRate > 0 ? prefillRate : (Number(matchedProd?.cost) || Number(matchedProd?.price) || 0);
-      const qtyToUse = prefillQty > 0 ? prefillQty : 10;
-
-      setItems([{
-        product_id: matchedProd?.id ? String(matchedProd.id) : (prefillId ? String(prefillId) : undefined),
-        description: matchedProd?.name || prefillData?.name || 'Reorder Item',
-        quantity: qtyToUse,
-        rate: rateToUse,
-        discount: 0,
-        tax_rate: 0,
-        amount: qtyToUse * rateToUse
-      }]);
-
-      if (prefillSupplier && vendors.length > 0) {
-        const matchedVendor = vendors.find(v => v.name.toLowerCase() === prefillSupplier.toLowerCase());
-        if (matchedVendor) {
-          setFormData(prev => ({ ...prev, vendor_id: matchedVendor.id }));
+          setItems([
+            {
+              product_id: kitchenProduct.id,
+              product_name: kitchenProduct.name,
+              description: kitchenProduct.description || '',
+              quantity: qty,
+              rate: rate,
+              discount: disc,
+              tax_rate: tax,
+              hsn_code: kitchenProduct.hsn_code || '',
+              unit: kitchenProduct.unit || 'unit',
+              amount: amt
+            }
+          ]);
         }
       }
     }
-  }, [isEditing, isPurchase, location.state, searchParams, products, vendors]);
+  }, [clients, products, isEditing, isPurchase, isCloudKitchenUser, formData.client_id]);
 
   // Load existing invoice if editing
   useEffect(() => {
-    if (!user || !isEditing || !invoiceId) return;
+    if (!isEditing || !invoiceId) return;
 
     const loadInvoice = async () => {
       setInvoiceLoading(true);
       try {
+        const clientToUse = serviceSupabase || supabase;
         const table = isPurchase ? 'purchase_invoices' : 'invoices';
         const itemsTable = isPurchase ? 'purchase_invoice_items' : 'invoice_items';
         const foreignKey = 'invoice_id';
 
-        const { data: invoiceData, error: invoiceError } = await supabase
+        const { data: invoiceData, error: invoiceError } = await clientToUse
           .from(table)
           .select('*')
           .eq('id', invoiceId)
-          .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
         if (invoiceError) throw invoiceError;
         if (!invoiceData) throw new Error('Invoice not found');
@@ -526,10 +584,22 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         const typedInvoice = invoiceData as unknown as Invoice;
         const typedPurchase = invoiceData as unknown as PurchaseInvoice;
 
+        const isDp = Boolean(
+          typedInvoice.invoice_number?.startsWith('DP-') ||
+          typedInvoice.notes?.includes('is_downpayment') ||
+          typedInvoice.notes?.includes('Vehicle:') ||
+          typedInvoice.terms?.toLowerCase().includes('downpayment') ||
+          typedInvoice.payment_terms?.toLowerCase().includes('downpayment')
+        );
+        if (isDp) {
+          setIsDownpayment(true);
+        }
+
         setInvoiceNumber(typedInvoice.invoice_number || null);
         setInvoiceStatus(typedInvoice.status || 'draft');
-        setInvoiceCurrency(typedInvoice.currency || 'INR');
-        setCurrencySymbol(typedInvoice.currency === 'USD' ? '$' : '₹');
+        const currentCurrency = typedInvoice.currency || 'INR';
+        setInvoiceCurrency(currentCurrency);
+        setCurrencySymbol(symbolMap[currentCurrency.toUpperCase()] || symbolMap[currentCurrency] || globalCurrencySymbol || '₹');
 
         setFormData({
           client_id: isPurchase ? '' : typedInvoice.client_id || '',
@@ -538,12 +608,14 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           notes: typedInvoice.notes || '',
           terms: typedInvoice.terms || (isPurchase ? 'Payment due as per terms' : 'Payment due within 30 days'),
           vendor_id: isPurchase ? (typedPurchase.vendor_id || '') : (typedInvoice.vendor_id || ''),
-          status: typedInvoice.status || 'paid'
+          status: typedInvoice.status || 'pending',
+          invoice_number: typedInvoice.invoice_number || '',
+          payment_method: 'cash'
         });
 
-        const { data: itemsData, error: itemsError } = await supabase
+        const { data: itemsData, error: itemsError } = await clientToUse
           .from(itemsTable)
-          .select('*')
+          .select('*, products(name, hsn_code)')
           .eq(foreignKey, invoiceId);
 
         if (itemsError) throw itemsError;
@@ -559,6 +631,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
               discount?: number;
               tax_rate?: number;
               amount?: number;
+              hsn_code?: string;
+              products?: { name: string; hsn_code?: string } | null;
             }>).map((item) => {
               const quantity = item.quantity || 0;
               const rate = item.rate || 0;
@@ -573,7 +647,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
               return {
                 id: item.id,
                 product_id: item.product_id || undefined,
+                product_name: item.products?.name || '',
+                name: item.products?.name || '',
                 description: item.description || '',
+                hsn_code: item.hsn_code || item.products?.hsn_code || '',
                 quantity,
                 rate,
                 discount,
@@ -600,7 +677,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   }, [user, isEditing, invoiceId, toast, navigate, isPurchase]);
 
   const addItem = () => {
-    setItems([...items, { description: '', quantity: 1, rate: 0, discount: 0, tax_rate: 0, amount: 0 }]);
+    setItems([...items, { product_name: '', description: '', quantity: 0, rate: 0, discount: 0, tax_rate: 0, amount: 0 }]);
     isDirty.current = true;
   };
 
@@ -608,7 +685,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     if (items.length > 1) {
       setItems(items.filter((_, i) => i !== index));
     } else {
-      setItems([{ description: '', quantity: 1, rate: 0, discount: 0, tax_rate: 0, amount: 0 }]);
+      setItems([{ product_name: '', description: '', quantity: 0, rate: 0, discount: 0, tax_rate: 0, amount: 0 }]);
     }
     isDirty.current = true;
   };
@@ -639,41 +716,34 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
   const applyProductToItem = useCallback((product: Product, index: number) => {
     const newItems = [...items];
-    const targetQty = (newItems[index] && newItems[index].quantity > 0) ? newItems[index].quantity : 1;
-    const itemDiscount = typeof product.discount === 'number' ? product.discount : (parseFloat(String(product.discount)) || 0);
-    const itemRate = getProductPrice(product);
-
+    const baseInrRate = isPurchase ? (product.purchase_price || product.price) : product.price;
+    const defaultRate = invoiceCurrency !== 'INR' ? convertFromINR(baseInrRate) : baseInrRate;
     newItems[index] = {
       ...newItems[index],
       product_id: product.id,
-      description: product.description?.trim() ? product.description : product.name,
-      quantity: targetQty,
-      rate: itemRate,
-      discount: itemDiscount,
+      product_name: product.name,
+      name: product.name,
+      description: product.description?.trim() ? product.description : '',
+      hsn_code: product.hsn_code || newItems[index].hsn_code || '',
+      rate: defaultRate,
+      discount: typeof product.discount === 'number' ? product.discount : (parseFloat(String(product.discount)) || 0),
       tax_rate: product.tax_rate,
-      amount: calcItemAmount(targetQty, itemRate, itemDiscount, product.tax_rate)
+      amount: calcItemAmount(newItems[index].quantity, defaultRate, newItems[index].discount, product.tax_rate)
     };
     setItems(newItems);
     isDirty.current = true;
-  }, [items]);
+  }, [items, isPurchase, invoiceCurrency, convertFromINR]);
 
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientFormData.name?.trim() || !newClientFormData.phone?.trim() || !newClientFormData.address?.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Validation Failed",
-        description: "Client name, phone number, and address are required."
-      });
-      return;
-    }
+    if (!newClientFormData.name || !newClientFormData.phone) return;
 
     setCreatingClient(true);
     try {
-      const { hide_contact_details, ...clientPayload } = newClientFormData;
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('clients')
-        .insert([{ ...clientPayload, user_id: user?.id }])
+        .insert([{ ...newClientFormData, user_id: targetUserId }])
         .select()
         .single();
 
@@ -710,9 +780,10 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
     setCreatingVendor(true);
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('vendors')
-        .insert([{ ...newVendorFormData, user_id: user?.id }])
+        .insert([{ ...newVendorFormData, user_id: targetUserId }])
         .select()
         .single();
 
@@ -724,20 +795,6 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
       // Invalidate queries to refresh lists
       queryClient.invalidateQueries({ queryKey: ['vendors'] });
-
-      // Sync to Account Ledger (parties table with status 'give')
-      try {
-        await syncUserAcrossAllModules({
-          name: newVendor.name,
-          email: newVendor.email || '',
-          phone: newVendor.phone || '',
-          companyName: newVendor.name,
-          status: 'give'
-        });
-        queryClient.invalidateQueries({ queryKey: ['parties'] });
-      } catch (pErr) {
-        console.warn("Auto party sync warning for new vendor:", pErr);
-      }
 
       // Use toast instead of success modal to avoid navigating away from create invoice
       toast({
@@ -763,7 +820,11 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
     setCreatingProduct(true);
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const finalSku = newProductFormData.sku?.trim() || `ITM${Math.floor(100000 + Math.random() * 900000)}`;
+      const stockQty = Math.max(0, Number(newProductFormData.opening_stock) || (isPurchase ? 1 : 0));
+
+      const { data, error } = await clientToUse
         .from('products')
         .insert([{
           name: newProductFormData.name,
@@ -771,14 +832,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
           discount: Number(newProductFormData.discount) || 0,
           tax_rate: Number(newProductFormData.tax_rate),
           unit: newProductFormData.unit,
-          category: newProductFormData.category || 'general',
+          category: newProductFormData.category ? formatCategory(newProductFormData.category) : 'General',
           type: newProductFormData.type,
           description: newProductFormData.description,
-          opening_stock: newProductFormData.opening_stock,
+          opening_stock: String(stockQty),
           purchase_price: Number(newProductFormData.purchase_price) || 0,
-          sku: newProductFormData.sku,
+          sku: finalSku,
           hsn_code: newProductFormData.hsn_code,
-          user_id: user?.id
+          low_stock_warning: true,
+          user_id: targetUserId
         }])
         .select()
         .single();
@@ -787,6 +849,24 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
       const newProduct = data as unknown as Product;
       setProducts(prev => [...prev, newProduct].sort((a, b) => a.name.localeCompare(b.name)));
+
+      // Auto-create initial QR tokens if stock is present
+      if (newProduct?.id && finalSku && stockQty > 0) {
+        try {
+          const tokenCount = Math.min(Math.round(stockQty), 100);
+          if (tokenCount > 0) {
+            const newTokens = Array.from({ length: tokenCount }).map(() => ({
+              product_id: newProduct.id,
+              sku: finalSku,
+              token: crypto.randomUUID(),
+              status: 'active'
+            }));
+            await clientToUse.from('qr_tokens').insert(newTokens);
+          }
+        } catch (tokenErr) {
+          console.warn('QR tokens generation error (non-fatal):', tokenErr);
+        }
+      }
 
       if (activeItemIndex !== null) {
         applyProductToItem(newProduct, activeItemIndex);
@@ -804,239 +884,213 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     }
   };
 
-  const generateInvoiceNumber = useCallback(async (prefix?: string) => {
-    const activePrefix = prefix || (billingType === 'quotation' ? 'QT' : 'INV');
-    return await genInvNum(activePrefix);
-  }, [billingType]);
+  const generateInvoiceNumber = useCallback(async () => {
+    return await genInvNum(targetUserId, isPurchase, isDownpayment ? 'DP' : undefined);
+  }, [targetUserId, isPurchase, isDownpayment]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setShowValidationErrors(true);
+  const resolveProductId = useCallback((item: { product_id?: string | null; product_name?: string; description?: string }) => {
+    if (item.product_id) return item.product_id;
+    const searchName = (item.product_name || item.description || '').trim().toLowerCase();
+    if (!searchName) return null;
+    const matched = products.find(p =>
+      p.name.toLowerCase() === searchName ||
+      (p.sku && p.sku.toLowerCase() === searchName)
+    );
+    return matched ? matched.id : null;
+  }, [products]);
 
-    let activeUserId = user?.id;
-    if (!activeUserId) {
-      const { data: authData } = await supabase.auth.getUser();
-      activeUserId = authData?.user?.id;
-    }
-
-    if (!isPurchase && !formData.client_id) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please select a client."
-      });
-      return;
-    }
-
-    if (isPurchase && !formData.vendor_id) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please select a vendor."
-      });
-      return;
-    }
-
-    if (items.length === 0 || items.every(item => !item.description)) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please add at least one item."
-      });
-      return;
-    }
-
+  const executeSave = async (confirmedUncataloged?: UncatalogedProductItem[]) => {
     setSaving(true);
     const { subtotal, discountAmount, taxAmount, total } = getTotals();
-    const currencySymbol = invoiceCurrency === 'INR' ? '₹' : (invoiceCurrency === 'USD' ? '$' : '€');
-    const isQuotation = billingType === 'quotation';
+    const clientToUse = serviceSupabase || supabase;
 
     try {
       if (total <= 0) {
         toast({
           variant: "destructive",
-          title: "Error",
-          description: "Total amount must be greater than zero."
+          title: isPurchase ? "Invalid Purchase Bill Amount" : "Invalid Invoice Amount",
+          description: `Total amount must be greater than ${currencySymbol}0. Please check item rates and quantities.`
         });
         setSaving(false);
         return;
       }
 
-      if (isPurchase && !isEditing) {
+      if (!isEditing && isPurchase) {
         // Handle Purchase Bill Creation
-        let finalVendorId = formData.vendor_id;
+        // Filter formData to avoid sending client_id and non-column fields to purchase_invoices
+        const { client_id, payment_method, invoice_number: inputInvoiceNumber, ...purchaseFormData } = formData;
+        const creatorName = isStaff
+          ? (staffName || user?.user_metadata?.full_name || (user?.user_metadata as any)?.name || 'Staff Member')
+          : (companyProfile?.company_name || profile?.company_name || 'Company Owner');
 
-        // Auto-register selected client as Vendor if not already present in vendors table
-        if (formData.vendor_id) {
-          const matchedClient = clients.find(c => c.id === formData.vendor_id);
-          const matchedVendor = vendors.find(v => v.id === formData.vendor_id || (matchedClient && v.name.toLowerCase() === matchedClient.name.toLowerCase()));
-          const vendorName = matchedVendor?.name || matchedClient?.name || '';
+        const finalInvoiceNumber = inputInvoiceNumber?.trim() || await generateInvoiceNumber();
+        const finalStatus = formData.status || 'pending';
 
-          if (matchedVendor) {
-            finalVendorId = matchedVendor.id;
-          } else if (matchedClient) {
-            try {
-              const { data: newVend } = await supabase
-                .from('vendors')
-                .insert([{
-                  id: crypto.randomUUID(),
-                  user_id: activeUserId,
-                  name: matchedClient.name,
-                  email: matchedClient.email || '',
-                  phone: matchedClient.phone || '',
-                  company_name: matchedClient.company_name || matchedClient.name,
-                  address: matchedClient.address || '',
-                  city: matchedClient.city || '',
-                  state: matchedClient.state || '',
-                  postal_code: matchedClient.postal_code || '',
-                  country: matchedClient.country || 'India',
-                  gstin: matchedClient.gstin || ''
-                }])
-                .select('id')
-                .maybeSingle();
-
-              if (newVend?.id) {
-                finalVendorId = newVend.id;
-              }
-            } catch (vErr) {
-              console.warn("Auto vendor creation from client warning:", vErr);
-            }
-          }
-
-          // Once a purchase bill is made for a party:
-          // 1. Remove them from clients table so they no longer appear in Clients page or sale bill dropdown
-          if (matchedClient?.id) {
-            try {
-              await supabase
-                .from('clients')
-                .delete()
-                .eq('id', matchedClient.id)
-                .eq('user_id', activeUserId);
-            } catch (delErr) {
-              console.warn("Client removal after vendor conversion warning:", delErr);
-            }
-          }
-
-          // Also remove any duplicate client record with matching name
-          if (vendorName) {
-            try {
-              await supabase
-                .from('clients')
-                .delete()
-                .ilike('name', vendorName.trim())
-                .eq('user_id', activeUserId);
-            } catch (delErr) {
-              console.warn("Duplicate client cleanup warning:", delErr);
-            }
-          }
-
-          // 2. Ensure party is preserved in Account Ledger (parties table) with status 'give'
-          // All transactions, balances, and history remain intact!
-          if (vendorName) {
-            try {
-              const { data: existingPartyList } = await supabase
-                .from('parties')
-                .select('id, status')
-                .eq('user_id', activeUserId)
-                .ilike('party_name', vendorName.trim())
-                .limit(1);
-
-              if (existingPartyList && existingPartyList.length > 0) {
-                await supabase
-                  .from('parties')
-                  .update({ status: 'give' })
-                  .eq('id', existingPartyList[0].id);
-              } else {
-                await supabase
-                  .from('parties')
-                  .insert([{
-                    id: crypto.randomUUID(),
-                    user_id: activeUserId,
-                    party_name: vendorName.trim(),
-                    sr_no: String(Math.floor(1000 + Math.random() * 9000)),
-                    status: 'give',
-                    commission_type: 'without',
-                    commission_rate: 0
-                  }]);
-              }
-            } catch (pErr) {
-              console.warn("Account ledger party update warning:", pErr);
-            }
-          }
-
-          // Invalidate cache queries so UI immediately updates
-          queryClient.invalidateQueries({ queryKey: ['clients'] });
-          queryClient.invalidateQueries({ queryKey: ['vendors'] });
-          queryClient.invalidateQueries({ queryKey: ['parties'] });
-        }
-
-        const { client_id, ...purchaseFormData } = formData;
-
-        let rawPurchaseData: any = null;
-        let purchaseError: any = null;
-
-        // Insert purchase invoice with authoritative columns present in schema
-        const purchasePayload = {
-          id: crypto.randomUUID(),
-          user_id: activeUserId,
-          vendor_id: finalVendorId,
-          invoice_number: await generateInvoiceNumber('PUR'),
-          issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
-          due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
-          total_amount: total,
-          status: 'draft'
-        };
-
-        const pRes = await supabase
+        const { data: rawPurchaseData, error: purchaseError } = await clientToUse
           .from('purchase_invoices')
-          .insert([purchasePayload])
+          .insert([{
+            ...purchaseFormData,
+            user_id: targetUserId,
+            invoice_number: finalInvoiceNumber,
+            notes: purchaseFormData.notes?.trim() || `Created by: ${creatorName}`,
+            terms: purchaseFormData.terms?.trim() || `Created by: ${creatorName}`,
+            subtotal,
+            discount_amount: discountAmount,
+            tax_amount: taxAmount,
+            total_amount: total,
+            status: finalStatus,
+            currency: invoiceCurrency || 'INR'
+          }])
           .select('*')
-          .maybeSingle();
+          .single();
 
-        rawPurchaseData = pRes.data;
-        purchaseError = pRes.error;
-
-        if (purchaseError) {
-          console.warn("Purchase invoice insert error:", purchaseError);
-          throw purchaseError;
-        }
+        if (purchaseError) throw purchaseError;
         const purchaseData = rawPurchaseData as unknown as PurchaseInvoice;
 
-        try {
-          const formattedPurchaseItems = items.map(item => ({
-            id: crypto.randomUUID(),
-            invoice_id: purchaseData.id,
-            product_id: item.product_id ?? null,
-            description: item.description,
-            quantity: item.quantity,
-            rate: item.rate,
-            tax_rate: item.tax_rate ?? 0,
-            amount: calcItemAmount(item.quantity, item.rate, item.discount, item.tax_rate)
-          }));
+        let autoCreatedCount = 0;
+        const autoCreatedNames: string[] = [];
 
-          await supabase
-            .from('purchase_invoice_items')
-            .insert(formattedPurchaseItems);
-        } catch {
-          // Table purchase_invoice_items may not exist in schema, proceed with stock update
+        // Auto-create missing products or resolve existing ones
+        const resolvedItemsWithProduct = [];
+        const newlyCreatedProductIds = new Set<string>();
+
+        for (const item of items) {
+          let pId = item.product_id ?? null;
+          const itemName = (item.product_name || item.description || '').trim();
+
+          if (!pId && itemName) {
+            const existing = products.find(p =>
+              p.name.toLowerCase() === itemName.toLowerCase() ||
+              (p.sku && p.sku.toLowerCase() === itemName.toLowerCase())
+            );
+
+            if (existing) {
+              pId = existing.id;
+            } else {
+              // Auto-create product in catalog
+              try {
+                const itemRateInr = invoiceCurrency !== 'INR' ? convertToINR(item.rate) : item.rate;
+                const pregenerated = confirmedUncataloged?.find(u => u.name.toLowerCase() === itemName.toLowerCase());
+                let uniqueSku = pregenerated?.sku;
+                if (!uniqueSku) {
+                  const existingSkus = new Set(products.map(p => (p.sku || '').toUpperCase()));
+                  let attempts = 0;
+                  do {
+                    const randDigits = Math.floor(100000 + Math.random() * 900000);
+                    uniqueSku = `ITM${randDigits}`;
+                    attempts++;
+                  } while (existingSkus.has(uniqueSku) && attempts < 50);
+                }
+
+                const itemQty = Math.max(0, Number(item.quantity) || 0);
+
+                const { data: newProd, error: prodCreateErr } = await clientToUse
+                  .from('products')
+                  .insert([{
+                    user_id: targetUserId,
+                    name: itemName,
+                    description: item.description?.trim() || itemName,
+                    type: 'product',
+                    sku: uniqueSku,
+                    purchase_price: itemRateInr,
+                    price: itemRateInr, // Default sales price equals purchase cost
+                    opening_stock: String(itemQty), // Stock initialized to inward quantity
+                    tax_rate: Number(item.tax_rate) || 0,
+                    hsn_code: item.hsn_code || '',
+                    vendor_id: formData.vendor_id || null,
+                    unit: item.unit || 'pcs',
+                    category: 'General',
+                    low_stock_warning: true
+                  }])
+                  .select()
+                  .single();
+
+                if (!prodCreateErr && newProd) {
+                  const created = newProd as unknown as Product;
+                  pId = created.id;
+                  newlyCreatedProductIds.add(created.id);
+                  autoCreatedCount++;
+                  autoCreatedNames.push(created.name);
+                  setProducts(prev => [...prev, created]);
+
+                  // Auto-generate active QR tokens corresponding to the inward stock quantity
+                  if (created.id && uniqueSku && itemQty > 0) {
+                    try {
+                      const tokenCount = Math.min(Math.round(itemQty), 100);
+                      if (tokenCount > 0) {
+                        const newTokens = Array.from({ length: tokenCount }).map(() => ({
+                          product_id: created.id,
+                          sku: uniqueSku,
+                          token: crypto.randomUUID(),
+                          status: 'active'
+                        }));
+                        await clientToUse.from('qr_tokens').insert(newTokens);
+                      }
+                    } catch (tokErr) {
+                      console.warn('QR tokens generation notice:', tokErr);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Error auto-creating product:', e);
+              }
+            }
+          }
+
+          resolvedItemsWithProduct.push({
+            item,
+            productId: pId
+          });
         }
 
-        // Atomic batch stock increment for purchase bill
-        try {
-          const opId = crypto.randomUUID();
-          await adjustStockBatch(
-            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-            'PURCHASE',
-            purchaseData.id,
-            `${opId}:PURCHASE_CREATE`
-          );
-        } catch (stockErr) {
-          console.warn("Purchase stock adjustment warning:", stockErr);
+        const formattedPurchaseItems = resolvedItemsWithProduct.map(({ item, productId }) => ({
+          invoice_id: purchaseData.id,
+          product_id: productId,
+          description: item.description,
+          quantity: item.quantity,
+          rate: item.rate,
+          discount: item.discount,
+          tax_rate: item.tax_rate,
+          amount: calcItemAmount(item.quantity, item.rate, item.discount, item.tax_rate)
+        }));
+
+        const { error: piError } = await clientToUse
+          .from('purchase_invoice_items')
+          .insert(formattedPurchaseItems);
+
+        if (piError) throw piError;
+
+        // Increment stock for purchase items (only for existing products; newly created ones already have opening_stock set to the inward quantity)
+        for (const { item, productId } of resolvedItemsWithProduct) {
+          if (productId && item.quantity > 0 && !newlyCreatedProductIds.has(productId)) {
+            await adjustStock(productId, item.quantity);
+          }
+        }
+
+        // Record payment in payments table if bill was created as paid
+        if (finalStatus === 'paid') {
+          const methodLabel = (formData.payment_method || 'cash').toUpperCase();
+          await clientToUse
+            .from('payments')
+            .insert([{
+              amount: total,
+              payment_date: formData.issue_date || new Date().toISOString().split('T')[0],
+              payment_method: formData.payment_method || 'cash',
+              purchase_invoice_id: purchaseData.id,
+              user_id: targetUserId,
+              notes: `Purchase Bill #${finalInvoiceNumber} paid via ${methodLabel} • Created by: ${creatorName}`
+            }]);
+          queryClient.invalidateQueries({ queryKey: ['payments'] });
+        }
+
+        let successMsg = `Purchase bill ${purchaseData.invoice_number} has been recorded.`;
+        if (autoCreatedCount > 0) {
+          successMsg += ` ${autoCreatedCount} new product${autoCreatedCount > 1 ? 's' : ''} (${autoCreatedNames.slice(0, 3).join(', ')}${autoCreatedNames.length > 3 ? '...' : ''}) automatically added to inventory catalog.`;
         }
 
         setSuccessInfo({
           title: "Purchase Bill Created",
-          message: `Purchase bill ${purchaseData.invoice_number} has been recorded.`
+          message: successMsg
         });
         
         // Invalidate relevant queries
@@ -1049,46 +1103,138 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       }
 
       if (isEditing && invoiceId && isPurchase) {
-        const { client_id, ...purchaseFormData } = formData;
+        const { client_id, payment_method, invoice_number: inputInvoiceNumber, ...purchaseFormData } = formData;
 
-        const { error: updateError } = await supabase
+        const updatePayload: Record<string, any> = {
+          ...purchaseFormData,
+          subtotal,
+          discount_amount: discountAmount,
+          tax_amount: taxAmount,
+          total_amount: total,
+          currency: invoiceCurrency || 'INR'
+        };
+        if (inputInvoiceNumber?.trim()) {
+          updatePayload.invoice_number = inputInvoiceNumber.trim();
+        }
+
+        const { error: updateError } = await clientToUse
           .from('purchase_invoices')
-          .update({
-            ...purchaseFormData,
-            subtotal,
-            discount_amount: discountAmount,
-            tax_amount: taxAmount,
-            total_amount: total,
-            currency: invoiceCurrency || 'INR'
-          })
+          .update(updatePayload)
           .eq('id', invoiceId);
 
         if (updateError) throw updateError;
 
-        // Stock Reconciliation for Purchase Bill edits (Atomic Batch Reversal & Application)
-        const editOpId = crypto.randomUUID();
-        const { data: oldItems } = await supabase
+        // Stock Reconciliation for Purchase Bill edits
+        const { data: oldItems } = await clientToUse
           .from('purchase_invoice_items')
           .select('product_id, quantity')
           .eq('invoice_id', invoiceId);
 
-        if (oldItems && oldItems.length > 0) {
-          await adjustStockBatch(
-            (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
-            'PURCHASE_CANCEL',
-            invoiceId,
-            `${editOpId}:EDIT_REVERSAL`
-          );
+        if (oldItems) {
+          for (const oldItem of (oldItems as unknown as { product_id: string, quantity: number }[])) {
+            if (oldItem.product_id && oldItem.quantity > 0) {
+              await adjustStock(oldItem.product_id, -oldItem.quantity);
+            }
+          }
         }
 
-        await supabase
+        await clientToUse
           .from('purchase_invoice_items')
           .delete()
           .eq('invoice_id', invoiceId);
 
-        const formattedItems = items.map(item => ({
+        // Auto-create missing products or resolve existing ones
+        const resolvedEditItems = [];
+        const newlyCreatedEditProductIds = new Set<string>();
+
+        for (const item of items) {
+          let pId = item.product_id ?? null;
+          const itemName = (item.product_name || item.description || '').trim();
+
+          if (!pId && itemName) {
+            const existing = products.find(p =>
+              p.name.toLowerCase() === itemName.toLowerCase() ||
+              (p.sku && p.sku.toLowerCase() === itemName.toLowerCase())
+            );
+
+            if (existing) {
+              pId = existing.id;
+            } else {
+              try {
+                const itemRateInr = invoiceCurrency !== 'INR' ? convertToINR(item.rate) : item.rate;
+                const pregenerated = confirmedUncataloged?.find(u => u.name.toLowerCase() === itemName.toLowerCase());
+                let uniqueSku = pregenerated?.sku;
+                if (!uniqueSku) {
+                  const existingSkus = new Set(products.map(p => (p.sku || '').toUpperCase()));
+                  let attempts = 0;
+                  do {
+                    const randDigits = Math.floor(100000 + Math.random() * 900000);
+                    uniqueSku = `ITM${randDigits}`;
+                    attempts++;
+                  } while (existingSkus.has(uniqueSku) && attempts < 50);
+                }
+
+                const itemQty = Math.max(0, Number(item.quantity) || 0);
+
+                const { data: newProd, error: prodCreateErr } = await clientToUse
+                  .from('products')
+                  .insert([{
+                    user_id: targetUserId,
+                    name: itemName,
+                    description: item.description?.trim() || itemName,
+                    type: 'product',
+                    sku: uniqueSku,
+                    purchase_price: itemRateInr,
+                    price: itemRateInr,
+                    opening_stock: String(itemQty),
+                    tax_rate: Number(item.tax_rate) || 0,
+                    hsn_code: item.hsn_code || '',
+                    vendor_id: formData.vendor_id || null,
+                    unit: item.unit || 'pcs',
+                    category: 'General',
+                    low_stock_warning: true
+                  }])
+                  .select()
+                  .single();
+
+                if (!prodCreateErr && newProd) {
+                  const created = newProd as unknown as Product;
+                  pId = created.id;
+                  newlyCreatedEditProductIds.add(created.id);
+                  setProducts(prev => [...prev, created]);
+
+                  if (created.id && uniqueSku && itemQty > 0) {
+                    try {
+                      const tokenCount = Math.min(Math.round(itemQty), 100);
+                      if (tokenCount > 0) {
+                        const newTokens = Array.from({ length: tokenCount }).map(() => ({
+                          product_id: created.id,
+                          sku: uniqueSku,
+                          token: crypto.randomUUID(),
+                          status: 'active'
+                        }));
+                        await clientToUse.from('qr_tokens').insert(newTokens);
+                      }
+                    } catch (tokErr) {
+                      console.warn('QR tokens generation notice:', tokErr);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('Error auto-creating product on bill update:', e);
+              }
+            }
+          }
+
+          resolvedEditItems.push({
+            item,
+            productId: pId
+          });
+        }
+
+        const formattedItems = resolvedEditItems.map(({ item, productId }) => ({
           invoice_id: invoiceId,
-          product_id: item.product_id ?? null,
+          product_id: productId,
           description: item.description,
           quantity: item.quantity,
           rate: item.rate,
@@ -1098,17 +1244,16 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         }));
 
         if (formattedItems.length > 0) {
-          const { error: insertError } = await supabase
+          const { error: insertError } = await clientToUse
             .from('purchase_invoice_items')
             .insert(formattedItems);
           if (insertError) throw insertError;
 
-          await adjustStockBatch(
-            items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-            'PURCHASE',
-            invoiceId,
-            `${editOpId}:EDIT_APPLY`
-          );
+          for (const { item, productId } of resolvedEditItems) {
+            if (productId && item.quantity > 0 && !newlyCreatedEditProductIds.has(productId)) {
+              await adjustStock(productId, item.quantity);
+            }
+          }
         }
 
         setSuccessInfo({
@@ -1129,93 +1274,87 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       }
 
       if (isEditing && invoiceId && !isPurchase) {
-        const { vendor_id, ...standardFormData } = formData;
+        const { vendor_id, payment_method, ...standardFormData } = formData;
 
-        const { error: updateError } = await supabase
+        let notesToSave = standardFormData.notes;
+        if (isDownpayment && notesToSave && !notesToSave.includes('is_downpayment')) {
+          notesToSave = `[META:{"is_downpayment":true}]\n${notesToSave}`.trim();
+        }
+
+        const { error: updateError } = await clientToUse
           .from('invoices')
           .update({
             ...standardFormData,
+            notes: notesToSave,
             due_date: formData.due_date || null,
             subtotal,
             discount_amount: discountAmount,
             tax_amount: taxAmount,
             total_amount: total,
-            status: isQuotation ? 'quotation' : (invoiceStatus || 'draft'),
-            currency: invoiceCurrency || 'INR',
-            hide_company_details: hideCompanyDetails,
-            hide_contact_details: clients.find(c => c.id === formData.client_id)?.hide_contact_details || false
+            status: invoiceStatus || 'draft',
+            currency: invoiceCurrency || 'INR'
           })
           .eq('id', invoiceId);
 
         if (updateError) throw updateError;
 
-        if (!isQuotation) {
-          // Stock Reconciliation for Edits (Atomic Batch Reversal & Application)
-          const editOpId = crypto.randomUUID();
-          const { data: oldItems } = await supabase
-            .from('invoice_items')
-            .select('product_id, quantity')
-            .eq('invoice_id', invoiceId);
+        // Stock Reconciliation for Edits: Refund old quantities first
+        const { data: oldItems } = await clientToUse
+          .from('invoice_items')
+          .select('product_id, quantity')
+          .eq('invoice_id', invoiceId);
 
-          if (oldItems && oldItems.length > 0) {
-            try {
-              await adjustStockBatch(
-                (oldItems as unknown as { product_id: string, quantity: number }[]).filter(i => i.product_id && i.quantity > 0),
-                'SALE_CANCEL',
-                invoiceId,
-                `${editOpId}:EDIT_REVERSAL`
-              );
-            } catch (stockErr) {
-              console.warn("Stock reversal warning during edit:", stockErr);
+        if (oldItems) {
+          for (const oldItem of (oldItems as unknown as { product_id: string, quantity: number }[])) {
+            if (oldItem.product_id && oldItem.quantity > 0) {
+              await adjustStock(oldItem.product_id, oldItem.quantity);
             }
           }
         }
 
-        const { error: deleteError } = await supabase
+        const { error: deleteError } = await clientToUse
           .from('invoice_items')
           .delete()
           .eq('invoice_id', invoiceId);
 
         if (deleteError) throw deleteError;
 
-        const formattedItems = items.map(item => ({
-          invoice_id: invoiceId,
-          product_id: item.product_id ?? null,
-          description: item.description,
-          quantity: item.quantity,
-          rate: item.rate,
-          discount: item.discount,
-          tax_rate: item.tax_rate,
-          amount: calcItemAmount(item.quantity, item.rate, item.discount, item.tax_rate)
-        }));
+        const formattedItems = items.map(item => {
+          const pId = item.product_id ?? resolveProductId(item) ?? null;
+          const descToSave = (item.description || '').trim() || item.product_name || 'Item';
+          return {
+            invoice_id: invoiceId,
+            product_id: pId,
+            description: descToSave,
+            quantity: item.quantity,
+            rate: item.rate,
+            discount: item.discount,
+            tax_rate: item.tax_rate,
+            amount: calcItemAmount(item.quantity, item.rate, item.discount, item.tax_rate)
+          };
+        });
 
         if (formattedItems.length > 0) {
-          const { error: insertError } = await supabase
+          const { error: insertError } = await clientToUse
             .from('invoice_items')
             .insert(formattedItems);
 
           if (insertError) throw insertError;
 
-          if (!isQuotation) {
-            try {
-              const editOpId = crypto.randomUUID();
-              await adjustStockBatch(
-                items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-                'SALE',
-                invoiceId,
-                `${editOpId}:EDIT_APPLY`
-              );
-            } catch (stockErr) {
-              console.warn("Stock apply warning during edit:", stockErr);
+          // Deduct stock for the updated items
+          for (const item of items) {
+            const pId = resolveProductId(item);
+            if (pId && item.quantity > 0) {
+              await adjustStock(pId, -item.quantity);
             }
           }
         }
 
         setSuccessInfo({
-          title: isQuotation ? "Quotation Updated" : "Invoice Updated",
+          title: isDownpayment ? "Downpayment Receipt Updated" : "Invoice Updated",
           message: invoiceNumber
-            ? `${isQuotation ? 'Quotation' : 'Invoice'} ${invoiceNumber} has been successfully updated.`
-            : `The ${isQuotation ? 'quotation' : 'invoice'} has been updated successfully.`
+            ? `${isDownpayment ? 'Downpayment receipt' : 'Invoice'} ${invoiceNumber} has been successfully updated.`
+            : `The ${isDownpayment ? 'downpayment receipt' : 'invoice'} has been updated successfully.`
         });
 
         // Invalidate relevant queries
@@ -1228,37 +1367,46 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         return;
       } else if (!isPurchase) {
         let attempts = 0;
-        const maxAttempts = 3;
+        const maxAttempts = 5;
         let invoiceData = null;
 
         while (attempts < maxAttempts) {
-          const newInvoiceNumber = await generateInvoiceNumber(isQuotation ? 'QT' : 'INV');
+          const newInvoiceNumber = await genInvNum(targetUserId, false, isDownpayment ? 'DP' : undefined);
 
-          const { vendor_id, ...standardFormData } = formData;
+          const { vendor_id, payment_method, ...standardFormData } = formData;
+          const creatorName = isStaff
+            ? (staffName || user?.user_metadata?.full_name || (user?.user_metadata as any)?.name || 'Staff Member')
+            : (companyProfile?.company_name || profile?.company_name || 'Company Owner');
 
-          const { data: currentInvoiceData, error: invoiceError } = await supabase
+          let notesToSave = standardFormData.notes || '';
+          if (isDownpayment && !notesToSave.includes('is_downpayment')) {
+            notesToSave = `[META:{"is_downpayment":true}]\n${notesToSave}`.trim();
+          }
+
+          const { data: currentInvoiceData, error: invoiceError } = await clientToUse
             .from('invoices')
             .insert([{
-              id: crypto.randomUUID(),
+              ...standardFormData,
+              notes: notesToSave,
               user_id: targetUserId,
-              client_id: formData.client_id,
               invoice_number: newInvoiceNumber,
-              issue_date: formData.issue_date || new Date().toISOString().split('T')[0],
-              due_date: formData.due_date || formData.issue_date || new Date().toISOString().split('T')[0],
+              payment_terms: isDownpayment
+                ? `Downpayment • Created by: ${creatorName}`
+                : `Created by: ${creatorName}`,
+              terms: standardFormData.terms || (isDownpayment ? 'Vehicle Booking Advance & Downpayment Receipt' : null),
+              due_date: formData.due_date || null,
               subtotal,
               discount_amount: discountAmount,
               tax_amount: taxAmount,
               total_amount: total,
-              status: isQuotation ? 'quotation' : 'draft',
-              currency: 'INR',
-              notes: formData.notes || '',
-              terms: formData.terms || ''
+              status: 'draft',
+              currency: invoiceCurrency || 'INR'
             }])
             .select('*')
             .maybeSingle();
 
           if (invoiceError) {
-            if (invoiceError.code === '23505' && invoiceError.message.includes('invoice_number')) {
+            if (invoiceError.code === '23505' || invoiceError.message.includes('invoice_number')) {
               attempts++;
               if (attempts >= maxAttempts) {
                 throw new Error("Unable to generate a unique invoice number. Please try again.");
@@ -1273,62 +1421,42 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         }
 
         if (!invoiceData) {
-          throw new Error("Failed to create document after retries.");
+          throw new Error("Failed to create invoice after retries.");
         }
 
-        const formattedItems = items.map(item => ({
-          id: crypto.randomUUID(),
-          invoice_id: (invoiceData as Invoice).id,
-          product_id: item.product_id ?? null,
-          description: item.description,
-          quantity: item.quantity,
-          rate: item.rate,
-          tax_rate: item.tax_rate ?? 0,
-          amount: calcItemAmount(item.quantity, item.rate, item.discount, item.tax_rate)
-        }));
+        const formattedItems = items.map(item => {
+          const pId = item.product_id ?? resolveProductId(item) ?? null;
+          const descToSave = (item.description || '').trim() || item.product_name || 'Item';
+          return {
+            invoice_id: (invoiceData as Invoice).id,
+            product_id: pId,
+            description: descToSave,
+            quantity: item.quantity,
+            rate: item.rate,
+            discount: item.discount,
+            tax_rate: item.tax_rate,
+            amount: calcItemAmount(item.quantity, item.rate, item.discount, item.tax_rate)
+          };
+        });
 
         if (formattedItems.length > 0) {
-          const { error: itemsError } = await supabase
+          const { error: itemsError } = await clientToUse
             .from('invoice_items')
             .insert(formattedItems);
 
           if (itemsError) throw itemsError;
 
-          // Only adjust stock for actual invoices (NOT for quotations)
-          if (!isQuotation) {
-            try {
-              const createOpId = crypto.randomUUID();
-              await adjustStockBatch(
-                items.filter(i => i.product_id && i.quantity > 0).map(i => ({ product_id: i.product_id!, quantity: i.quantity })),
-                'SALE',
-                (invoiceData as Invoice).id,
-                `${createOpId}:CREATE`
-              );
-            } catch (stockErr) {
-              console.warn("Sale invoice stock adjustment warning:", stockErr);
+          for (const item of items) {
+            const pId = resolveProductId(item);
+            if (pId && item.quantity > 0) {
+              await adjustStock(pId, -item.quantity);
             }
           }
         }
 
-        // ERP Auto-Posting: Sync invoice to Party Ledger statement (NOT for quotations)
-        if (!isQuotation) {
-          const clientObj = clients.find(c => c.id === formData.client_id);
-          if (clientObj?.name) {
-            await postInvoiceToLedger({
-              invoiceId: (invoiceData as Invoice).id,
-              invoiceNumber: (invoiceData as Invoice).invoice_number,
-              partyName: clientObj.name,
-              amount: total,
-              type: 'sales'
-            });
-          }
-        }
-
         setSuccessInfo({
-          title: isQuotation ? "Quotation / Estimate Created" : "Invoice Created",
-          message: isQuotation
-            ? `Quotation ${(invoiceData as Invoice).invoice_number} has been generated successfully.`
-            : `Invoice ${(invoiceData as Invoice).invoice_number} has been generated successfully.`
+          title: isDownpayment ? "Downpayment Receipt Created" : "Invoice Created",
+          message: `${isDownpayment ? 'Downpayment receipt' : 'Invoice'} ${(invoiceData as Invoice).invoice_number} has been generated successfully.`
         });
 
         // Invalidate relevant queries
@@ -1338,28 +1466,179 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
         setShowSuccess(true);
 
-        await supabase.from('notifications').insert({
-          user_id: user?.id,
-          title: 'Invoice Created',
-          message: `New invoice #${(invoiceData as Invoice).invoice_number} has been created successfully.`,
-          type: 'success'
-        });
+        try {
+          await clientToUse.from('notifications').insert({
+            user_id: user?.id,
+            title: 'Invoice Created',
+            message: `New invoice #${(invoiceData as Invoice).invoice_number} has been created successfully.`,
+            type: 'success'
+          });
+        } catch {}
       }
     } catch (error) {
       console.error('Error saving invoice:', error);
 
       let errorMessage = "An unexpected error occurred.";
-      if (error instanceof Error) errorMessage = error.message;
-      else if (error && typeof error === 'object' && 'message' in error) {
-        errorMessage = (error as { message: string }).message;
+      const errObj = error as Record<string, unknown>;
+      const rawMsg = (error instanceof Error ? error.message : (errObj?.message as string)) || "";
+      const details = (errObj?.details as string) || "";
+      const hint = (errObj?.hint as string) || "";
+      const code = (errObj?.code as string) || "";
+
+      if (rawMsg.includes('unique constraint') || rawMsg.includes('duplicate key') || code === '23505' || rawMsg.includes('invoice_number_key')) {
+        errorMessage = isPurchase
+          ? "Duplicate Bill Number: A purchase bill with this number already exists. Please change or regenerate the bill number."
+          : "Duplicate Invoice Number: An invoice with this number already exists. Please change or regenerate the invoice number.";
+      } else if (rawMsg.includes('foreign key constraint') || code === '23503') {
+        if (rawMsg.includes('client')) {
+          errorMessage = "Selected client not found in the database. Please re-select the client.";
+        } else if (rawMsg.includes('vendor')) {
+          errorMessage = "Selected vendor not found in the database. Please re-select the vendor.";
+        } else {
+          errorMessage = "A linked reference (Client/Vendor/Product) is invalid. Please check selected details.";
+        }
+      } else if (rawMsg.includes('JWT') || rawMsg.includes('permission denied') || rawMsg.includes('row-level security') || code === '42501' || rawMsg.includes('406') || rawMsg.includes('403')) {
+        errorMessage = "Permission issue: Please check your staff permissions or refresh the page.";
+      } else if (rawMsg.includes('null value in column') || code === '23502') {
+        const colMatch = rawMsg.match(/column "(.*?)"/);
+        const colName = colMatch ? colMatch[1].replace(/_/g, ' ') : 'required field';
+        errorMessage = `Required field missing: Please provide a value for "${colName}".`;
+      } else if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError') || rawMsg.includes('network')) {
+        errorMessage = "Network error: Please check your internet connection and try again.";
+      } else if (rawMsg) {
+        errorMessage = details && details !== 'null' ? `${rawMsg} (${details})` : rawMsg;
+        if (hint && hint !== 'null') errorMessage += ` - Hint: ${hint}`;
       }
 
       toast({
         variant: "destructive",
-        title: isEditing ? "Update Failed" : "Generation Failed",
-        description: `Error: ${errorMessage}`
+        title: isEditing ? (isPurchase ? "Purchase Bill Update Failed" : "Invoice Update Failed") : (isPurchase ? "Purchase Bill Creation Failed" : "Invoice Creation Failed"),
+        description: errorMessage
       });
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setShowValidationErrors(true);
+
+    if (!isPurchase && !formData.client_id) {
+      toast({
+        variant: "destructive",
+        title: "Client Required",
+        description: "Please select or add a client for this invoice."
+      });
+      return;
+    }
+
+    if (isPurchase && !formData.vendor_id) {
+      toast({
+        variant: "destructive",
+        title: "Vendor Required",
+        description: "Please select or add a vendor for this purchase bill."
+      });
+      return;
+    }
+
+    if (!items || items.length === 0 || items.every(item => !item.description?.trim() && !item.product_name?.trim())) {
+      toast({
+        variant: "destructive",
+        title: "Item Details Missing",
+        description: "Please add at least one item or product with a name/description."
+      });
+      return;
+    }
+
+    if (isPurchase) {
+      const incomplete: IncompleteItem[] = [];
+      const uncataloged: UncatalogedProductItem[] = [];
+      const existingSkus = new Set(products.map(p => (p.sku || '').toUpperCase()));
+
+      items.forEach((item, index) => {
+        const itemNumber = index + 1;
+        const name = (item.product_name || item.description || '').trim();
+        const hasSomeValue = (item.rate && Number(item.rate) > 0) || (item.quantity && Number(item.quantity) > 0) || Boolean(item.product_id);
+
+        if (!name) {
+          if (hasSomeValue) {
+            incomplete.push({
+              index: itemNumber,
+              issue: "Product name ya description missing hai."
+            });
+          }
+          return;
+        }
+
+        const qty = Number(item.quantity);
+        if (isNaN(qty) || qty <= 0) {
+          incomplete.push({
+            index: itemNumber,
+            issue: `"${name}" ki quantity kam se kam 1 honi chahiye.`
+          });
+          return;
+        }
+
+        // Check if product exists in catalog
+        let exists = false;
+        if (item.product_id) {
+          exists = products.some(p => p.id === item.product_id);
+        }
+        if (!exists) {
+          const match = products.find(p =>
+            p.name.toLowerCase() === name.toLowerCase() ||
+            (p.sku && p.sku.toLowerCase() === name.toLowerCase())
+          );
+          if (match) exists = true;
+        }
+
+        if (!exists) {
+          let uniqueSku = '';
+          let attempts = 0;
+          do {
+            const randDigits = Math.floor(100000 + Math.random() * 900000);
+            uniqueSku = `ITM${randDigits}`;
+            attempts++;
+          } while (existingSkus.has(uniqueSku) && attempts < 50);
+          existingSkus.add(uniqueSku);
+
+          uncataloged.push({
+            index: itemNumber,
+            name,
+            quantity: qty,
+            rate: Number(item.rate) || 0,
+            tax_rate: Number(item.tax_rate) || 0,
+            sku: uniqueSku,
+            unit: item.unit || 'pcs'
+          });
+        }
+      });
+
+      if (incomplete.length > 0 || uncataloged.length > 0) {
+        setIncompleteItemsList(incomplete);
+        setUncatalogedItemsList(uncataloged);
+        setUncatalogedModalOpen(true);
+        return;
+      }
+    }
+
+    const invalidItem = items.find(item => (item.description || item.product_name) && (isNaN(item.quantity) || item.quantity <= 0));
+    if (invalidItem) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Item Quantity",
+        description: `Quantity for "${invalidItem.description || invalidItem.product_name || 'item'}" must be at least 1.`
+      });
+      return;
+    }
+
+    await executeSave();
+  };
+
+  const confirmAndSavePurchaseBill = async () => {
+    setUncatalogedModalOpen(false);
+    await executeSave(uncatalogedItemsList);
   };
 
   const handleScan = useCallback((data: string) => {
@@ -1385,22 +1664,27 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         );
         setItems(newItems);
       } else {
-        const emptyIndex = items.findIndex(item => !item.description && item.quantity === 0);
+        const emptyIndex = items.findIndex(item => !item.product_name && !item.description && item.quantity === 0);
         if (emptyIndex !== -1) {
           applyProductToItem(product, emptyIndex);
+          const scannedRate = invoiceCurrency !== 'INR' ? convertFromINR(product.price) : product.price;
           const newItems = [...items];
           newItems[emptyIndex].quantity = 1;
-          newItems[emptyIndex].amount = calcItemAmount(1, getProductPrice(product), 0, product.tax_rate);
+          newItems[emptyIndex].amount = calcItemAmount(1, scannedRate, 0, product.tax_rate);
           setItems(newItems);
         } else {
+          const scannedRate = invoiceCurrency !== 'INR' ? convertFromINR(product.price) : product.price;
           setItems([...items, {
             product_id: product.id,
-            description: product.name,
+            product_name: product.name,
+            name: product.name,
+            description: product.description?.trim() ? product.description : '',
+            hsn_code: product.hsn_code || '',
             quantity: 1,
-            rate: getProductPrice(product),
+            rate: scannedRate,
             discount: 0,
             tax_rate: product.tax_rate,
-            amount: getProductPrice(product)
+            amount: scannedRate
           }]);
         }
       }
@@ -1460,14 +1744,19 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       .map(([id, qty]) => {
         const product = products.find(p => p.id === id);
         if (!product) return null;
+        const baseInrRate = isPurchase ? (product.purchase_price || product.price) : product.price;
+        const defaultRate = invoiceCurrency !== 'INR' ? convertFromINR(baseInrRate) : baseInrRate;
         return {
           product_id: product.id,
-          description: product.name,
+          product_name: product.name,
+          name: product.name,
+          description: product.description?.trim() ? product.description : '',
+          hsn_code: product.hsn_code || '',
           quantity: qty,
-          rate: getProductPrice(product),
+          rate: defaultRate,
           discount: 0,
           tax_rate: product.tax_rate,
-          amount: calcItemAmount(qty, getProductPrice(product), 0, product.tax_rate)
+          amount: calcItemAmount(qty, defaultRate, 0, product.tax_rate)
         };
       })
       .filter(Boolean) as InvoiceItem[];
@@ -1489,21 +1778,26 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     } else if (activeItemIndex !== null) {
       setProductSelectionOpen(false);
     }
-  }, [selectedQuantities, products, items, activeItemIndex, toast]);
+  }, [selectedQuantities, products, items, activeItemIndex, isPurchase, toast]);
 
   const handleProductSelect = useCallback((product: Product) => {
     if (activeItemIndex !== null) {
       applyProductToItem(product, activeItemIndex);
     } else {
       // Bulk mode - add a new item or increment existing one
+      const baseInrRate = isPurchase ? (product.purchase_price || product.price) : product.price;
+      const defaultRate = invoiceCurrency !== 'INR' ? convertFromINR(baseInrRate) : baseInrRate;
       const newItem = {
         product_id: product.id,
-        description: product.description?.trim() ? product.description : product.name,
+        product_name: product.name,
+        name: product.name,
+        description: product.description?.trim() ? product.description : '',
+        hsn_code: product.hsn_code || '',
         quantity: 1,
-        rate: getProductPrice(product),
+        rate: defaultRate,
         discount: typeof product.discount === 'number' ? product.discount : 0,
         tax_rate: product.tax_rate,
-        amount: calcItemAmount(1, getProductPrice(product), typeof product.discount === 'number' ? product.discount : 0, product.tax_rate)
+        amount: calcItemAmount(1, defaultRate, typeof product.discount === 'number' ? product.discount : 0, product.tax_rate)
       };
 
       setItems(prevItems => {
@@ -1529,8 +1823,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   return {
     clients, products, vendors, loading, saving, formData, setFormData,
     items, setItems, invoiceNumber, invoiceStatus, invoiceCurrency,
-    isPurchase, setIsPurchase, billingType, setBillingType: handleSetBillingType,
-    ledgerParties, selectedLedgerPartyId, handleLedgerPartySelect,
+    isPurchase, setIsPurchase, isDownpayment, setIsDownpayment,
+    billingType, setBillingType: handleSetBillingType, ledgerParties, selectedLedgerPartyId, handleLedgerPartySelect,
     invoiceLoading, clientSearchOpen, setClientSearchOpen,
     newClientDialogOpen, setNewClientDialogOpen, newClientActiveTab, setNewClientActiveTab,
     isDetailsExpanded, setIsDetailsExpanded, newClientFormData, setNewClientFormData,
@@ -1548,6 +1842,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     invoiceId, user, navigate, handleScan, handleBulkAdd, updateModalQuantity,
     addExpenseToInvoice, handleProductSelect, currencySymbol,
     newVendorDialogOpen, setNewVendorDialogOpen, creatingVendor, newVendorFormData, setNewVendorFormData,
-    showValidationErrors
+    showValidationErrors, inrPerUnit, setInvoiceCurrency,
+    uncatalogedModalOpen, setUncatalogedModalOpen, uncatalogedItemsList, incompleteItemsList, confirmAndSavePurchaseBill
   };
 }

@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Search, Download, Trash2, Mail, MoreVertical, Eye, Loader2, CreditCard, Receipt, Calendar, ArrowRight, ArrowLeft, MoreHorizontal, X, Pencil, Wallet, CheckCircle2, ShieldCheck, Edit, ChevronLeft, ChevronRight } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useExpenses } from "@/hooks/useExpenses";
@@ -19,8 +19,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Expense } from "@/types/invoice";
 import { SuccessModal } from "@/components/SuccessModal";
 import { DeleteConfirmation } from "@/components/DeleteConfirmation";
-import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
+import { DataTablePagination } from "@/components/DataTablePagination";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 interface Client {
   id: string;
@@ -38,34 +40,35 @@ interface Client {
 }
 
 const ExpensesPage = () => {
+  const { currencySymbol, formatAmount } = useCurrency();
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const initialExpenseId = searchParams.get('id') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  const [pageSize, setPageSize] = useState(10);
 
   const { data: expensesData, isLoading: loading, isFetching: searchLoading } = useExpenses({
     page: currentPage,
-    pageSize: ITEMS_PER_PAGE,
+    pageSize: pageSize,
     searchTerm: debouncedSearch,
   });
 
   const expenses = expensesData?.expenses || [];
-  const totalPages = expensesData ? Math.ceil(expensesData.totalCount / ITEMS_PER_PAGE) : 1;
+  const totalPages = expensesData ? Math.max(1, Math.ceil(expensesData.totalCount / pageSize)) : 1;
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    amount: 0,
+    amount: '' as string | number,
     category: '',
     expense_date: new Date().toISOString().split('T')[0],
     payment_method: 'cash',
     is_billable: false,
     client_id: '',
-    tax_amount: 0
+    tax_amount: '' as string | number
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -76,7 +79,8 @@ const ExpensesPage = () => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  const { user } = useAuth();
+  const { user, effectiveUserId } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
 
   const categories = [
@@ -86,19 +90,20 @@ const ExpensesPage = () => {
   ];
 
   const fetchClients = useCallback(async () => {
-    if (!user) return;
+    if (!targetUserId) return;
     try {
-      const { data, error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { data, error } = await clientToUse
         .from('clients')
         .select('id, name')
-        .eq('user_id', user.id)
+        .eq('user_id', targetUserId)
         .order('name');
       if (error) throw error;
       setClients((data as unknown as Client[]) || []);
     } catch (err) {
       console.error('Error fetching clients:', err);
     }
-  }, [user]);
+  }, [targetUserId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -114,19 +119,20 @@ const ExpensesPage = () => {
   // Handle specific expense navigation from global search
   useEffect(() => {
     const findExpensePage = async () => {
-      if (initialExpenseId && user) {
+      if (initialExpenseId && targetUserId) {
         try {
-          const { data } = await supabase
+          const clientToUse = serviceSupabase || supabase;
+          const { data } = await clientToUse
             .from('expenses')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('user_id', targetUserId)
             .order('created_at', { ascending: false });
 
           if (data) {
             const expensesData = (data as unknown) as { id: string }[];
             const index = expensesData.findIndex(e => e.id === initialExpenseId);
             if (index !== -1) {
-              const page = Math.ceil((index + 1) / ITEMS_PER_PAGE);
+              const page = Math.ceil((index + 1) / pageSize);
               setCurrentPage(page);
             }
           }
@@ -136,10 +142,10 @@ const ExpensesPage = () => {
       }
     };
 
-    if (user) {
+    if (targetUserId) {
       findExpensePage();
     }
-  }, [initialExpenseId, user]);
+  }, [initialExpenseId, targetUserId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -163,7 +169,7 @@ const ExpensesPage = () => {
 
     const errors: string[] = [];
     if (!formData.title.trim()) errors.push("Expense title is required.");
-    if (!formData.amount || formData.amount <= 0) {
+    if (!formData.amount || Number(formData.amount) <= 0) {
       errors.push("Please enter an amount greater than zero.");
     }
     if (!formData.category) errors.push("Please select a category.");
@@ -183,43 +189,37 @@ const ExpensesPage = () => {
     }
 
     try {
-      let activeUserId = user?.id;
-      if (!activeUserId) {
-        const { data: authData } = await supabase.auth.getUser();
-        activeUserId = authData?.user?.id;
-      }
-      if (!activeUserId) {
-        throw new Error("Please log in to save expense details.");
-      }
+      const clientToUse = serviceSupabase || supabase;
+
+      const payload = {
+        title: formData.title.trim(),
+        description: formData.description?.trim() || null,
+        amount: Number(formData.amount),
+        category: formData.category,
+        expense_date: formData.expense_date,
+        payment_method: formData.payment_method,
+        is_billable: Boolean(formData.is_billable),
+        client_id: (formData.is_billable && formData.client_id?.trim()) ? formData.client_id.trim() : null,
+        tax_amount: Number(formData.tax_amount || 0)
+      };
 
       if (editingId) {
-        const { error, data: updatedData } = await supabase
+        const { error } = await clientToUse
           .from('expenses')
-          .update({ ...formData, user_id: activeUserId })
-          .eq('id', editingId)
-          .select();
+          .update(payload)
+          .eq('id', editingId);
 
         if (error) throw error;
-        if (!updatedData || updatedData.length === 0) {
-          throw new Error("Failed to update expense. Please try again.");
-        }
-
         setSuccessInfo({
           title: 'Expense Updated',
           message: 'Your expense record has been successfully adjusted.'
         });
       } else {
-        const expenseDate = formData.expense_date || new Date().toISOString().split('T')[0];
-        const { error, data: insertedData } = await supabase
+        const { error } = await clientToUse
           .from('expenses')
-          .insert([{ id: crypto.randomUUID(), ...formData, expense_date: expenseDate, date: expenseDate, user_id: activeUserId }])
-          .select();
+          .insert([{ ...payload, user_id: targetUserId }]);
 
         if (error) throw error;
-        if (!insertedData || insertedData.length === 0) {
-          throw new Error("Failed to create expense. Please try again.");
-        }
-
         setSuccessInfo({
           title: 'Expense Recorded',
           message: 'New expense has been safely logged into your financial records.'
@@ -240,11 +240,11 @@ const ExpensesPage = () => {
         variant: "destructive",
         title: "Save Failed",
         description: (
-          <div className="mt-2 text-sm">
-            <p className="font-semibold text-destructive">{errorMessage}</p>
-            <div className="mt-2 p-2 bg-destructive/5 rounded border border-destructive/10 text-[10px]">
-              <p className="font-bold uppercase tracking-widest opacity-70 mb-1">Troubleshooting:</p>
-              <ul className="list-disc list-inside space-y-0.5 opacity-90">
+          <div className="mt-2 text-sm text-destructive-foreground">
+            <p className="font-semibold text-white">{errorMessage}</p>
+            <div className="mt-2 p-2 bg-white/10 rounded border border-white/20 text-[10px]">
+              <p className="font-bold uppercase tracking-widest opacity-80 mb-1 text-white">Troubleshooting:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-white/90">
                 <li>Title: {formData.title || "N/A"}</li>
                 <li>Amount: {formData.amount || "0"}</li>
                 <li>Category: {formData.category || "N/A"}</li>
@@ -260,14 +260,14 @@ const ExpensesPage = () => {
   const handleEdit = (expense: Expense) => {
     setFormData({
       title: expense.title,
-      description: expense.description,
-      amount: expense.amount,
+      description: expense.description || '',
+      amount: expense.amount ? String(expense.amount) : '',
       category: expense.category,
       expense_date: expense.expense_date,
       payment_method: expense.payment_method,
       is_billable: expense.is_billable,
-      client_id: expense.client_id,
-      tax_amount: expense.tax_amount
+      client_id: expense.client_id || '',
+      tax_amount: (expense.tax_amount && expense.tax_amount > 0) ? String(expense.tax_amount) : ''
     });
     setEditingId(expense.id);
     setDialogOpen(true);
@@ -281,7 +281,8 @@ const ExpensesPage = () => {
   const confirmDelete = async () => {
     if (!idToDelete) return;
     try {
-      const { error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { error } = await clientToUse
         .from('expenses')
         .delete()
         .eq('id', idToDelete);
@@ -312,13 +313,13 @@ const ExpensesPage = () => {
     setFormData({
       title: '',
       description: '',
-      amount: 0,
+      amount: '',
       category: '',
       expense_date: new Date().toISOString().split('T')[0],
       payment_method: 'cash',
       is_billable: false,
       client_id: '',
-      tax_amount: 0
+      tax_amount: ''
     });
     setEditingId(null);
   };
@@ -344,7 +345,10 @@ const ExpensesPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Expenses</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Expenses</h1>
+            <StaffHeaderBadge />
+          </div>
           <p className="text-muted-foreground mt-1 text-sm">Track and manage business expenses</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -416,26 +420,28 @@ const ExpensesPage = () => {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="amount" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">Amount (₹) <span className="text-rose-500">*</span></Label>
+                      <Label htmlFor="amount" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">Amount ({currencySymbol}) <span className="text-rose-500">*</span></Label>
                       <Input
                         id="amount"
                         type="number"
                         step="0.01"
+                        placeholder="0.00"
                         value={formData.amount}
-                        onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
+                        onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                         required
                         min="0.01"
                         className="h-11 border-border/60 font-bold text-base bg-muted/20 rounded-lg focus:ring-primary"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="tax_amount" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Tax (₹)</Label>
+                      <Label htmlFor="tax_amount" className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Tax ({currencySymbol})</Label>
                       <Input
                         id="tax_amount"
                         type="number"
                         step="0.01"
+                        placeholder="0.00"
                         value={formData.tax_amount}
-                        onChange={(e) => setFormData({ ...formData, tax_amount: Number(e.target.value) })}
+                        onChange={(e) => setFormData({ ...formData, tax_amount: e.target.value })}
                         className="h-11 border-border/60 font-medium bg-muted/20 rounded-lg focus:ring-primary"
                       />
                     </div>
@@ -544,54 +550,84 @@ const ExpensesPage = () => {
       />
 
       {/* Summary Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-        <Card className="p-4 md:p-6 bg-card dark:bg-card border-2 rounded-2xl">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Total Expenses</p>
-          <div className="flex items-center justify-between">
-            <p className="text-2xl lg:text-3xl font-black text-foreground tracking-tight">₹{getTotalExpenses().toLocaleString()}</p>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 opacity-40">
-              <CreditCard className="w-5 h-5 lg:w-6 lg:h-6" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 md:gap-6">
+        <Card className="p-3 sm:p-4 md:p-5 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title="Total Expenses">
+              Total Expenses
+            </span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0 flex items-center justify-center">
+              <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <p className="text-[10px] font-bold text-emerald-600/60 mt-2">Verified Outflow</p>
+          <div className="my-auto py-0.5 w-full overflow-hidden">
+            <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+              {formatAmount(getTotalExpenses())}
+            </p>
+          </div>
+          <p className="text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 truncate">
+            Verified Outflow
+          </p>
         </Card>
 
-        <Card className="p-4 md:p-6 bg-card dark:bg-card border-2 rounded-2xl">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Billable</p>
-          <div className="flex items-center justify-between">
-            <p className="text-2xl lg:text-3xl font-black text-foreground tracking-tight">₹{getBillableExpenses().toLocaleString()}</p>
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 opacity-40">
-              <ShieldCheck className="w-5 h-5 lg:w-6 lg:h-6" />
+        <Card className="p-3 sm:p-4 md:p-5 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title="Billable">
+              Billable
+            </span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0 flex items-center justify-center">
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <p className="text-[10px] font-bold text-blue-600/60 mt-2">Recoverable Costs</p>
+          <div className="my-auto py-0.5 w-full overflow-hidden">
+            <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+              {formatAmount(getBillableExpenses())}
+            </p>
+          </div>
+          <p className="text-[10px] font-semibold text-blue-600/90 dark:text-blue-400/90 mt-1.5 pt-1.5 border-t border-border/40 truncate">
+            Recoverable Costs
+          </p>
         </Card>
 
-        <Card className="p-4 md:p-6 bg-card dark:bg-card border-2 rounded-2xl hidden sm:block">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Total Records</p>
-          <div className="flex items-center justify-between">
-            <p className="text-2xl lg:text-3xl font-black text-foreground tracking-tight">{expenses.length}</p>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-600 opacity-40">
-              <Receipt className="w-5 h-5 lg:w-6 lg:h-6" />
+        <Card className="p-3 sm:p-4 md:p-5 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title="Total Records">
+              Total Records
+            </span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0 flex items-center justify-center">
+              <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <p className="text-[10px] font-bold text-amber-600/60 mt-2">Logged Entries</p>
+          <div className="my-auto py-0.5 w-full overflow-hidden">
+            <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
+              {expenses.length.toLocaleString('en-IN')}
+            </p>
+          </div>
+          <p className="text-[10px] font-semibold text-amber-600/90 dark:text-amber-400/90 mt-1.5 pt-1.5 border-t border-border/40 truncate">
+            Logged Entries
+          </p>
         </Card>
 
-        <Card className="p-4 md:p-6 bg-card dark:bg-card border-2 rounded-2xl hidden lg:block">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">This Month</p>
-          <div className="flex items-center justify-between">
-            <p className="text-2xl lg:text-3xl font-black text-foreground tracking-tight">
+        <Card className="p-3 sm:p-4 md:p-5 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title="This Month">
+              This Month
+            </span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shrink-0 flex items-center justify-center">
+              <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </div>
+          </div>
+          <div className="my-auto py-0.5 w-full overflow-hidden">
+            <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
               {expenses.filter(exp =>
                 new Date(exp.expense_date).getMonth() === new Date().getMonth() &&
                 new Date(exp.expense_date).getFullYear() === new Date().getFullYear()
-              ).length}
+              ).length.toLocaleString('en-IN')}
             </p>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-600 opacity-40">
-              <Calendar className="w-5 h-5 lg:w-6 lg:h-6" />
-            </div>
           </div>
-          <p className="text-[10px] font-bold text-indigo-600/60 mt-2">Current Period</p>
+          <p className="text-[10px] font-semibold text-indigo-600/90 dark:text-indigo-400/90 mt-1.5 pt-1.5 border-t border-border/40 truncate">
+            Current Period
+          </p>
         </Card>
       </div>
 
@@ -660,9 +696,9 @@ const ExpensesPage = () => {
                           </Badge>
                         </td>
                         <td className="px-6 py-5 text-right">
-                          <div className="text-sm font-bold text-foreground">₹{expense.amount.toFixed(2)}</div>
+                          <div className="text-sm font-bold text-foreground">{formatAmount(expense.amount)}</div>
                           {expense.tax_amount > 0 && (
-                            <div className="text-[10px] text-red-500 font-bold tracking-tighter italic">Tax Inclusive: ₹{expense.tax_amount.toFixed(2)}</div>
+                            <div className="text-[10px] text-red-500 font-bold tracking-tighter italic">Tax Inclusive: {formatAmount(expense.tax_amount)}</div>
                           )}
                         </td>
                         <td className="px-6 py-5 text-right">
@@ -709,7 +745,7 @@ const ExpensesPage = () => {
                       <h3 className="text-xl font-bold text-foreground tracking-tight leading-tight truncate pr-4">{expense.title}</h3>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-xl font-bold text-foreground">₹{expense.amount.toFixed(0)}</div>
+                      <div className="text-xl font-bold text-foreground">{formatAmount(expense.amount)}</div>
                       <Badge variant="secondary" className="mt-1 text-[9px] font-bold uppercase bg-muted text-muted-foreground border-none">
                         {expense.category}
                       </Badge>
@@ -764,36 +800,18 @@ const ExpensesPage = () => {
       )}
 
       {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="flex justify-center items-center space-x-3 mt-10">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1 || loading}
-            className="rounded-lg h-10 px-4 font-semibold uppercase tracking-wider text-[10px] hover:bg-muted transition-colors border border-border"
-          >
-            <ChevronLeft className="w-4 h-4 mr-1" />
-            Previous
-          </Button>
-          <div className="flex items-center bg-background px-4 h-10 rounded-lg border border-border shadow-sm">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-1.5">Page</span>
-            <span className="text-sm font-bold text-foreground">{currentPage}</span>
-            <span className="mx-2 text-muted-foreground opacity-30">/</span>
-            <span className="text-sm font-bold text-muted-foreground">{totalPages}</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages || loading}
-            className="rounded-lg h-10 px-4 font-semibold uppercase tracking-wider text-[10px] hover:bg-muted transition-colors border border-border"
-          >
-            Next
-            <ChevronRight className="w-4 h-4 ml-1" />
-          </Button>
-        </div>
-      )}
+      <div className="mt-8">
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalCount={expensesData?.totalCount || 0}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          entityName="expenses"
+          isLoading={loading}
+        />
+      </div>
     </div>
   );
 };

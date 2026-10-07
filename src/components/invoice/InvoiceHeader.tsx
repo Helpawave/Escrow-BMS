@@ -30,6 +30,8 @@ export interface InvoiceFormData {
   notes: string;
   terms: string;
   status: string;
+  invoice_number?: string;
+  payment_method?: string;
 }
 
 export interface LedgerPartyOption {

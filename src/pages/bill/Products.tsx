@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Edit, Trash2, Receipt, Package, Truck, Tag, CreditCard, Settings2, X, Search, Scan, Loader2, AlertCircle, Check, LayoutList, LayoutGrid, List, FileBarChart, Printer, Download, Building2, Filter } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { Plus, Edit, Trash2, Receipt, Package, Truck, Tag, CreditCard, Settings2, X, Search, Scan, Loader2, AlertCircle, Check, LayoutList, LayoutGrid, List, Printer, Download, Filter, ShoppingBag } from "lucide-react";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -19,19 +19,15 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter, SheetTrigger
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import QRCode from 'react-qr-code';
 import Barcode from 'react-barcode';
 import { cn } from "@/lib/utils";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { type HSNCode } from '@/types/hsn';
+import { DataTablePagination } from "@/components/DataTablePagination";
+import { formatCategory } from "@/utils/inventory";
+import { useUserType } from "@/hooks/useUserType";
 
 interface QRToken {
   id: string;
@@ -54,38 +50,148 @@ interface Product {
   category: string;
   type?: string;
   opening_stock?: string;
-  current_stock?: number;
   purchase_price?: number;
   sku?: string;
   hsn_code?: string;
   low_stock_warning?: boolean;
   created_at?: string;
   vendor_id?: string;
-  location?: string;
-  returnable_item?: boolean;
-  tax_preference?: 'Taxable' | 'Non-Taxable';
 }
 
 import { useProducts } from "@/hooks/useProducts";
 import { useVendors } from "@/hooks/useVendors";
 import type { Vendor } from "./Vendors";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 
 const ProductsPage = () => {
+  const { user, effectiveUserId, profile, companyProfile } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const initialProductId = searchParams.get('id') || "";
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: string) {
+  if (!dateFilter || dateFilter === 'all') return { from: null, to: null };
+  const now = new Date();
+  
+  if (dateFilter === 'today') {
+    const todayStr = now.toISOString().split('T')[0];
+    return { from: todayStr, to: todayStr };
+  }
+  
+  if (dateFilter === 'this_week') {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    d.setDate(diff);
+    const mondayStr = d.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+    return { from: mondayStr, to: todayStr };
+  }
+  
+  if (dateFilter === 'this_month') {
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const startStr = `${y}-${m}-01`;
+    const todayStr = now.toISOString().split('T')[0];
+    return { from: startStr, to: todayStr };
+  }
+  
+  if (dateFilter === 'last_month') {
+    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+    const y = prevMonth.getFullYear();
+    const m = String(prevMonth.getMonth() + 1).padStart(2, '0');
+    const startStr = `${y}-${m}-01`;
+    const endStr = lastDayPrevMonth.toISOString().split('T')[0];
+    return { from: startStr, to: endStr };
+  }
+  
+  if (dateFilter === 'custom') {
+    return { from: customStart || null, to: customEnd || null };
+  }
+  
+  return { from: null, to: null };
+}
+
+  const [dateFilter, setDateFilter] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const { isFoodKitchen } = useUserType();
+  const isGeetaUser = targetUserId === 'dddbc465-7743-42c6-88f0-039a4332711d' || 
+    profile?.company_name?.toLowerCase().includes('geeta') || 
+    companyProfile?.company_name?.toLowerCase().includes('geeta') ||
+    user?.email === 'krishnayadav240225@gmail.com';
+  const isCloudKitchenUser = isFoodKitchen || isGeetaUser;
+
+  const { data: totalSoldQuantity = 0 } = useQuery({
+    queryKey: ['total-quantity-sold', targetUserId, dateFilter, startDate, endDate, categoryFilter, typeFilter],
+    queryFn: async () => {
+      if (!targetUserId) return 0;
+      const clientToUse = serviceSupabase || supabase;
+      
+      let query = clientToUse
+        .from('invoices')
+        .select(`
+          id,
+          issue_date,
+          invoice_items (
+            quantity,
+            products (
+              category,
+              type
+            )
+          )
+        `)
+        .eq('user_id', targetUserId);
+
+      const { from: dateFrom, to: dateTo } = getDateBounds(dateFilter, startDate, endDate);
+      if (dateFrom) {
+        query = query.gte('issue_date', dateFrom);
+      }
+      if (dateTo) {
+        query = query.lte('issue_date', dateTo);
+      }
+
+      const { data: invoices, error } = await query;
+      if (error) {
+        console.error("Error calculating sold quantity:", error);
+        return 0;
+      }
+
+      let total = 0;
+      ((invoices as unknown as { invoice_items?: { quantity: number; products?: { category?: string; type?: string } }[] }[]) || []).forEach(inv => {
+        (inv.invoice_items || []).forEach(item => {
+          const cat = item.products?.category?.toLowerCase();
+          const pType = item.products?.type?.toLowerCase();
+
+          if (categoryFilter && categoryFilter !== 'all' && cat !== categoryFilter.toLowerCase()) {
+            return;
+          }
+          if (typeFilter && typeFilter !== 'all' && pType !== typeFilter.toLowerCase()) {
+            return;
+          }
+
+          total += Number(item.quantity || 0);
+        });
+      });
+      return total;
+    },
+    enabled: !!targetUserId && isCloudKitchenUser
+  });
 
   const { data, isLoading: loading, isFetching: searchLoading } = useProducts({
     page: currentPage,
-    pageSize: ITEMS_PER_PAGE,
+    pageSize: pageSize,
     searchTerm: debouncedSearch,
     categoryFilter,
     typeFilter
@@ -93,7 +199,7 @@ const ProductsPage = () => {
 
   const products = (data?.products || []) as unknown as Product[];
   const totalCount = data?.totalCount || 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const fetchProducts = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -108,7 +214,6 @@ const ProductsPage = () => {
     tax_rate: '18',
     unit: 'pcs',
     opening_stock: '',
-    current_stock: 0,
     description: '',
     purchase_price: '',
     sku: '',
@@ -118,10 +223,7 @@ const ProductsPage = () => {
     alternative_unit: '',
     as_of_date: new Date().toISOString().split('T')[0],
     low_stock_warning: false,
-    vendor_id: '',
-    location: '',
-    returnable_item: false,
-    tax_preference: 'Taxable'
+    vendor_id: ''
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -136,29 +238,14 @@ const ProductsPage = () => {
   const [printType, setQrPrintType] = useState<'both' | 'qr' | 'barcode'>('both');
   const [qrQuantity, setQrQuantity] = useState(1);
   const [showHSNDialog, setShowHSNDialog] = useState(false);
-  const [showReportDialog, setShowReportDialog] = useState(false);
+
   const [viewProductDialog, setViewProductDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [hsnSearchQuery, setHsnSearchQuery] = useState("");
   const [hsnCodesData, setHsnCodesData] = useState<HSNCode[]>([]);
   const [tokens, setTokens] = useState<QRToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
-  
-  // Standard Inventory Report State Variables
-  const [reportProducts, setReportProducts] = useState<Product[]>([]);
-  const [loadingReportProducts, setLoadingReportProducts] = useState(false);
-  const [reportSearch, setReportSearch] = useState("");
-  const [reportCategoryFilter, setReportCategoryFilter] = useState("all");
-  const [reportTypeFilter, setReportTypeFilter] = useState("all");
-  const [reportStockFilter, setReportStockFilter] = useState("all");
-  const [companyDetails, setCompanyDetails] = useState({
-    name: 'My Business',
-    gstin: '',
-    address: '',
-    phone: ''
-  });
 
-  const [showTaxBreakdown, setShowTaxBreakdown] = useState(false);
 
   // Helper to highlight matching search characters
   const highlightText = useCallback((text: string, search: string) => {
@@ -215,27 +302,30 @@ const ProductsPage = () => {
   const { data: vendorsData } = useVendors({ pageSize: 1000 });
   const vendors = (vendorsData as unknown as { vendors: Vendor[] })?.vendors || [] as Vendor[];
 
-  const { currencySymbol } = useCurrency();
-  const { user } = useAuth();
+  const { currencySymbol, convertFromINR, currencyCode } = useCurrency();
+  const formatProductPrice = useCallback((inrAmount: number) => {
+    const converted = currencyCode !== 'INR' ? convertFromINR(inrAmount) : inrAmount;
+    return `${currencySymbol}${converted.toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  }, [currencyCode, convertFromINR, currencySymbol]);
   const { toast } = useToast();
-  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState(initialSearch);
 
   // Handle specific product navigation from global search
   useEffect(() => {
     const findProductPage = async () => {
-      if (initialProductId && user) {
+      if (initialProductId && targetUserId) {
         try {
-          const { data } = await supabase
+          const clientToUse = serviceSupabase || supabase;
+          const { data } = await clientToUse
             .from('products')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('user_id', targetUserId)
             .order('created_at', { ascending: false });
 
           if (data) {
             const index = (data as unknown as Product[]).findIndex((p: Product) => p.id === initialProductId);
             if (index !== -1) {
-              const page = Math.ceil((index + 1) / ITEMS_PER_PAGE);
+              const page = Math.ceil((index + 1) / pageSize);
               setCurrentPage(page);
             }
           }
@@ -245,10 +335,10 @@ const ProductsPage = () => {
       }
     };
 
-    if (user) {
+    if (targetUserId) {
       findProductPage();
     }
-  }, [initialProductId, user]);
+  }, [initialProductId, targetUserId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -260,6 +350,27 @@ const ProductsPage = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearch, categoryFilter, typeFilter]);
+
+  const availableCategories = useMemo(() => {
+    const base = [
+      { value: 'all', label: 'All Categories' },
+      { value: 'general', label: 'General Items' },
+      { value: 'it', label: 'IT & Software' },
+      { value: 'hardware', label: 'Hardware & Electronics' },
+      { value: 'consulting', label: 'Consulting & Professional Services' },
+      { value: 'retail', label: 'Retail & E-commerce' },
+      { value: 'others', label: 'Others' }
+    ];
+    const known = new Set(['all', 'general', 'it', 'hardware', 'consulting', 'retail', 'others']);
+    (products || []).forEach(p => {
+      const raw = (p.category || '').trim();
+      if (raw && !known.has(raw.toLowerCase())) {
+        known.add(raw.toLowerCase());
+        base.push({ value: raw, label: formatCategory(raw) });
+      }
+    });
+    return base;
+  }, [products]);
 
   const filteredHsnCodes = useMemo(() => {
     if (!showHSNDialog || hsnCodesData.length === 0) return [];
@@ -282,155 +393,13 @@ const ProductsPage = () => {
 
   useEffect(() => {
     if (showHSNDialog && hsnCodesData.length === 0) {
-      fetch('/data/hsnCodes.json')
-        .then(res => res.json())
-        .then(data => setHsnCodesData(data))
-        .catch(err => console.error('Failed to load HSN codes:', err));
+      import('@/data/hsnCodes.json').then(module => {
+        setHsnCodesData(module.default);
+      });
     }
   }, [showHSNDialog, hsnCodesData.length]);
 
-  // Fetch all products alphabetically & fetch business profile info when report opens
-  useEffect(() => {
-    const fetchAllProductsForReport = async () => {
-      if (showReportDialog && user) {
-        setLoadingReportProducts(true);
-        try {
-          const { data, error } = await supabase
-            .from('products')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('name', { ascending: true });
-          if (error) throw error;
-          setReportProducts((data as unknown as Product[]) || []);
-        } catch (err) {
-          console.error("Error fetching report products:", err);
-          toast({
-            variant: "destructive",
-            title: "Report Load Failed",
-            description: "Could not fetch all catalog products."
-          });
-        } finally {
-          setLoadingReportProducts(false);
-        }
-      }
-    };
-    
-    const fetchProfileForReport = async () => {
-      if (showReportDialog && user) {
-        try {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          if (error) throw error;
-          if (data) {
-            const profileData = data as any;
-            setCompanyDetails({
-              name: profileData.company_name || 'My Business',
-              gstin: profileData.gstin || '',
-              address: profileData.business_address || '',
-              phone: profileData.phone || ''
-            });
-          }
-        } catch (err) {
-          console.error("Error fetching profile for report:", err);
-        }
-      }
-    };
 
-    fetchAllProductsForReport();
-    fetchProfileForReport();
-  }, [showReportDialog, user, toast]);
-
-  const reportCategories = useMemo(() => {
-    const cats = new Set<string>();
-    reportProducts.forEach(p => {
-      if (p.category) cats.add(p.category);
-    });
-    return Array.from(cats);
-  }, [reportProducts]);
-
-  const filteredReportProducts = useMemo(() => {
-    return reportProducts.filter(p => {
-      const searchLower = reportSearch.toLowerCase();
-      const matchesSearch = !reportSearch ||
-        p.name.toLowerCase().includes(searchLower) ||
-        (p.sku && p.sku.toLowerCase().includes(searchLower)) ||
-        (p.hsn_code && p.hsn_code.toLowerCase().includes(searchLower));
-
-      const matchesCategory = reportCategoryFilter === "all" || p.category === reportCategoryFilter;
-      const matchesType = reportTypeFilter === "all" || p.type === reportTypeFilter;
-
-      const stock = Number(p.opening_stock || 0);
-      let matchesStock = true;
-      if (reportStockFilter === "low_stock") {
-        matchesStock = p.type !== 'service' && stock > 0 && stock <= 5;
-      } else if (reportStockFilter === "out_of_stock") {
-        matchesStock = p.type !== 'service' && stock <= 0;
-      } else if (reportStockFilter === "in_stock") {
-        matchesStock = p.type === 'service' || stock > 5;
-      }
-
-      return matchesSearch && matchesCategory && matchesType && matchesStock;
-    });
-  }, [reportProducts, reportSearch, reportCategoryFilter, reportTypeFilter, reportStockFilter]);
-
-  const reportStats = useMemo(() => {
-    let totalUnique = filteredReportProducts.length;
-    let totalStockQty = 0;
-    let totalPurchaseVal = 0;
-    let totalSalesVal = 0;
-    let totalProfit = 0;
-
-    filteredReportProducts.forEach(p => {
-      if (p.type !== 'service') {
-        const stock = Number(p.opening_stock || 0);
-        totalStockQty += stock;
-        totalPurchaseVal += stock * Number(p.purchase_price || 0);
-        totalSalesVal += stock * p.price;
-        totalProfit += stock * (p.price - Number(p.purchase_price || 0));
-      }
-    });
-
-    const profitMarginPercent = totalSalesVal > 0 ? (totalProfit / totalSalesVal) * 100 : 0;
-
-    return {
-      totalUnique,
-      totalStockQty,
-      totalPurchaseVal,
-      totalSalesVal,
-      totalProfit,
-      profitMarginPercent
-    };
-  }, [filteredReportProducts]);
-
-  const reportTaxBrackets = useMemo(() => {
-    const brackets: Record<number, { taxableValue: number; taxAmount: number; totalValue: number; itemsCount: number }> = {};
-    
-    filteredReportProducts.forEach(p => {
-      if (p.type !== 'service') {
-        const stock = Number(p.opening_stock || 0);
-        const rate = Number(p.tax_rate || 0);
-        const stockValCost = stock * Number(p.purchase_price || 0);
-        const taxVal = stockValCost * (rate / 100);
-        const total = stockValCost + taxVal;
-        
-        if (!brackets[rate]) {
-          brackets[rate] = { taxableValue: 0, taxAmount: 0, totalValue: 0, itemsCount: 0 };
-        }
-        brackets[rate].taxableValue += stockValCost;
-        brackets[rate].taxAmount += taxVal;
-        brackets[rate].totalValue += total;
-        brackets[rate].itemsCount += 1;
-      }
-    });
-    
-    return Object.entries(brackets).map(([rate, data]) => ({
-      rate: Number(rate),
-      ...data
-    })).sort((a, b) => a.rate - b.rate);
-  }, [filteredReportProducts]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -438,8 +407,8 @@ const ProductsPage = () => {
     // Comprehensive validation
     const errors: string[] = [];
     if (!formData.name.trim()) errors.push("Product name is required.");
-    if (!formData.price || isNaN(Number(formData.price)) || Number(formData.price) <= 0) {
-      errors.push("A valid sales price greater than 0 is required.");
+    if (formData.price === '' || formData.price === null || isNaN(Number(formData.price)) || Number(formData.price) < 0) {
+      errors.push("A valid sales price (0 or greater) is required.");
     }
     if (formData.purchase_price && (isNaN(Number(formData.purchase_price)) || Number(formData.purchase_price) < 0)) {
       errors.push("Purchase price cannot be negative.");
@@ -450,13 +419,16 @@ const ProductsPage = () => {
     if (formData.opening_stock && (isNaN(Number(formData.opening_stock)) || Number(formData.opening_stock) < 0)) {
       errors.push("Opening stock cannot be negative.");
     }
+    if (!targetUserId) {
+      errors.push("User session is not active. Please refresh the page.");
+    }
 
     if (errors.length > 0) {
       toast({
         variant: "destructive",
         title: "Validation Failed",
         description: (
-          <ul className="list-disc list-inside text-xs mt-1">
+          <ul className="list-disc list-inside text-xs mt-1 text-white">
             {errors.map((err, i) => <li key={i}>{err}</li>)}
           </ul>
         )
@@ -465,49 +437,41 @@ const ProductsPage = () => {
     }
 
     try {
-      let activeUserId = user?.id;
-      if (!activeUserId) {
-        const { data: authData } = await supabase.auth.getUser();
-        activeUserId = authData?.user?.id;
-      }
-      if (!activeUserId) {
-        throw new Error("Please log in to save product details.");
-      }
+      const sanitizedVendorId = (formData.vendor_id && formData.vendor_id !== 'none' && formData.vendor_id.trim() !== '')
+        ? formData.vendor_id.trim()
+        : null;
 
       const productData = {
         name: formData.name.trim(),
-        description: formData.description,
+        description: formData.description?.trim() || null,
         price: Number(formData.price),
         discount: Number(formData.discount) || 0,
         tax_rate: Number(formData.tax_rate) || 0,
-        unit: formData.unit,
-        category: formData.category,
-        type: formData.type,
-        sku: formData.sku,
+        unit: formData.unit || 'pcs',
+        category: formData.category ? formatCategory(formData.category) : 'General',
+        type: formData.type || 'product',
+        sku: formData.sku?.trim() || null,
         purchase_price: Number(formData.purchase_price) || 0,
-        opening_stock: formData.opening_stock,
-        hsn_code: formData.hsn_code,
-        low_stock_warning: formData.low_stock_warning,
-        vendor_id: formData.vendor_id || null,
-        user_id: activeUserId,
-        id: crypto.randomUUID()
+        opening_stock: formData.opening_stock ? String(formData.opening_stock).trim() : "0",
+        hsn_code: formData.hsn_code?.trim() || null,
+        low_stock_warning: Boolean(formData.low_stock_warning),
+        vendor_id: sanitizedVendorId,
+        user_id: targetUserId
       };
 
       console.log('Attempting to save product with data:', productData);
 
+      const clientToUse = serviceSupabase || supabase;
+
       if (editingId) {
-        const { error, data: updatedData } = await supabase
+        const { error } = await clientToUse
           .from('products')
           .update(productData)
-          .eq('id', editingId)
-          .select();
+          .eq('id', editingId);
 
         if (error) {
           console.error('Supabase update error:', error);
           throw new Error(`Failed to update product: ${error.message}`);
-        }
-        if (!updatedData || updatedData.length === 0) {
-          throw new Error("Failed to update product. Please try again.");
         }
 
         setSuccessInfo({
@@ -515,7 +479,7 @@ const ProductsPage = () => {
           message: 'Your product details have been successfully synchronized.'
         });
       } else {
-        const { data: insertData, error } = await supabase
+        const { data: insertData, error } = await clientToUse
           .from('products')
           .insert([{ ...productData }])
           .select();
@@ -528,27 +492,32 @@ const ProductsPage = () => {
         const newProduct = insertData?.[0] as unknown as Product;
 
         // Create Purchase Invoice if Vendor is selected and purchase price is set
-        if (formData.vendor_id && Number(formData.purchase_price) > 0 && newProduct) {
+        if (sanitizedVendorId && Number(formData.purchase_price) > 0 && newProduct) {
           const invoiceNumber = `PUR-${Date.now()}`;
           const totalAmount = Number(formData.purchase_price) * (Number(formData.opening_stock) || 1);
-          const today = new Date().toISOString().split('T')[0];
 
-          try {
-            await supabase
-              .from('purchase_invoices')
-              .insert([{
-                id: crypto.randomUUID(),
-                user_id: activeUserId,
-                vendor_id: formData.vendor_id,
-                invoice_number: invoiceNumber,
-                issue_date: today,
-                due_date: today,
-                total_amount: totalAmount,
-                status: 'paid'
-              }])
-              .select();
-          } catch (invErr) {
-            console.error('Error creating purchase invoice:', invErr);
+          const { data: invData, error: invError } = await clientToUse
+            .from('purchase_invoices')
+            .insert([{
+              user_id: targetUserId,
+              vendor_id: sanitizedVendorId,
+              invoice_number: invoiceNumber,
+              issue_date: new Date().toISOString().split('T')[0],
+              total_amount: totalAmount,
+              status: 'paid'
+            }])
+            .select();
+
+          if (invError) {
+            console.error('Error creating purchase invoice:', invError);
+          } else if (invData?.[0]) {
+            await clientToUse.from('purchase_invoice_items').insert([{
+              invoice_id: (invData[0] as unknown as { id: string }).id,
+              product_id: newProduct.id,
+              quantity: Number(formData.opening_stock) || 1,
+              rate: Number(formData.purchase_price),
+              amount: totalAmount
+            }]);
           }
         }
 
@@ -586,11 +555,11 @@ const ProductsPage = () => {
         variant: "destructive",
         title: "Product Saving Failed",
         description: (
-          <div className="mt-2 text-sm">
-            <p className="font-semibold text-destructive">{errorMessage}</p>
-            <div className="mt-2 p-2 bg-destructive/5 rounded border border-destructive/10">
-              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-1 text-destructive">Troubleshooting Info:</p>
-              <ul className="list-disc list-inside text-[10px] space-y-0.5 opacity-90">
+          <div className="mt-2 text-sm text-destructive-foreground">
+            <p className="font-semibold text-white">{errorMessage}</p>
+            <div className="mt-2 p-2 bg-white/10 rounded border border-white/20">
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1 text-white">Troubleshooting Info:</p>
+              <ul className="list-disc list-inside text-[10px] space-y-0.5 text-white/90">
                 <li>Form Name: {formData.name || "Missing"}</li>
                 <li>Sales Price: {formData.price || "0"}</li>
                 <li>SKU/Code: {formData.sku || "Auto-generated"}</li>
@@ -598,7 +567,7 @@ const ProductsPage = () => {
                 <li>Session Status: {user?.id ? "Active" : "Logged Out"}</li>
               </ul>
             </div>
-            <p className="mt-2 text-[10px] italic opacity-70">Please check the highlighted fields and try again.</p>
+            <p className="mt-2 text-[10px] italic opacity-80 text-white">Please check the highlighted fields and try again.</p>
           </div>
         )
       });
@@ -606,7 +575,28 @@ const ProductsPage = () => {
   };
 
   const handleEdit = (product: Product) => {
-    navigate(`/inventory/product/edit/${product.id}`, { state: { product } });
+    setFormData({
+      name: product.name,
+      description: product.description || '',
+      price: product.price ? product.price.toString() : '',
+      discount: (product.discount && Number(product.discount) > 0) ? product.discount.toString() : '',
+      tax_rate: String(product.tax_rate !== null && product.tax_rate !== undefined ? product.tax_rate : 18),
+      unit: product.unit || 'pcs',
+      category: product.category || 'general',
+      type: product.type || 'product',
+      sku: product.sku || '',
+      purchase_price: (product.purchase_price && Number(product.purchase_price) > 0) ? product.purchase_price.toString() : '',
+      opening_stock: (product.opening_stock && product.opening_stock !== '0' && Number(product.opening_stock) > 0) ? product.opening_stock : '',
+      price_with_tax: true,
+      hsn_code: product.hsn_code || '',
+      barcode: '',
+      alternative_unit: '',
+      as_of_date: new Date().toISOString().split('T')[0],
+      low_stock_warning: product.low_stock_warning || false,
+      vendor_id: product.vendor_id || ''
+    });
+    setEditingId(product.id);
+    setDialogOpen(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -617,7 +607,8 @@ const ProductsPage = () => {
   const confirmDelete = async () => {
     if (!idToDelete) return;
     try {
-      const { error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { error } = await clientToUse
         .from('products')
         .delete()
         .eq('id', idToDelete);
@@ -661,7 +652,6 @@ const ProductsPage = () => {
       tax_rate: '18',
       unit: 'pcs',
       opening_stock: '',
-      current_stock: 0,
       description: '',
       purchase_price: '',
       sku: '',
@@ -671,10 +661,7 @@ const ProductsPage = () => {
       alternative_unit: '',
       as_of_date: new Date().toISOString().split('T')[0],
       low_stock_warning: false,
-      vendor_id: '',
-      location: '',
-      returnable_item: false,
-      tax_preference: 'Taxable'
+      vendor_id: ''
     });
     setEditingId(null);
   };
@@ -684,8 +671,9 @@ const ProductsPage = () => {
 
     setLoadingTokens(true);
     try {
+      const clientToUse = serviceSupabase || supabase;
       // 1. Fetch existing active tokens
-      const { data: existingTokens } = await supabase
+      const { data: existingTokens } = await clientToUse
         .from('qr_tokens')
         .select('*')
         .eq('product_id', productId)
@@ -703,7 +691,7 @@ const ProductsPage = () => {
           status: 'active'
         }));
 
-        const { error: insertError } = await supabase
+        const { error: insertError } = await clientToUse
           .from('qr_tokens')
           .insert(newTokens);
 
@@ -711,7 +699,7 @@ const ProductsPage = () => {
       }
 
       // 3. Fetch all active tokens again to be sure
-      const { data: finalTokens } = await supabase
+      const { data: finalTokens } = await clientToUse
         .from('qr_tokens')
         .select('*')
         .eq('product_id', productId)
@@ -730,64 +718,7 @@ const ProductsPage = () => {
     }
   };
 
-  const exportToCSV = () => {
-    try {
-      const headers = [
-        "Product Name", 
-        "Type",
-        "SKU", 
-        "HSN/SAC", 
-        "Category", 
-        "Unit",
-        "Tax Rate (%)", 
-        "Purchase Price", 
-        "Sales Price", 
-        "Stock Qty", 
-        "Purchase Value (Assets)",
-        "Sales Value",
-        "Est. Profit Margin"
-      ];
-      
-      const rows = filteredReportProducts.map((p) => [
-        p.name,
-        p.type || "product",
-        p.sku || "N/A",
-        p.hsn_code || "N/A",
-        p.category || "General",
-        p.unit || "pcs",
-        `${p.tax_rate}%`,
-        p.purchase_price || 0,
-        p.price,
-        p.type === 'service' ? 'N/A' : (p.opening_stock || 0),
-        p.type === 'service' ? 0 : (Number(p.opening_stock || 0) * (p.purchase_price || 0)),
-        p.type === 'service' ? 0 : (Number(p.opening_stock || 0) * p.price),
-        p.type === 'service' ? 0 : (Number(p.opening_stock || 0) * (p.price - (p.purchase_price || 0)))
-      ]);
 
-      const csvContent = "data:text/csv;charset=utf-8," 
-        + [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-        
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement("a");
-      link.setAttribute("href", encodedUri);
-      link.setAttribute("download", `EscrowBMS_Stock_Report_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      toast({
-        title: "Export Successful",
-        description: "Standard inventory report CSV downloaded successfully."
-      });
-    } catch (err) {
-      console.error("CSV Export error:", err);
-      toast({
-        variant: "destructive",
-        title: "Export Failed",
-        description: "Failed to download CSV report."
-      });
-    }
-  };
 
   if (loading) {
     return (
@@ -801,7 +732,10 @@ const ProductsPage = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground">Products & Services</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl md:text-3xl font-bold text-foreground">Products & Services</h1>
+            <StaffHeaderBadge />
+          </div>
           <p className="text-muted-foreground mt-1">Manage your products and services catalog</p>
         </div>
 
@@ -832,17 +766,13 @@ const ProductsPage = () => {
             </Button>
           </div>
 
-          <Button 
-            variant="default" 
-            size="lg" 
-            onClick={() => navigate('/inventory/products/new')} 
-            className="w-full sm:w-auto h-11 cursor-pointer font-bold shadow-sm"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Add Product
-          </Button>
-
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="default" size="lg" onClick={resetForm} className="w-full sm:w-auto h-11">
+                <Plus className="w-5 h-5 mr-2" />
+                Add Product
+              </Button>
+            </DialogTrigger>
             <DialogContent className="sm:max-w-[90vw] lg:max-w-[850px] p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background max-h-[85vh] flex flex-col">
               <DialogHeader className="p-4 md:p-8 pb-4 shrink-0">
                 <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
@@ -883,7 +813,9 @@ const ProductsPage = () => {
                           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Category</Label>
                           <Select value={formData.category} onValueChange={(val) => setFormData({ ...formData, category: val })}>
                             <SelectTrigger className="h-10 border-border bg-background text-sm">
-                              <SelectValue placeholder="Select Category" />
+                              <SelectValue placeholder="Select Category">
+                                {formatCategory(formData.category)}
+                              </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="general">General Items</SelectItem>
@@ -892,13 +824,16 @@ const ProductsPage = () => {
                               <SelectItem value="consulting">Consulting & Professional Services</SelectItem>
                               <SelectItem value="retail">Retail & E-commerce</SelectItem>
                               <SelectItem value="others">Others</SelectItem>
+                              {formData.category && !['general', 'it', 'hardware', 'consulting', 'retail', 'others'].includes(formData.category.toLowerCase()) && (
+                                <SelectItem value={formData.category}>{formatCategory(formData.category)}</SelectItem>
+                              )}
                             </SelectContent>
                           </Select>
                         </div>
 
                         <div className="space-y-2 md:col-span-2">
                           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Vendor</Label>
-                          <Select value={formData.vendor_id} onValueChange={(val) => setFormData({ ...formData, vendor_id: val })}>
+                          <Select value={formData.vendor_id || "none"} onValueChange={(val) => setFormData({ ...formData, vendor_id: val === "none" ? "" : val })}>
                             <SelectTrigger className="h-10 border-border bg-background text-sm">
                               <SelectValue placeholder="Select Vendor (Optional)" />
                             </SelectTrigger>
@@ -1056,15 +991,24 @@ const ProductsPage = () => {
 
                         <div className="space-y-2">
                           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Unit</Label>
-                          <Select value={formData.unit} onValueChange={(val) => setFormData({ ...formData, unit: val })}>
+                          <Select 
+                            value={formData.unit} 
+                            onValueChange={(val) => setFormData({ 
+                              ...formData, 
+                              unit: val,
+                              type: val === 'service' ? 'service' : 'product'
+                            })}
+                          >
                             <SelectTrigger className="h-10 border-border bg-background text-sm">
-                              <SelectValue placeholder="Pieces(PCS)" />
+                              <SelectValue placeholder="Pieces (PCS)" />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="pcs">Pieces (PCS)</SelectItem>
                               <SelectItem value="box">Box (BOX)</SelectItem>
                               <SelectItem value="kg">Kilograms (KG)</SelectItem>
                               <SelectItem value="unit">Units (UNT)</SelectItem>
+                              <SelectItem value="service">Service</SelectItem>
+                              <SelectItem value="hours">Hours (HRS)</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -1129,12 +1073,29 @@ const ProductsPage = () => {
         </div>
       </div>
 
+      {isCloudKitchenUser && (
+        <Card className="p-4 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border border-emerald-500/20 rounded-xl flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 font-bold">
+              <ShoppingBag className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Quantity Sold</p>
+              <p className="text-xl font-black text-foreground">{totalSoldQuantity.toLocaleString('en-IN')} <span className="text-xs font-bold text-emerald-600">Plates / Units</span></p>
+            </div>
+          </div>
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-xs font-bold">
+            Cloud Kitchen Active
+          </Badge>
+        </Card>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search products by name, SKU, category..."
-            className="pl-10 h-11 bg-background border-border/50 rounded-xl font-medium"
+            className="pl-10 h-11 bg-background border-border/50 rounded-xl"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -1147,17 +1108,13 @@ const ProductsPage = () => {
 
         <div className="w-full sm:w-44">
           <select
-            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium capitalize"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
           >
-            <option value="all">All Categories</option>
-            <option value="general">General Items</option>
-            <option value="it">IT & Software</option>
-            <option value="hardware">Hardware</option>
-            <option value="consulting">Consulting</option>
-            <option value="retail">Retail</option>
-            <option value="others">Others</option>
+            {availableCategories.map(cat => (
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
+            ))}
           </select>
         </div>
 
@@ -1173,36 +1130,6 @@ const ProductsPage = () => {
           </select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={() => setShowReportDialog(true)}
-            className="h-11 px-3 md:px-4 font-bold border-2 rounded-xl hover:bg-primary/5 transition-all"
-          >
-            <FileBarChart className="h-4 w-4 mr-2 text-primary" />
-            <span className="hidden sm:inline">Product Report</span>
-            <span className="sm:hidden">Report</span>
-          </Button>
-          <div className="hidden md:flex items-center gap-1 bg-muted/30 p-1 rounded-lg border">
-            <Button
-              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('grid')}
-              className="h-8 w-10 p-0"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('list')}
-              className="h-8 w-10 p-0"
-            >
-              <List className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
       </div>
 
       <DeleteConfirmation
@@ -1220,471 +1147,6 @@ const ProductsPage = () => {
       message={successInfo.message}
       />
 
-      {/* Product Analytics Report Dialog */}
-      <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
-        <DialogContent className="sm:max-w-5xl max-h-[95vh] flex flex-col p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background">
-          <DialogHeader className="p-4 md:p-6 pb-4 shrink-0 bg-muted/5 flex flex-row items-center justify-between border-b border-border no-print">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <FileBarChart className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <DialogTitle className="text-lg font-black text-foreground flex items-center gap-2">
-                  Standard Inventory Valuation & Tax Report
-                </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground font-medium">
-                  Audit-ready stock summary, tax brackets, and expected profit margin statistics.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          {/* Interactive Control Bar - Hidden during printing */}
-          <div className="p-4 bg-muted/20 border-b border-border space-y-4 no-print shrink-0">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Search Catalog</Label>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <Input 
-                    placeholder="Search name, SKU, HSN..."
-                    value={reportSearch}
-                    onChange={(e) => setReportSearch(e.target.value)}
-                    className="pl-8 h-9 text-xs rounded-lg border-slate-200 focus:ring-primary/20 bg-background"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Filter by Category</Label>
-                <Select value={reportCategoryFilter} onValueChange={setReportCategoryFilter}>
-                  <SelectTrigger className="h-9 text-xs rounded-lg border-slate-200 bg-background">
-                    <SelectValue placeholder="All Categories" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {reportCategories.map(cat => (
-                      <SelectItem key={cat} value={cat} className="capitalize">{cat}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Filter by Type</Label>
-                <Select value={reportTypeFilter} onValueChange={setReportTypeFilter}>
-                  <SelectTrigger className="h-9 text-xs rounded-lg border-slate-200 bg-background">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="product">Products Only</SelectItem>
-                    <SelectItem value="service">Services Only</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stock Level Status</Label>
-                <Select value={reportStockFilter} onValueChange={setReportStockFilter}>
-                  <SelectTrigger className="h-9 text-xs rounded-lg border-slate-200 bg-background">
-                    <SelectValue placeholder="All Stock Levels" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Levels</SelectItem>
-                    <SelectItem value="in_stock">In Stock (Above 5)</SelectItem>
-                    <SelectItem value="low_stock">Low Stock (1-5)</SelectItem>
-                    <SelectItem value="out_of_stock">Out of Stock (0)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          {/* Printable Report Wrapper */}
-          <div className="p-4 md:p-6 flex-1 overflow-y-auto custom-scrollbar space-y-6" id="printable-report-area">
-            {/* Embedded Print Styling */}
-            <style>{`
-              @media print {
-                body * {
-                  visibility: hidden;
-                }
-                #printable-report-area, #printable-report-area * {
-                  visibility: visible;
-                }
-                #printable-report-area {
-                  position: absolute;
-                  left: 0;
-                  top: 0;
-                  width: 100%;
-                  padding: 20px;
-                  background: white !important;
-                  color: black !important;
-                }
-                .no-print {
-                  display: none !important;
-                }
-                .print-card {
-                  border: 1px solid #cbd5e1 !important;
-                  box-shadow: none !important;
-                  background: #f8fafc !important;
-                }
-                input, textarea {
-                  border: none !important;
-                  background: transparent !important;
-                  color: black !important;
-                  padding: 0 !important;
-                  box-shadow: none !important;
-                  pointer-events: none !important;
-                  resize: none !important;
-                }
-              }
-            `}</style>
-
-            {/* Business Header Card */}
-            <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50/40 dark:bg-slate-900/10 grid grid-cols-1 md:grid-cols-2 gap-6 print-card">
-              <div className="space-y-3">
-                <div className="flex items-center gap-1.5 no-print">
-                  <Building2 className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-[10px] font-black uppercase text-primary tracking-widest">Company & GST Details (Click text to Edit for Print)</span>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex flex-col gap-1">
-                    <input 
-                      type="text" 
-                      value={companyDetails.name} 
-                      onChange={(e) => setCompanyDetails({...companyDetails, name: e.target.value})}
-                      placeholder="Your Company Name"
-                      className="text-lg font-black text-slate-800 dark:text-white bg-transparent border-b border-dashed border-slate-200 hover:border-slate-350 focus:border-primary focus:outline-none w-full transition-all py-0.5 print:border-none print:p-0"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0">GSTIN:</span>
-                    <input 
-                      type="text" 
-                      value={companyDetails.gstin} 
-                      onChange={(e) => setCompanyDetails({...companyDetails, gstin: e.target.value.toUpperCase()})}
-                      placeholder="e.g. 29ABCDE1234F1Z5"
-                      className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-transparent border-b border-dashed border-slate-200 hover:border-slate-350 focus:border-primary focus:outline-none w-full transition-all py-0.5 print:border-none print:p-0"
-                    />
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest shrink-0 mt-0.5">Address:</span>
-                    <textarea 
-                      value={companyDetails.address} 
-                      onChange={(e) => setCompanyDetails({...companyDetails, address: e.target.value})}
-                      placeholder="Business Address"
-                      rows={2}
-                      className="text-xs font-medium text-slate-600 dark:text-slate-400 bg-transparent border-b border-dashed border-slate-200 hover:border-slate-350 focus:border-primary focus:outline-none w-full resize-none transition-all py-0.5 print:border-none print:p-0 custom-scrollbar"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="md:text-right space-y-2 self-start md:self-stretch flex flex-col justify-between">
-                <div>
-                  <h3 className="text-sm font-black text-primary tracking-widest uppercase">STOCK VALUATION SUMMARY</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-0.5">Audit-Ready Catalog Report</p>
-                </div>
-                <div className="text-[10px] text-slate-450 dark:text-slate-400 font-bold space-y-1">
-                  <p>Date: {new Date().toLocaleDateString("en-IN", { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                  <p className="no-print">Active Scope: <span className="text-primary font-black">{filteredReportProducts.length} of {reportProducts.length} items</span></p>
-                  <p className="hidden print:block">Total Items: <span className="text-slate-800 font-black">{filteredReportProducts.length}</span></p>
-                  <p>Operator ID: {user?.email}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 dark:bg-slate-900/30 print-card space-y-1">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Unique Items</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white">
-                  {reportStats.totalUnique} <span className="text-[10px] font-bold text-slate-400">active</span>
-                </p>
-              </div>
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 dark:bg-slate-900/30 print-card space-y-1">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Stock Qty</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white">
-                  {reportStats.totalStockQty.toLocaleString()}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 dark:bg-slate-900/30 print-card space-y-1">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Asset Value (Cost)</p>
-                <p className="text-xl font-black text-emerald-600 dark:text-emerald-400">
-                  {currencySymbol}{reportStats.totalPurchaseVal.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 dark:bg-slate-900/30 print-card space-y-1">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Sale Valuation</p>
-                <p className="text-xl font-black text-blue-600 dark:text-blue-400">
-                  {currencySymbol}{reportStats.totalSalesVal.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 dark:bg-slate-900/30 print-card space-y-1 col-span-2 lg:col-span-1">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Potential Profit</p>
-                <p className="text-xl font-black text-amber-600 dark:text-amber-400">
-                  {currencySymbol}{reportStats.totalProfit.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                  <span className="text-[9px] font-bold block text-slate-450 dark:text-slate-400 mt-0.5">
-                    {reportStats.profitMarginPercent.toFixed(1)}% Avg Margin
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            {/* GST Tax Bracket Summary - Collapsible */}
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-slate-50/20 dark:bg-slate-900/10 print-card">
-              <button 
-                onClick={() => setShowTaxBreakdown(!showTaxBreakdown)}
-                className="w-full flex items-center justify-between p-3.5 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors text-xs font-bold text-slate-700 dark:text-slate-200 no-print"
-              >
-                <div className="flex items-center gap-2">
-                  <Filter className="w-3.5 h-3.5 text-primary" />
-                  <span>GST Tax Bracket Inventory Summary ({reportTaxBrackets.length} Brackets)</span>
-                </div>
-                <span className="text-[10px] text-primary hover:underline font-bold">
-                  {showTaxBreakdown ? "Hide Summary ▲" : "Show Summary ▼"}
-                </span>
-              </button>
-              
-              <div className={cn(
-                "p-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-2 duration-200", 
-                !showTaxBreakdown && "hidden print:grid"
-              )}>
-                {reportTaxBrackets.length === 0 ? (
-                  <p className="text-[10px] font-medium text-slate-450 col-span-full">No products with tax rates found.</p>
-                ) : (
-                  reportTaxBrackets.map((bracket) => (
-                    <div key={bracket.rate} className="p-3 bg-background border border-slate-200 dark:border-slate-800 rounded-lg space-y-1.5 shadow-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] font-black bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">GST {bracket.rate}%</span>
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{bracket.itemsCount} items</span>
-                      </div>
-                      <div className="space-y-0.5 pt-1 text-[10px]">
-                        <div className="flex justify-between">
-                          <span className="text-slate-455 dark:text-slate-400 font-bold">Taxable Cost:</span>
-                          <span className="font-semibold text-slate-700 dark:text-slate-200">{currencySymbol}{bracket.taxableValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-455 dark:text-slate-400 font-bold">GST Amount:</span>
-                          <span className="font-semibold text-emerald-600">{currencySymbol}{bracket.taxAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="flex justify-between border-t border-dashed border-slate-100 dark:border-slate-800/80 pt-1 mt-1 font-bold text-[10.5px]">
-                          <span className="text-slate-500">Total Asset:</span>
-                          <span className="text-primary">{currencySymbol}{bracket.totalValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Category Breakdown (Small print tag list) */}
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-[9px] font-black uppercase text-slate-400 mr-2">Quick Filters Count:</span>
-              {Object.entries(
-                filteredReportProducts.reduce((acc: Record<string, number>, p) => {
-                  const cat = p.category || 'General';
-                  acc[cat] = (acc[cat] || 0) + 1;
-                  return acc;
-                }, {})
-              ).map(([cat, count]) => (
-                <button
-                  key={cat}
-                  onClick={() => setReportCategoryFilter(reportCategoryFilter === cat ? "all" : cat)}
-                  className={cn(
-                    "text-[9px] font-bold px-2 py-0.5 rounded-full border transition-all no-print",
-                    reportCategoryFilter === cat 
-                      ? "bg-primary text-white border-primary" 
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-650 dark:text-slate-300 hover:bg-slate-200"
-                  )}
-                >
-                  {cat}: {count}
-                </button>
-              ))}
-              {/* Printable-only representation since buttons are hidden in print */}
-              {Object.entries(
-                filteredReportProducts.reduce((acc: Record<string, number>, p) => {
-                  const cat = p.category || 'General';
-                  acc[cat] = (acc[cat] || 0) + 1;
-                  return acc;
-                }, {})
-              ).map(([cat, count]) => (
-                <span key={`print-${cat}`} className="text-[9px] font-bold bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full border hidden print:inline-block">
-                  {cat}: {count}
-                </span>
-              ))}
-            </div>
-
-            {/* Full Standard Inventory Table */}
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-slate-950">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-                    <TableRow className="hover:bg-transparent">
-                      <TableHead className="text-[9px] font-bold uppercase w-8 text-center py-3">#</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase py-3 min-w-[140px]">Item Description</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-center py-3">Unit</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-center py-3">GST %</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-right py-3">Purchase Price</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-right py-3">Sales Price</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-center py-3">Stock</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-right py-3">Cost Valuation</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-right py-3">Sale Valuation</TableHead>
-                      <TableHead className="text-[9px] font-bold uppercase text-right py-3">Est. Profit</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loadingReportProducts ? (
-                      <TableRow>
-                        <TableCell colSpan={10} className="text-center py-16">
-                          <div className="flex flex-col items-center justify-center gap-3">
-                            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                            <p className="text-xs text-muted-foreground font-bold uppercase tracking-widest">Loading Catalog Data...</p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : filteredReportProducts.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={10} className="text-center py-12 text-slate-400 font-bold text-xs">
-                          No items match the current filters.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredReportProducts.map((p, idx) => {
-                        const stockValCost = p.type === 'service' ? 0 : (Number(p.opening_stock || 0) * Number(p.purchase_price || 0));
-                        const stockValSale = p.type === 'service' ? 0 : (Number(p.opening_stock || 0) * p.price);
-                        const expectedProfit = stockValSale - stockValCost;
-                        const profitMarginPercent = p.price > 0 ? ((p.price - Number(p.purchase_price || 0)) / p.price) * 100 : 0;
-                        
-                        return (
-                          <TableRow key={p.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors">
-                            <TableCell className="text-center font-bold text-[10px] py-2">{idx + 1}</TableCell>
-                            <TableCell className="py-2">
-                              <p className="font-bold text-[10px] text-slate-900 dark:text-white leading-tight">
-                                {highlightText(p.name, reportSearch)}
-                              </p>
-                              <div className="flex items-center gap-1 mt-0.5">
-                                <span className="text-[7.5px] bg-slate-100 dark:bg-slate-800 text-slate-500 capitalize px-1 rounded font-semibold">{p.type || 'product'}</span>
-                                {p.sku && (
-                                  <span className="text-[7.5px] text-slate-455 dark:text-slate-400 font-bold">
-                                    SKU: {highlightText(p.sku, reportSearch)}
-                                  </span>
-                                )}
-                                {p.hsn_code && (
-                                  <span className="text-[7.5px] text-slate-455 dark:text-slate-400 font-bold">
-                                    HSN: {highlightText(p.hsn_code, reportSearch)}
-                                  </span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center font-semibold text-[9px] text-slate-500 py-2 capitalize">{p.type === 'service' ? '—' : (p.unit || 'pcs')}</TableCell>
-                            <TableCell className="text-center font-bold text-[9px] text-slate-650 dark:text-slate-350 py-2">{p.tax_rate}%</TableCell>
-                            <TableCell className="text-right font-semibold text-[9px] text-slate-650 dark:text-slate-350 py-2">
-                              {currencySymbol}{(p.purchase_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </TableCell>
-                            <TableCell className="text-right font-semibold text-[9px] text-slate-650 dark:text-slate-350 py-2">
-                              {currencySymbol}{p.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </TableCell>
-                            <TableCell className="text-center py-2">
-                              <span className={cn(
-                                "text-[9px] font-bold",
-                                p.type === 'service' ? "text-slate-400" : 
-                                Number(p.opening_stock || 0) <= 0 ? "text-rose-600 font-black" :
-                                Number(p.opening_stock || 0) <= 5 ? "text-rose-500 font-extrabold" : "text-slate-800 dark:text-slate-200"
-                              )}>
-                                {p.type === 'service' ? 'N/A' : (Number(p.opening_stock || 0) <= 0 ? 'Out of Stock' : `${p.opening_stock || 0}`)}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right font-semibold text-[9px] text-slate-650 dark:text-slate-350 py-2">
-                              {p.type === 'service' ? '—' : `${currencySymbol}${stockValCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
-                            </TableCell>
-                            <TableCell className="text-right font-semibold text-[9px] text-slate-650 dark:text-slate-350 py-2">
-                              {p.type === 'service' ? '—' : `${currencySymbol}${stockValSale.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
-                            </TableCell>
-                            <TableCell className="text-right py-2">
-                              {p.type === 'service' ? (
-                                <span className="text-slate-400 font-semibold text-[9px]">—</span>
-                              ) : (
-                                <div className="text-right">
-                                  <span className={cn("text-[9px] font-bold", expectedProfit >= 0 ? "text-emerald-600 dark:text-emerald-450" : "text-rose-600")}>
-                                    {currencySymbol}{expectedProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                  </span>
-                                  <span className="block text-[7px] text-slate-400 font-semibold">({profitMarginPercent.toFixed(0)}% margin)</span>
-                                </div>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-
-                    {/* Summary Row */}
-                    {!loadingReportProducts && filteredReportProducts.length > 0 && (
-                      <TableRow className="bg-slate-50/40 dark:bg-slate-900/60 font-black border-t-2 border-slate-200 dark:border-slate-800 hover:bg-transparent">
-                        <TableCell colSpan={2} className="py-2.5 text-xs text-slate-900 dark:text-white">Total Ledger Values</TableCell>
-                        <TableCell className="text-center py-2.5 text-[9px]">—</TableCell>
-                        <TableCell className="text-center py-2.5 text-[9px]">—</TableCell>
-                        <TableCell className="text-right py-2.5 text-[9px]">—</TableCell>
-                        <TableCell className="text-right py-2.5 text-[9px]">—</TableCell>
-                        <TableCell className="text-center py-2.5 text-[10px] text-slate-900 dark:text-white font-extrabold">
-                          {reportStats.totalStockQty.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-right py-2.5 text-[10px] text-slate-900 dark:text-white font-extrabold">
-                          {currencySymbol}{reportStats.totalPurchaseVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell className="text-right py-2.5 text-[10px] text-slate-900 dark:text-white font-extrabold">
-                          {currencySymbol}{reportStats.totalSalesVal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell className="text-right py-2.5 text-[10.5px] text-emerald-600 dark:text-emerald-450 font-black">
-                          {currencySymbol}{reportStats.totalProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-
-            {/* Signature Block (Hidden in standard screen app, shown in print) */}
-            <div className="hidden print:flex flex-row items-end justify-between pt-16 pb-6">
-              <div className="text-[9px] text-slate-400 font-semibold space-y-1">
-                <p>Disclaimer: This is a system-generated stock valuation ledger from Escrow BMS.</p>
-                <p>Verify all opening quantities before final financial reporting.</p>
-              </div>
-              <div className="text-center border-t border-slate-350 pt-2 px-8 min-w-[200px]">
-                <p className="text-[10px] font-black text-slate-800">Authorized Signatory</p>
-                <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Signature & Stamp</p>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="p-4 md:p-6 bg-slate-50 dark:bg-slate-900 border-t shrink-0 flex flex-col sm:flex-row justify-end gap-3 no-print">
-            <Button
-              onClick={exportToCSV}
-              variant="outline"
-              className="w-full sm:w-auto h-11 font-bold rounded-xl border-2 hover:bg-primary/5 transition-colors text-xs shrink-0 flex items-center justify-center gap-1.5"
-            >
-              <Download className="w-4 h-4 text-primary" />
-              <span>Export CSV</span>
-            </Button>
-            <Button
-              onClick={() => window.print()}
-              className="w-full sm:w-auto h-11 font-bold rounded-xl text-xs bg-primary hover:bg-primary/95 shadow-md flex items-center justify-center gap-1.5 text-white"
-            >
-              <Printer className="w-4 h-4 text-white" />
-              <span>Print / Save PDF</span>
-            </Button>
-            <Button
-              onClick={() => setShowReportDialog(false)}
-              variant="ghost"
-              className="w-full sm:w-auto h-11 font-bold text-xs"
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* HSN Code Lookup Dialog */}
       <Dialog open={showHSNDialog} onOpenChange={setShowHSNDialog}>
@@ -1822,13 +1284,13 @@ const ProductsPage = () => {
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-1">
                           <span className="text-[9px] font-bold text-slate-400">SP:</span>
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-200">{currencySymbol}{Number(product.price || 0).toLocaleString()}</span>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200">{formatProductPrice(product.price || 0)}</span>
                         </div>
                         {product.type !== 'service' && (
                           <>
                             <div className="flex items-center gap-1">
                               <span className="text-[9px] font-bold text-slate-400">CP:</span>
-                              <span className="text-xs font-bold text-slate-650 dark:text-slate-400">{currencySymbol}{(product.purchase_price || 0).toLocaleString()}</span>
+                              <span className="text-xs font-bold text-slate-650 dark:text-slate-400">{formatProductPrice(product.purchase_price || 0)}</span>
                             </div>
                             <div className="flex items-center gap-1">
                               <span className="text-[9px] font-bold text-slate-400">Profit:</span>
@@ -1836,12 +1298,12 @@ const ProductsPage = () => {
                                 "text-xs font-black",
                                 (product.price - (product.purchase_price || 0)) >= 0 ? "text-emerald-600 dark:text-emerald-450" : "text-rose-600"
                               )}>
-                                {currencySymbol}{(product.price - (product.purchase_price || 0)).toLocaleString()}
+                                {formatProductPrice(product.price - (product.purchase_price || 0))}
                               </span>
                             </div>
                           </>
                         )}
-                        <p className="text-[9px] text-muted-foreground font-semibold mt-0.5 capitalize">{product.category || 'General'}</p>
+                        <p className="text-[9px] text-muted-foreground font-semibold mt-0.5">{formatCategory(product.category)}</p>
                       </div>
                       <div className="flex flex-col items-end justify-between self-stretch">
                         <div className="text-right">
@@ -1925,12 +1387,12 @@ const ProductsPage = () => {
                         )}
                       </TableCell>
                       <TableCell>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground capitalize">
-                          {product.category || 'General'}
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground">
+                          {formatCategory(product.category)}
                         </span>
                       </TableCell>
-                      <TableCell className="text-right font-semibold text-muted-foreground">{currencySymbol}{(product.purchase_price || 0).toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-bold text-foreground">{currencySymbol}{Number(product.price || 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-semibold text-muted-foreground">{formatProductPrice(product.purchase_price || 0)}</TableCell>
+                      <TableCell className="text-right font-bold text-foreground">{formatProductPrice(product.price || 0)}</TableCell>
                       <TableCell className="text-right font-semibold">
                         {product.type === 'service' ? (
                           <span className="text-slate-400 font-semibold text-xs">—</span>
@@ -1940,7 +1402,7 @@ const ProductsPage = () => {
                               "text-xs font-bold",
                               (product.price - (product.purchase_price || 0)) >= 0 ? "text-emerald-600 dark:text-emerald-450" : "text-rose-600"
                             )}>
-                              {currencySymbol}{(product.price - (product.purchase_price || 0)).toLocaleString()}
+                              {formatProductPrice(product.price - (product.purchase_price || 0))}
                             </span>
                             <span className="block text-[8px] text-slate-450 font-semibold">
                               ({product.price > 0 ? (((product.price - (product.purchase_price || 0)) / product.price) * 100).toFixed(0) : 0}% margin)
@@ -1949,7 +1411,23 @@ const ProductsPage = () => {
                         )}
                       </TableCell>
                       <TableCell className="text-center">
-                        {getStockStatusBadge(product)}
+                        {product.type === 'service' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-650 dark:bg-slate-800 dark:text-slate-350 border border-slate-200 dark:border-slate-700/50">
+                            Service
+                          </span>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <span className={cn(
+                              "font-black text-sm",
+                              Number(product.opening_stock || 0) <= 0 ? "text-rose-600 dark:text-rose-450" :
+                              Number(product.opening_stock || 0) <= 5 ? "text-amber-600 dark:text-amber-450" : "text-slate-800 dark:text-slate-100"
+                            )}>
+                              {Number(product.opening_stock || 0).toLocaleString()}
+                              <span className="text-[10px] font-semibold text-muted-foreground ml-1 uppercase">{product.unit || 'PCS'}</span>
+                            </span>
+                            {getStockStatusBadge(product)}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-center">
                         {product.sku && product.type !== 'service' ? (
@@ -2002,33 +1480,18 @@ const ProductsPage = () => {
         </>
       )}
 
-      {
-        totalPages > 1 && (
-          <div className="flex justify-center items-center gap-3 mt-8 pb-6">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1 || loading}
-              className="rounded-xl border-border/60 hover:bg-background h-10 px-4"
-            >
-              Previous
-            </Button>
-            <div className="bg-muted/50 px-4 py-2 rounded-xl border border-border/40 text-sm font-bold text-foreground/70 min-w-32 text-center uppercase tracking-tighter shadow-inner">
-              Page {currentPage} of {totalPages}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages || loading}
-              className="rounded-xl border-border/60 hover:bg-background h-10 px-4"
-            >
-              Next
-            </Button>
-          </div>
-        )
-      }
+      <div className="mt-6">
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          entityName="products"
+          isLoading={loading}
+        />
+      </div>
 
       {/* View Product Details Dialog */}
       <Dialog open={viewProductDialog} onOpenChange={setViewProductDialog}>
@@ -2091,6 +1554,10 @@ const ProductsPage = () => {
                       </Button>
                     )}
                   </div>
+                </div>
+                <div className="bg-background p-4">
+                  <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-1">Category</p>
+                  <p className="text-sm font-bold text-foreground">{formatCategory(selectedProduct?.category)}</p>
                 </div>
                 <div className="bg-background p-4">
                   <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-1">HSN Code</p>

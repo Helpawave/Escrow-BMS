@@ -68,7 +68,7 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
         return `Created by: ${n}`;
       }
     }
-    const fallback = ownerName || profile?.company_name || companyProfile?.company_name || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Owner';
+    const fallback = ownerName || profile?.company_name || companyProfile?.company_name || user?.user_metadata?.full_name || (user?.user_metadata as any)?.name || 'Owner';
     return `Created by: ${fallback}`;
   };
 
@@ -77,7 +77,7 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
   const fetchRecentInvoices = useCallback(async () => {
     if (!targetUserId) return;
     try {
-      const clientToUse = serviceSupabase || supabase;
+      const clientToUse = (serviceSupabase || supabase) as any;
       const { data, error } = await clientToUse
         .from('invoices')
         .select(`
@@ -129,7 +129,7 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
   const handleDownload = async (invoice: Invoice) => {
     try {
       setDownloadingId(invoice.id);
-      const clientToUse = serviceSupabase || supabase;
+      const clientToUse = (serviceSupabase || supabase) as any;
       
       const [itemsRes, profileRes, settingsRes] = await Promise.all([
         clientToUse.from('invoice_items').select('*, products(*)').eq('invoice_id', invoice.id),
@@ -143,15 +143,21 @@ export function InvoiceTable({ limit = 5 }: InvoiceTableProps) {
       
       const formattedItems = itemsData.map((item: Record<string, unknown>) => ({
         description: item.description as string,
+        product_name: (item.products as any)?.name || (item.product_name as string) || (item.name as string) || '',
+        name: (item.products as any)?.name || (item.product_name as string) || (item.name as string) || '',
         quantity: item.quantity as number,
         rate: item.rate as number,
         tax_rate: item.tax_rate as number,
         discount: (item.discount as number) || 0,
         amount: item.amount as number,
+        hsn_code: (item.hsn_code as string) || (item.products as any)?.hsn_code || '',
         product: item.products
       }));
 
-      const validTemplates: InvoiceTemplateId[] = ['classic', 'modern', 'thermal', 'export', 'minimal', 'corporate', 'professional', 'elegant', 'creative', 'retail'];
+      const validTemplates: InvoiceTemplateId[] = [
+        'classic', 'modern', 'thermal', 'export', 'minimal', 'corporate', 'professional', 'elegant', 'creative', 'retail',
+        'auto_dealership', 'auto_modern', 'auto_classic', 'auto_executive', 'auto_compact'
+      ];
       const template: InvoiceTemplateId = validTemplates.includes(settingsData?.invoice_template as InvoiceTemplateId)
         ? (settingsData.invoice_template as InvoiceTemplateId)
         : 'corporate';

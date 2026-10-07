@@ -23,6 +23,7 @@ import { useClients } from "@/hooks/useClients";
 import { useVendors } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
+import { DataTablePagination } from "@/components/DataTablePagination";
 
 const ClientsPage = () => {
   const queryClient = useQueryClient();
@@ -33,11 +34,11 @@ const ClientsPage = () => {
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  const [pageSize, setPageSize] = useState(10);
 
   const { data, isLoading: loading, isFetching: searchLoading } = useClients({
     page: currentPage,
-    pageSize: ITEMS_PER_PAGE,
+    pageSize,
     searchTerm: debouncedSearch
   });
 
@@ -66,8 +67,8 @@ const ClientsPage = () => {
     });
   }, [rawClients, vendorNames, vendorIds]);
 
-  const totalCount = clients.length;
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
+  const totalCount = data?.totalCount ?? clients.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const [formData, setFormData] = useState({
     name: '',
@@ -197,7 +198,7 @@ const ClientsPage = () => {
           if (data) {
             const index = data.findIndex(c => c.id === initialClientId);
             if (index !== -1) {
-              const page = Math.ceil((index + 1) / ITEMS_PER_PAGE);
+              const page = Math.ceil((index + 1) / pageSize);
               setCurrentPage(page);
             }
           }
@@ -210,7 +211,7 @@ const ClientsPage = () => {
     if (user) {
       findClientPage();
     }
-  }, [initialClientId, user]);
+  }, [initialClientId, user, pageSize]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -931,29 +932,16 @@ const ClientsPage = () => {
           )}
 
           {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center space-x-2 mt-6">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-              >
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Next
-              </Button>
-            </div>
-          )}
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            entityName="clients"
+            isLoading={loading}
+          />
         </>
       )}
 

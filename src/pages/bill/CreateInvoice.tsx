@@ -1,8 +1,11 @@
-import { ArrowLeft, AlertTriangle } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Sparkles, Car } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { useInvoiceForm } from "@/hooks/useInvoiceForm";
 import { InvoiceHeader } from "@/components/invoice/InvoiceHeader";
 import { InvoiceItemsTable } from "@/components/invoice/InvoiceItemsTable";
@@ -11,9 +14,22 @@ import { InvoiceDialogs } from "@/components/invoice/InvoiceDialogs";
 import { SuccessModal } from '@/components/SuccessModal';
 import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { CompleteProfileModal } from "@/components/CompleteProfileModal";
+import { UncatalogedProductsModal } from "@/components/invoice/UncatalogedProductsModal";
+import { extractVehicleDetails } from "@/components/AutoInvoiceTemplate";
 
 const CreateInvoicePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isDownpaymentUrl = location.pathname.includes('downpayment') || new URLSearchParams(location.search).get('type') === 'downpayment';
+  const [vehicleDetails, setVehicleDetails] = useState({
+    model: '',
+    chassisNo: '',
+    engineNo: '',
+    color: '',
+    regNo: '',
+    financer: '',
+  });
+
   const {
     loading, invoiceLoading, saving, clients, products, vendors,
     formData, setFormData, items, setItems, isPurchase, setIsPurchase,
@@ -35,8 +51,55 @@ const CreateInvoicePage = () => {
     addItem, billableExpenses, fetchingExpenses, showHSNDialog, setShowHSNDialog,
     hsnSearchQuery, setHsnSearchQuery, hsnCodesData, showQRDialog, setShowQRDialog,
     qrQuantity, setQrQuantity, qrPrintStep, setQrPrintStep, qrFormat, setQrFormat,
-    qrPrintType, setQrPrintType, showValidationErrors
+    qrPrintType, setQrPrintType, showValidationErrors, inrPerUnit,
+    uncatalogedModalOpen, setUncatalogedModalOpen, uncatalogedItemsList,
+    incompleteItemsList, confirmAndSavePurchaseBill,
+    isDownpayment: formIsDownpayment
   } = useInvoiceForm();
+
+  const isDownpayment = isDownpaymentUrl || formIsDownpayment;
+
+  // Populate vehicle details if editing an invoice with vehicle metadata
+  useEffect(() => {
+    if (formData.notes) {
+      const hasMeta = formData.notes.includes('is_downpayment') || formData.notes.includes('Vehicle:') || isDownpayment;
+      if (hasMeta && !vehicleDetails.model) {
+        const extracted = extractVehicleDetails({ notes: formData.notes });
+        if (extracted.model && extracted.model !== 'Swift ZXI+ Dual Tone (Petrol MT)') {
+          setVehicleDetails({
+            model: extracted.model || '',
+            chassisNo: extracted.chassisNo || '',
+            engineNo: extracted.engineNo || '',
+            color: extracted.color || '',
+            regNo: extracted.regNo || '',
+            financer: extracted.financer || ''
+          });
+        }
+      }
+    }
+  }, [formData.notes, isDownpayment]);
+
+  const onFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isDownpayment) {
+      const metaTag = `[META:${JSON.stringify({ is_downpayment: true, vehicle: vehicleDetails })}]`;
+      const humanNotes = [
+        vehicleDetails.model ? `Vehicle: ${vehicleDetails.model}` : '',
+        vehicleDetails.chassisNo ? `Chassis/VIN: ${vehicleDetails.chassisNo}` : '',
+        vehicleDetails.engineNo ? `Engine No: ${vehicleDetails.engineNo}` : '',
+        vehicleDetails.color ? `Color: ${vehicleDetails.color}` : '',
+        vehicleDetails.regNo ? `Booking/Reg: ${vehicleDetails.regNo}` : '',
+        vehicleDetails.financer ? `Financer: ${vehicleDetails.financer}` : '',
+      ].filter(Boolean).join(' | ');
+
+      const existingCleanNotes = (formData.notes || '').replace(/\[META:.*?\]\s*/g, '').trim();
+      const updatedNotes = `${metaTag}\n${humanNotes ? `${humanNotes}\n` : ''}${existingCleanNotes}`.trim();
+
+      formData.notes = updatedNotes;
+      setFormData(prev => ({ ...prev, notes: updatedNotes }));
+    }
+    await handleSubmit(e);
+  };
 
   if (loading || invoiceLoading) {
     return (
@@ -55,7 +118,7 @@ const CreateInvoicePage = () => {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate(isPurchase ? '/purchase-invoices' : '/invoices')}
+            onClick={() => navigate(isPurchase ? '/purchase-invoices' : isDownpayment ? '/downpayment-invoices' : '/invoices')}
             className="rounded-full hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -64,21 +127,26 @@ const CreateInvoicePage = () => {
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
                 {isEditing ? (
-                  <>Edit {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation' : (isPurchase ? 'Bill' : 'Invoice'))}</>
+                  <>{isPurchase ? 'Edit Purchase Bill' : isDownpayment ? 'Edit Downpayment Invoice' : (billingType === 'ledger' ? 'Edit Ledger Bill' : (billingType === 'quotation' ? 'Edit Quotation' : 'Edit Invoice'))}</>
                 ) : (
-                  <>Create {billingType === 'ledger' ? 'Ledger Bill' : (billingType === 'quotation' ? 'Quotation / Price Estimate' : (isPurchase ? 'Purchase Bill' : 'Sales Invoice'))}</>
+                  <>{isPurchase ? 'Record Purchase Bill' : isDownpayment ? 'Create Downpayment Invoice' : (billingType === 'ledger' ? 'Create Ledger Bill' : (billingType === 'quotation' ? 'Create Quotation / Price Estimate' : 'Create New Invoice'))}</>
                 )}
               </h1>
+              {isDownpayment && (
+                <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full border border-amber-300 flex items-center gap-1.5">
+                  <Car className="w-3.5 h-3.5" /> Automobile Downpayment
+                </span>
+              )}
               <StaffHeaderBadge />
             </div>
             <p className="text-slate-500 mt-1">
               {isEditing 
-                ? `Managing ${billingType === 'quotation' ? 'quotation' : (isPurchase ? 'purchase record' : 'invoice')} #${invoiceNumber}` 
+                ? `Managing ${isPurchase ? 'purchase record' : isDownpayment ? 'downpayment receipt' : (billingType === 'quotation' ? 'quotation' : 'invoice')} #${invoiceNumber}` 
                 : (billingType === 'ledger' 
                     ? 'Generate an official settlement bill directly from Account Ledger party remaining balances' 
                     : (billingType === 'quotation'
                         ? 'Generate a formal price quote / estimate for your customer (no stock deduction)'
-                        : `Generate a professional ${isPurchase ? 'purchase bill' : 'invoice'} for your business`
+                        : (isPurchase ? 'Record vendor procurement, inward stock, and purchase bill details' : isDownpayment ? 'Generate vehicle booking advance and downpayment receipt' : 'Generate a professional invoice for your business')
                       )
                   )
               }
@@ -86,6 +154,20 @@ const CreateInvoicePage = () => {
           </div>
         </div>
       </div>
+
+      {invoiceCurrency && invoiceCurrency !== 'INR' && (
+        <div className="mb-6 p-3.5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-cyan-500/10 border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-foreground font-medium">
+            <Sparkles className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+            <span>
+              <strong>Forex Multiplier Active:</strong> 1 {invoiceCurrency} ≈ ₹{inrPerUnit?.toFixed(2) || '95.51'}. Catalog rates and totals automatically convert to {invoiceCurrency} ({currencySymbol}).
+            </span>
+          </div>
+          <span className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded-lg text-[11px] shadow-sm self-start sm:self-auto flex-shrink-0">
+            {invoiceCurrency} Mode
+          </span>
+        </div>
+      )}
 
       {(!isPurchase && clients.length === 0) && (
         <Alert className="bg-amber-50 border-amber-200 text-amber-900 mb-6 shadow-sm">
@@ -113,7 +195,7 @@ const CreateInvoicePage = () => {
         </Alert>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6 md:space-y-8">
+      <form onSubmit={onFormSubmit} className="space-y-6 md:space-y-8">
         {showValidationErrors && !isPurchase && !formData.client_id && (
           <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-800 animate-in slide-in-from-top duration-300">
             <AlertTriangle className="h-4 w-4" />
@@ -154,6 +236,71 @@ const CreateInvoicePage = () => {
           setHideCompanyDetails={setHideCompanyDetails}
         />
 
+        {isDownpayment && (
+          <Card className="p-5 border-2 border-amber-200/80 bg-amber-50/30 rounded-2xl shadow-sm space-y-4">
+            <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+              <Car className="w-5 h-5 text-amber-600" />
+              <span>Automobile & Vehicle Booking Details</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Vehicle Model / Variant</Label>
+                <Input
+                  placeholder="e.g. Swift VXI / Creta SX"
+                  value={vehicleDetails.model}
+                  onChange={(e) => setVehicleDetails(prev => ({ ...prev, model: e.target.value }))}
+                  className="bg-white rounded-xl"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Chassis / VIN Number</Label>
+                <Input
+                  placeholder="e.g. MA3E...1234"
+                  value={vehicleDetails.chassisNo}
+                  onChange={(e) => setVehicleDetails(prev => ({ ...prev, chassisNo: e.target.value }))}
+                  className="bg-white rounded-xl uppercase font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Engine Number</Label>
+                <Input
+                  placeholder="e.g. K12M...5678"
+                  value={vehicleDetails.engineNo}
+                  onChange={(e) => setVehicleDetails(prev => ({ ...prev, engineNo: e.target.value }))}
+                  className="bg-white rounded-xl uppercase font-mono"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Color</Label>
+                <Input
+                  placeholder="e.g. Pearl Arctic White"
+                  value={vehicleDetails.color}
+                  onChange={(e) => setVehicleDetails(prev => ({ ...prev, color: e.target.value }))}
+                  className="bg-white rounded-xl"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Booking / Reg Number</Label>
+                <Input
+                  placeholder="e.g. DL-01-AB-1234 or BK-909"
+                  value={vehicleDetails.regNo}
+                  onChange={(e) => setVehicleDetails(prev => ({ ...prev, regNo: e.target.value }))}
+                  className="bg-white rounded-xl uppercase"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Financer / Hypothecation</Label>
+                <Input
+                  placeholder="e.g. HDFC Bank Ltd / Cash"
+                  value={vehicleDetails.financer}
+                  onChange={(e) => setVehicleDetails(prev => ({ ...prev, financer: e.target.value }))}
+                  className="bg-white rounded-xl"
+                />
+              </div>
+            </div>
+          </Card>
+        )}
+
         <Card className="p-4 md:p-6 border-none shadow-xl shadow-indigo-100/20 overflow-hidden ring-1 ring-slate-200/60">
           <InvoiceItemsTable
             billingType={billingType}
@@ -170,6 +317,7 @@ const CreateInvoicePage = () => {
             setProductSelectionOpen={setProductSelectionOpen}
             setActiveItemIndex={setActiveItemIndex}
             setIsScannerOpen={setIsScannerOpen}
+            isPurchase={isPurchase}
           />
         </Card>
 
@@ -186,11 +334,17 @@ const CreateInvoicePage = () => {
           isEditing={isEditing}
           submitLabel={
             isEditing 
-              ? 'Update Invoice' 
-              : (billingType === 'ledger' ? 'Generate Ledger Bill' : (isPurchase ? 'Create Purchase Bill' : 'Create Invoice'))
+              ? (isPurchase ? 'Update Purchase Bill' : isDownpayment ? 'Update Downpayment Invoice' : 'Update Invoice')
+              : (billingType === 'ledger' 
+                  ? 'Generate Ledger Bill' 
+                  : (billingType === 'quotation' 
+                      ? 'Create Quotation' 
+                      : (isPurchase ? 'Record Purchase Bill' : isDownpayment ? 'Generate Downpayment Invoice' : 'Create Invoice')))
           }
           navigate={navigate}
           onAddExpense={() => setExpenseSelectionOpen(true)}
+          isPurchase={isPurchase}
+          isDownpayment={isDownpayment}
         />
       </form>
 
@@ -264,10 +418,20 @@ const CreateInvoicePage = () => {
         isOpen={showSuccess}
         onOpenChange={(open) => {
           setShowSuccess(open);
-          if (!open) navigate(isPurchase ? '/purchase-invoices' : '/invoices');
+          if (!open) navigate(isPurchase ? '/purchase-invoices' : isDownpayment ? '/downpayment-invoices' : '/invoices');
         }}
         title={successInfo.title}
         message={successInfo.message}
+      />
+
+      <UncatalogedProductsModal
+        isOpen={uncatalogedModalOpen}
+        onClose={() => setUncatalogedModalOpen(false)}
+        onConfirm={confirmAndSavePurchaseBill}
+        uncatalogedItems={uncatalogedItemsList}
+        incompleteItems={incompleteItemsList}
+        currencySymbol={currencySymbol}
+        saving={saving}
       />
 
       <CompleteProfileModal featureName="creating invoices" />

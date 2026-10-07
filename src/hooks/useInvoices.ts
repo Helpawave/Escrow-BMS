@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 import { Invoice } from "@/types/invoice";
 
 interface UseInvoicesProps {
@@ -8,90 +9,142 @@ interface UseInvoicesProps {
   pageSize?: number;
   searchTerm?: string;
   statusFilter?: string;
+  typeFilter?: 'all' | 'sales' | 'downpayment';
 }
 
-export function useInvoices({ page = 1, pageSize = 50, searchTerm = "", statusFilter = "all" }: UseInvoicesProps = {}) {
-  const { user, profile } = useAuth();
-  const targetUserId = profile?.parent_user_id || user?.id;
+export function useInvoices({ 
+  page = 1, 
+  pageSize = 10, 
+  searchTerm = "", 
+  statusFilter = "all",
+  typeFilter = "all"
+}: UseInvoicesProps = {}) {
+  const { user, effectiveUserId } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
+  const queryClient = useQueryClient();
 
-  return useQuery({
-    queryKey: ['invoices', targetUserId, page, pageSize, searchTerm, statusFilter],
+  const query = useQuery({
+    queryKey: ['invoices', targetUserId, page, pageSize, searchTerm, statusFilter, typeFilter],
     queryFn: async () => {
-      if (!user) throw new Error("User not authenticated");
+      if (!targetUserId) throw new Error("User not authenticated");
+      console.log('[useInvoices] Fetching invoices for targetUserId:', targetUserId, { effectiveUserId, authUserId: user?.id, page, searchTerm, typeFilter });
 
-      let query = supabase
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      const clientToUse = serviceSupabase || supabase;
+      let query = clientToUse
         .from('invoices')
-        .select('*, clients(id, name, email, phone)', { count: 'exact' })
+        .select(`
+          *,
+          clients (
+            id,
+            name,
+            email,
+            phone
+          )
+        `, { count: 'exact' })
         .eq('user_id', targetUserId)
         .order('created_at', { ascending: false });
 
-      if (statusFilter === 'sales_only') {
-        query = query.neq('status', 'quotation').not('invoice_number', 'ilike', 'LB-%').neq('status', 'ledger');
-      } else if (statusFilter === 'ledger') {
-        query = query.or('status.eq.ledger,invoice_number.ilike.LB-%');
-      } else if (statusFilter.startsWith('ledger_')) {
-        const subStatus = statusFilter.replace('ledger_', '');
-        query = query.or('status.eq.ledger,invoice_number.ilike.LB-%').eq('status', subStatus);
-      } else if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
-
       if (searchTerm) {
-        query = query.ilike('invoice_number', `%${searchTerm}%`);
+        query = query.or(`invoice_number.ilike.%${searchTerm}%,notes.ilike.%${searchTerm}%`);
       }
 
-      const from = (page - 1) * pageSize;
-      query = query.range(from, from + pageSize - 1);
+      if (typeFilter === 'downpayment') {
+        query = query.or('invoice_number.ilike.DP-%,notes.ilike.%is_downpayment%,notes.ilike.%downpayment%');
+      } else if (typeFilter === 'sales') {
+        query = query.not('invoice_number', 'ilike', 'DP-%');
+      }
 
-      const { data, error, count } = await query;
-      if (error) throw error;
+      if (statusFilter && statusFilter !== 'all') {
+        if (statusFilter === 'overdue') {
+          const todayStr = new Date().toISOString().split('T')[0];
+          query = query.or(`status.eq.overdue,and(status.neq.paid,due_date.lt.${todayStr})`);
+        } else {
+          query = query.eq('status', statusFilter);
+        }
+      }
 
-      return { invoices: (data || []) as unknown as Invoice[], totalCount: count || 0 };
+      const { data, error, count } = await query.range(from, to);
+      console.log('[useInvoices] Query result:', { targetUserId, dataLength: data?.length, count, error });
+
+      if (error) {
+        console.warn('[useInvoices] Direct query failed, falling back to RPC:', error);
+        // Fallback to RPC if direct relation query fails
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_user_invoices', {
+          p_limit: pageSize,
+          p_offset: (page - 1) * pageSize,
+          p_search_term: searchTerm,
+          p_status_filter: statusFilter
+        });
+        if (rpcError) throw rpcError;
+        const results = (rpcData || []) as any[];
+        const totalCount = results[0]?.total_count || 0;
+        const formattedInvoices = results.map(inv => ({
+          ...inv,
+          clients: {
+            id: inv.client_id,
+            name: inv.client_name,
+            email: inv.client_email,
+            phone: inv.client_phone
+          }
+        }));
+        return {
+          invoices: formattedInvoices as unknown as Invoice[],
+          totalCount: Number(totalCount)
+        };
+      }
+
+      const rawInvoices = (data as any[]) || [];
+      // Ensure latest created invoice is strictly first (created_at DESC, then invoice_number numeric DESC)
+      const sortedInvoices = [...rawInvoices].sort((a, b) => {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+
+        const numA = parseInt((a.invoice_number || '').replace(/\D/g, '') || '0', 10);
+        const numB = parseInt((b.invoice_number || '').replace(/\D/g, '') || '0', 10);
+        return numB - numA;
+      });
+
+      return {
+        invoices: sortedInvoices as unknown as Invoice[],
+        totalCount: count || 0
+      };
     },
-    enabled: !!user,
+    enabled: !!targetUserId,
   });
+
+  // ─── Supabase Realtime: auto-refresh when ANY device changes invoice/payment data ───
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`invoices-realtime-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'invoices', filter: `user_id=eq.${user.id}` },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'payments', filter: `user_id=eq.${user.id}` },
+        () => {
+          // Payments affect invoice paid status — refresh invoices too
+          void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          void queryClient.invalidateQueries({ queryKey: ['payments'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id, queryClient]);
+
+  return query;
 }
 
-export function invoiceMutations(userId: string) {
-  return {
-    add: async (data: object) => {
-      const { data: result, error } = await supabase
-        .from('invoices')
-        .insert({ ...data, user_id: userId })
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
-    update: async (id: string, data: object) => {
-      const { data: result, error } = await supabase
-        .from('invoices')
-        .update(data)
-        .eq('id', id)
-        .eq('user_id', userId)
-        .select()
-        .single();
-      if (error) throw error;
-      return result;
-    },
-    remove: async (id: string) => {
-      const { error } = await supabase.from('invoices').delete().eq('id', id).eq('user_id', userId);
-      if (error) throw error;
-    },
-    getAll: async () => {
-      const { data, error } = await supabase.from('invoices').select('*').eq('user_id', userId);
-      if (error) throw error;
-      return data || [];
-    },
-    getById: async (id: string) => {
-      const { data, error } = await supabase
-        .from('invoices')
-        .select('*, clients(*), invoice_items(*)')
-        .eq('id', id)
-        .eq('user_id', userId)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  };
-}

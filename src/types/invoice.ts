@@ -4,12 +4,15 @@ export type Client = Database['public']['Tables']['clients']['Row'];
 export type Product = Database['public']['Tables']['products']['Row'];
 export type Vendor = Database['public']['Tables']['vendors']['Row'];
 
-export type InvoiceTemplateId = 'modern' | 'classic' | 'thermal' | 'export' | 'minimal' | 'corporate' | 'professional' | 'elegant' | 'creative' | 'retail';
+export type InvoiceTemplateId = 
+  | 'modern' | 'classic' | 'thermal' | 'export' | 'minimal' | 'corporate' | 'professional' | 'elegant' | 'creative' | 'retail'
+  | 'auto_dealership' | 'auto_modern' | 'auto_classic' | 'auto_executive' | 'auto_compact';
 
 export interface InvoiceItem {
   id?: string;
   product_id?: string;
   product_name?: string;
+  name?: string;
   description: string;
   quantity: number;
   rate: number;
@@ -18,15 +21,33 @@ export interface InvoiceItem {
   amount: number;
   hsn_code?: string;
   unit?: string;
+  product?: {
+    name?: string;
+    opening_stock?: string | number;
+    type?: string;
+    unit?: string;
+    hsn_code?: string;
+  };
+  products?: {
+    id?: string;
+    name?: string;
+    opening_stock?: string | number;
+    type?: string;
+    unit?: string;
+    hsn_code?: string;
+  };
 }
 
 export interface Invoice {
   id: string;
+  user_id?: string;
   invoice_number: string;
   client_id: string;
   vendor_id?: string;
   issue_date: string;
   due_date: string;
+  payment_date?: string | null;
+  paid_at?: string | null;
   notes: string;
   terms: string;
   payment_terms?: string;
@@ -168,18 +189,25 @@ export interface CompanyData {
   account_holder_name?: string;
   account_type?: string;
   hide_company_details?: boolean;
+  upi_id?: string;
+  upi_qr_url?: string;
 }
 
 export interface ItemData {
+  name?: string;
+  product_name?: string;
   description: string;
   quantity: number;
   rate: number;
   tax_rate: number;
   discount: number;
   amount: number;
+  hsn_code?: string;
   product?: {
+    name?: string;
     opening_stock?: string | number;
     type?: string;
     unit?: string;
+    hsn_code?: string;
   };
 }

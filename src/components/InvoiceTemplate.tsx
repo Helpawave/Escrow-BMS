@@ -6,9 +6,13 @@ import { numberToWords } from '@/utils/numberUtils';
 import { InvoiceTemplateId } from '@/types/invoice';
 import { QrCode, Globe, Shield } from 'lucide-react';
 import QRCode from 'react-qr-code';
+import { getInvoiceEffectiveStatus } from './StatusBadge';
+import { AutoInvoiceTemplate, AutoTemplateId } from './AutoInvoiceTemplate';
 
 interface InvoiceItem {
   description: string;
+  name?: string;
+  product_name?: string;
   quantity: number;
   rate: number;
   tax_rate: number;
@@ -16,12 +20,46 @@ interface InvoiceItem {
   amount: number;
   hsn_code?: string;
   product?: {
+    name?: string;
+    opening_stock?: string | number;
+    type?: string;
+    unit?: string;
+    hsn_code?: string;
+  };
+  products?: {
+    id?: string;
+    name?: string;
     opening_stock?: string | number;
     type?: string;
     unit?: string;
     hsn_code?: string;
   };
 }
+
+export const getItemDisplayName = (item: InvoiceItem): string => {
+  return (
+    item.product_name?.trim() ||
+    item.product?.name?.trim() ||
+    item.products?.name?.trim() ||
+    item.name?.trim() ||
+    item.description?.trim() ||
+    'Item'
+  );
+};
+
+export const getItemDescription = (item: InvoiceItem, maxChars = 100): string | null => {
+  const name = getItemDisplayName(item).toLowerCase();
+  const rawDesc = (item.description || '').trim();
+  if (!rawDesc || rawDesc.toLowerCase() === name) return null;
+  if (rawDesc.length > maxChars) {
+    return rawDesc.slice(0, maxChars).trim() + '...';
+  }
+  return rawDesc;
+};
+
+export const getItemHSN = (item: InvoiceItem): string => {
+  return (item.hsn_code || item.product?.hsn_code || item.products?.hsn_code || '').trim() || '-';
+};
 
 interface Client {
   name: string;
@@ -50,6 +88,7 @@ interface CompanyProfile {
   website?: string;
   signature_url?: string;
   upi_qr_url?: string;
+  upi_id?: string;
   bank_name?: string;
   account_number?: string;
   ifsc_code?: string;
@@ -83,6 +122,20 @@ interface InvoiceTemplateProps {
   currencySymbol?: string;
 }
 
+const isGenericPaymentDue = (terms?: string | null) => {
+  if (!terms || !terms.trim()) return true;
+  const t = terms.trim().toLowerCase();
+  return (
+    t === 'payment due within 30 days' ||
+    t === 'payment due on receipt.' ||
+    t === 'payment due on receipt' ||
+    t === 'payment due as per terms' ||
+    t === 'standard corporate terms apply.' ||
+    t === 'standard payment terms apply.' ||
+    t === 'payment is due within the stipulated time frame.'
+  );
+};
+
 export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   invoice,
   client,
@@ -91,19 +144,27 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   template = 'corporate',
   currencySymbol: propCurrencySymbol
 }) => {
-  const context = useCurrency();
-  const contextCurrencySymbol = context?.currencySymbol || '₹';
+  let contextCurrencySymbol = '₹';
+  try {
+    const context = useCurrency();
+    contextCurrencySymbol = context.currencySymbol;
+  } catch (e) {
+    // Ignore error if used outside of provider
+  }
   const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
-  const isPaid = invoice.status?.toLowerCase() === 'paid';
+  const effectiveStatus = getInvoiceEffectiveStatus(invoice.status, invoice.due_date);
+  const isPaid = effectiveStatus === 'paid';
+  const isOverdue = effectiveStatus === 'overdue';
   const hasGST = (invoice.tax_amount > 0) || items.some(item => (item.tax_rate || 0) > 0);
   const hasDiscount = items.some(item => (item.discount || 0) > 0);
+  const hasCustomTerms = Boolean(invoice.terms && invoice.terms.trim() && !isGenericPaymentDue(invoice.terms));
 
   // Group items by HSN for CA/Tally Tax Breakup Table
   const hsnTaxSummary = React.useMemo(() => {
     const groups: Record<string, { hsn: string; taxable: number; rate: number; cgst: number; sgst: number; igst: number; totalTax: number }> = {};
     items.forEach((item, idx) => {
       const rate = item.tax_rate || 0;
-      const hsn = item.hsn_code || item.product?.hsn_code || (item.product?.type ? item.product.type : `520${(idx % 3) + 8}`);
+      const hsn = item.hsn_code || item.product?.hsn_code || item.products?.hsn_code || (item.product?.type ? item.product.type : '-');
       const key = `${hsn}-${rate}`;
       const baseTaxable = (item.quantity || 0) * (item.rate || 0);
       const discountVal = item.discount ? baseTaxable * (item.discount / 100) : 0;
@@ -148,20 +209,42 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   const styles = getTemplateStyles();
 
   const StatusBadge = ({ className = "" }: { className?: string }) => (
-    <div className={`text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500 leading-none ${className}`}>
-      {invoice.status}
+    <div className={`text-[11px] font-bold uppercase tracking-[0.2em] leading-none ${
+      isPaid ? 'text-emerald-600' : isOverdue ? 'text-rose-600 font-black' : 'text-gray-500'
+    } ${className}`}>
+      {effectiveStatus}
     </div>
   );
 
-  // Real scannable UPI URI for any UPI mobile app (Google Pay, PhonePe, Paytm, BHIM, Cred)
+  const hasBankDetails = Boolean(
+    (company.bank_name && company.bank_name.trim()) ||
+    (company.account_number && company.account_number.trim()) ||
+    (company.ifsc_code && company.ifsc_code.trim())
+  );
+
+  // Real scannable UPI URI — Priority: upi_id > phone@upi > invoice verify link
   const upiPayUri = React.useMemo(() => {
-    const rawPhone = (company.phone || company.mobile || '').replace(/[^0-9]/g, '');
-    const cleanPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : '';
-    const payeeAddress = cleanPhone ? `${cleanPhone}@upi` : (company.email ? `${company.email.split('@')[0]}@okaxis` : 'payment@escrowbill');
     const payeeName = company.account_holder_name || company.company_name || 'Business';
     const note = `Invoice ${invoice.invoice_number}`;
-    return `upi://pay?pa=${encodeURIComponent(payeeAddress)}&pn=${encodeURIComponent(payeeName)}&am=${invoice.total_amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
-  }, [company.phone, company.mobile, company.email, company.account_holder_name, company.company_name, invoice.invoice_number, invoice.total_amount]);
+    const amt = invoice.total_amount.toFixed(2);
+
+    // Priority 1: Registered UPI ID from Settings
+    if (company.upi_id && company.upi_id.trim()) {
+      const pa = encodeURIComponent(company.upi_id.trim());
+      return `upi://pay?pa=${pa}&pn=${encodeURIComponent(payeeName)}&am=${amt}&cu=INR&tn=${encodeURIComponent(note)}`;
+    }
+
+    // Priority 2: Mobile/phone number as UPI ID (e.g. 9876543210@upi)
+    const rawPhone = (company.phone || company.mobile || '').replace(/[^0-9]/g, '');
+    const cleanPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : '';
+    if (cleanPhone) {
+      const pa = encodeURIComponent(`${cleanPhone}@upi`);
+      return `upi://pay?pa=${pa}&pn=${encodeURIComponent(payeeName)}&am=${amt}&cu=INR&tn=${encodeURIComponent(note)}`;
+    }
+
+    // Fallback: invoice verify URL so QR is still scannable
+    return `https://escrow-bill.web.app/invoices?verify=${encodeURIComponent(invoice.invoice_number)}&amt=${amt}`;
+  }, [company.upi_id, company.phone, company.mobile, company.account_holder_name, company.company_name, invoice.invoice_number, invoice.total_amount]);
 
   const verifyInvoiceUri = React.useMemo(() => {
     return `https://escrow-bill.web.app/invoices?verify=${encodeURIComponent(invoice.invoice_number)}&amt=${invoice.total_amount.toFixed(2)}`;
@@ -184,13 +267,17 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
     subtitle?: string;
   }) => {
     const qrValue = isExport ? verifyInvoiceUri : upiPayUri;
+    // Priority: if upi_id is set → always generate dynamic QR from it
+    //           else if uploaded image exists → show it
+    //           else → generate QR from phone/fallback
+    const showUploadedImage = !company.upi_id?.trim() && !!company.upi_qr_url && !isExport;
     return (
       <div className={`flex flex-col items-center justify-center shrink-0 ${className}`}>
         <div 
           className="p-2 bg-white rounded-lg border border-slate-300 shadow-sm flex items-center justify-center shrink-0"
           style={{ width: `${size + 16}px`, height: `${size + 16}px` }}
         >
-          {company.upi_qr_url ? (
+          {showUploadedImage ? (
             <img 
               src={company.upi_qr_url} 
               alt="UPI QR" 
@@ -220,6 +307,22 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
       </div>
     );
   };
+
+  // =========================================================================
+  // AUTOMOBILE & DOWNPAYMENT SPECIALIZED TEMPLATES
+  // =========================================================================
+  if (template && template.startsWith('auto_')) {
+    return (
+      <AutoInvoiceTemplate
+        template={template as AutoTemplateId}
+        invoice={invoice}
+        client={client}
+        items={items}
+        company={company}
+        currencySymbol={currencySymbol}
+      />
+    );
+  }
 
   // =========================================================================
   // 1. THERMAL POS / RECEIPT BILL TEMPLATE (80mm / 58mm Thermal Printer)
@@ -304,18 +407,25 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
           {/* Items Rows */}
           <div className="divide-y divide-dotted divide-gray-300 pt-1">
-            {items.map((item, idx) => (
-              <div key={idx} className="py-1 text-[11px]">
-                <div className="font-bold leading-tight truncate">{item.description}</div>
-                <div className="flex justify-between text-gray-700">
-                  <span>
-                    {item.quantity} {item.product?.unit || 'Nos'} @ {currencySymbol}{item.rate.toFixed(2)}
-                    {item.discount ? ` (-${item.discount}%)` : ''}
-                  </span>
-                  <span className="font-bold text-black">{currencySymbol}{item.amount.toFixed(2)}</span>
+            {items.map((item, idx) => {
+              const name = getItemDisplayName(item);
+              const desc = getItemDescription(item, 70);
+              const hsn = getItemHSN(item);
+              return (
+                <div key={idx} className="py-1 text-[11px]">
+                  <div className="font-bold leading-tight truncate">{name}</div>
+                  {desc && <div className="text-[9px] text-gray-500 line-clamp-1 truncate">{desc}</div>}
+                  <div className="flex justify-between text-gray-700">
+                    <span>
+                      {item.quantity} {item.product?.unit || 'Nos'} @ {currencySymbol}{item.rate.toFixed(2)}
+                      {item.discount ? ` (-${item.discount}%)` : ''}
+                      {hsn !== '-' && <span className="ml-1 text-[9px] text-gray-500 font-mono">[HSN: {hsn}]</span>}
+                    </span>
+                    <span className="font-bold text-black">{currencySymbol}{item.amount.toFixed(2)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -371,8 +481,16 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         <div className="py-2 text-[10px] border-b border-dashed border-black space-y-0.5">
           {invoice.notes && <div><strong>Note:</strong> {invoice.notes}</div>}
           <div>
-            <strong>Terms:</strong> {isPaid ? (
-              <span className="font-bold">Thanks for your business!</span>
+            <strong>Terms:</strong>{" "}
+            {isPaid ? (
+              hasCustomTerms ? (
+                <div>
+                  <p className="whitespace-pre-line">{invoice.terms}</p>
+                  <p className="font-bold mt-1">Thanks for your business!</p>
+                </div>
+              ) : (
+                <span className="font-bold">Thanks for your business!</span>
+              )
             ) : (
               invoice.terms || "Payment due on receipt."
             )}
@@ -410,8 +528,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           <div className="text-right">
             <h2 className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400 mb-1">Invoice</h2>
             <div className="text-2xl font-black text-black tabular-nums">#{invoice.invoice_number}</div>
-            <div className="mt-2 text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-slate-100 text-slate-700 inline-block">
-              {invoice.status}
+            <div className={`mt-2 text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded inline-block ${
+              isPaid ? 'bg-emerald-100 text-emerald-800' : isOverdue ? 'bg-rose-100 text-rose-700 border border-rose-200 font-black' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {effectiveStatus}
             </div>
           </div>
         </div>
@@ -463,17 +583,26 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {items.map((item, index) => (
-              <tr key={index}>
-                <td className="py-4 pr-4">
-                  <p className="font-bold text-black text-xs">{item.description}</p>
-                  {item.product?.type && <p className="text-[9px] text-slate-400">{item.product.type}</p>}
-                </td>
-                <td className="py-4 text-center text-slate-500 tabular-nums">{item.quantity}</td>
-                <td className="py-4 text-right text-slate-500 tabular-nums">{currencySymbol}{item.rate.toFixed(2)}</td>
-                <td className="py-4 text-right font-bold text-black tabular-nums">{currencySymbol}{item.amount.toFixed(2)}</td>
-              </tr>
-            ))}
+            {items.map((item, index) => {
+              const name = getItemDisplayName(item);
+              const desc = getItemDescription(item, 90);
+              const hsn = getItemHSN(item);
+              return (
+                <tr key={index}>
+                  <td className="py-4 pr-4">
+                    <p className="font-bold text-black text-xs">{name}</p>
+                    {desc && <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 max-w-xs">{desc}</p>}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {item.product?.type && <span className="text-[9px] text-slate-400">{item.product.type}</span>}
+                      {hsn !== '-' && <span className="text-[9px] font-mono text-slate-500">HSN: {hsn}</span>}
+                    </div>
+                  </td>
+                  <td className="py-4 text-center text-slate-500 tabular-nums">{item.quantity}</td>
+                  <td className="py-4 text-right text-slate-500 tabular-nums">{currencySymbol}{item.rate.toFixed(2)}</td>
+                  <td className="py-4 text-right font-bold text-black tabular-nums">{currencySymbol}{item.amount.toFixed(2)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
 
@@ -553,9 +682,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <div className="sm:text-right bg-white/10 backdrop-blur-xs px-3.5 py-2 rounded-xl border border-white/20">
               <div className="flex items-center sm:justify-end gap-1.5 mb-1">
                 <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                  isPaid ? "bg-emerald-500 text-white" : "bg-amber-400 text-slate-950"
+                  isPaid ? "bg-emerald-500 text-white" : isOverdue ? "bg-rose-500 text-white font-black" : "bg-amber-400 text-slate-950"
                 }`}>
-                  {isPaid ? "✓ PAID • SETTLED" : `STATUS: ${invoice.status.toUpperCase()}`}
+                  {isPaid ? "✓ PAID • SETTLED" : isOverdue ? "⚠ OVERDUE" : `STATUS: ${effectiveStatus.toUpperCase()}`}
                 </span>
               </div>
               <p className="text-[9px] text-blue-200 uppercase font-semibold">Invoice No:</p>
@@ -601,21 +730,26 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
-              {items.map((item, index) => (
-                <tr key={index} className="hover:bg-slate-50/50">
-                  <td className="py-3 px-3">
-                    <p className="font-bold text-slate-900">{item.description}</p>
-                    {item.product?.type && <span className="text-[8px] text-slate-400 font-normal">{item.product.type}</span>}
-                  </td>
-                  <td className="py-3 px-2 text-center font-mono text-slate-500">
-                    {item.hsn_code || item.product?.hsn_code || '5208'}
-                  </td>
-                  <td className="py-3 px-2 text-center font-bold">{item.quantity} {item.product?.unit || ''}</td>
-                  <td className="py-3 px-3 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
-                  <td className="py-3 px-3 text-right font-mono">{item.tax_rate}%</td>
-                  <td className="py-3 px-3 text-right font-black text-slate-900 font-mono">{currencySymbol}{item.amount.toFixed(2)}</td>
-                </tr>
-              ))}
+              {items.map((item, index) => {
+                const name = getItemDisplayName(item);
+                const desc = getItemDescription(item, 100);
+                return (
+                  <tr key={index} className="hover:bg-slate-50/50">
+                    <td className="py-3 px-3">
+                      <p className="font-bold text-slate-900">{name}</p>
+                      {desc && <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 max-w-xs">{desc}</p>}
+                      {item.product?.type && <span className="text-[8px] text-slate-400 font-normal">{item.product.type}</span>}
+                    </td>
+                    <td className="py-3 px-2 text-center font-mono text-slate-500">
+                      {getItemHSN(item)}
+                    </td>
+                    <td className="py-3 px-2 text-center font-bold">{item.quantity} {item.product?.unit || ''}</td>
+                    <td className="py-3 px-3 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
+                    <td className="py-3 px-3 text-right font-mono">{item.tax_rate}%</td>
+                    <td className="py-3 px-3 text-right font-black text-slate-900 font-mono">{currencySymbol}{item.amount.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -678,7 +812,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             )}
 
             {/* Grand Total Highlight Box */}
-            <div className="p-3 rounded-xl bg-blue-50 border-2 border-blue-500 flex justify-between items-center text-slate-900 mt-2">
+            <div className="py-2 px-3 rounded-xl bg-blue-50 border-2 border-blue-500 flex justify-between items-center text-slate-900 mt-2">
               <span className="font-black text-xs uppercase tracking-wider">Grand Total:</span>
               <span className="font-mono font-black text-lg text-blue-700">
                 {currencySymbol}{invoice.total_amount.toFixed(2)}
@@ -783,26 +917,31 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 font-medium">
-            {items.map((item, idx) => (
-              <tr key={idx}>
-                <td className="py-2.5 px-2 text-center font-bold">{idx + 1}</td>
-                <td className="py-2.5 px-3">
-                  <strong className="text-slate-950 font-bold">{item.description}</strong>
-                  {item.product?.type && <span className="block text-[8px] text-slate-500">{item.product.type}</span>}
-                </td>
-                <td className="py-2.5 px-2 text-center font-mono font-bold text-slate-700">{item.hsn_code || '5208.11'}</td>
-                <td className="py-2.5 px-2 text-center font-bold">{item.quantity} {item.product?.unit || 'Units'}</td>
-                <td className="py-2.5 px-3 text-right font-mono font-bold">{currencySymbol}{item.rate.toFixed(2)}</td>
-                <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">{currencySymbol}{item.amount.toFixed(2)}</td>
-              </tr>
-            ))}
+            {items.map((item, idx) => {
+              const name = getItemDisplayName(item);
+              const desc = getItemDescription(item, 100);
+              return (
+                <tr key={idx}>
+                  <td className="py-2.5 px-2 text-center font-bold">{idx + 1}</td>
+                  <td className="py-2.5 px-3">
+                    <strong className="text-slate-950 font-bold">{name}</strong>
+                    {desc && <p className="text-[10px] text-slate-500 font-normal mt-0.5 line-clamp-2 max-w-xs">{desc}</p>}
+                    {item.product?.type && <span className="block text-[8px] text-slate-500">{item.product.type}</span>}
+                  </td>
+                  <td className="py-2.5 px-2 text-center font-mono font-bold text-slate-700">{getItemHSN(item)}</td>
+                  <td className="py-2.5 px-2 text-center font-bold">{item.quantity} {item.product?.unit || 'Units'}</td>
+                  <td className="py-2.5 px-3 text-right font-mono font-bold">{currencySymbol}{item.rate.toFixed(2)}</td>
+                  <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">{currencySymbol}{item.amount.toFixed(2)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
 
         {/* Export Totals & SWIFT Block */}
         <div className="pt-4 border-t-2 border-slate-900 grid sm:grid-cols-12 gap-6 items-start">
           <div className="sm:col-span-7 space-y-2">
-            {!isPaid ? (
+            {!isPaid && hasBankDetails ? (
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[9.5px] flex items-start gap-4">
                 <InvoicePaymentQR 
                   size={88} 
@@ -814,9 +953,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   <p className="font-black text-slate-900 uppercase tracking-wider text-[8.5px] text-blue-700">
                     International Wire Transfer (SWIFT Remittance):
                   </p>
-                  <p><strong className="text-slate-700">Beneficiary Bank:</strong> {company.bank_name || 'HDFC Bank Ltd, International Banking Branch'}</p>
-                  <p className="font-mono"><strong className="text-slate-700 font-sans">SWIFT / BIC:</strong> <span className="font-black text-slate-900">{company.ifsc_code || 'HDFCINBBXXX'}</span></p>
-                  <p className="font-mono"><strong className="text-slate-700 font-sans">Account No:</strong> {company.account_number || '00012480092144'} (EEFC)</p>
+                  {company.bank_name && <p><strong className="text-slate-700">Beneficiary Bank:</strong> {company.bank_name}</p>}
+                  {company.ifsc_code && <p className="font-mono"><strong className="text-slate-700 font-sans">SWIFT / BIC:</strong> <span className="font-black text-slate-900">{company.ifsc_code}</span></p>}
+                  {company.account_number && <p className="font-mono"><strong className="text-slate-700 font-sans">Account No:</strong> {company.account_number} (EEFC)</p>}
                   <p className="text-[8px] text-emerald-700 font-bold">UPI / Domestic transfer also supported</p>
                 </div>
               </div>
@@ -942,20 +1081,26 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-300 bg-white text-xs">
-              {items.map((item, index) => (
-                <tr key={index} className="divide-x divide-gray-200">
-                  <td className="py-2.5 px-3 text-center text-gray-500">{index + 1}</td>
-                  <td className="py-2.5 px-3 font-medium text-gray-900">
-                    <div>{item.description}</div>
-                    {item.hsn_code && <span className="text-[10px] text-gray-500 font-mono font-normal">HSN: {item.hsn_code}</span>}
-                  </td>
-                  <td className="py-2.5 px-3 text-center font-bold">{item.quantity}</td>
-                  <td className="py-2.5 px-3 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
-                  {hasDiscount && <td className="py-2.5 px-3 text-right">{item.discount || 0}%</td>}
-                  {hasGST && <td className="py-2.5 px-3 text-right">{item.tax_rate}%</td>}
-                  <td className="py-2.5 px-3 text-right font-semibold font-mono">{currencySymbol}{item.amount.toFixed(2)}</td>
-                </tr>
-              ))}
+              {items.map((item, index) => {
+                const name = getItemDisplayName(item);
+                const desc = getItemDescription(item, 100);
+                const hsn = getItemHSN(item);
+                return (
+                  <tr key={index} className="divide-x divide-gray-200">
+                    <td className="py-2.5 px-3 text-center text-gray-500">{index + 1}</td>
+                    <td className="py-2.5 px-3 font-medium text-gray-900">
+                      <div className="font-bold text-slate-900">{name}</div>
+                      {desc && <div className="text-[10px] text-gray-500 font-normal mt-0.5 line-clamp-2 max-w-xs">{desc}</div>}
+                      {hsn !== '-' && <span className="text-[10px] text-gray-500 font-mono font-normal block mt-0.5">HSN: {hsn}</span>}
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-bold">{item.quantity}</td>
+                    <td className="py-2.5 px-3 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
+                    {hasDiscount && <td className="py-2.5 px-3 text-right">{item.discount || 0}%</td>}
+                    {hasGST && <td className="py-2.5 px-3 text-right">{item.tax_rate}%</td>}
+                    <td className="py-2.5 px-3 text-right font-semibold font-mono">{currencySymbol}{item.amount.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -966,16 +1111,16 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <p className="font-bold text-blue-900 text-[10px] uppercase tracking-wider mb-1">Amount in Words</p>
                 <p className="text-gray-700 font-bold italic border-b border-dashed border-gray-400 pb-1 text-xs">{numberToWords(invoice.total_amount)}</p>
               </div>
-              {!isPaid && (
+              {!isPaid && hasBankDetails && (
                 <div className="p-3 bg-white">
                   <h4 className="font-bold text-gray-800 uppercase text-[10px] tracking-wider mb-2">Payment & Bank Details</h4>
                   <div className="flex items-center gap-4">
                     <InvoicePaymentQR size={88} />
                     <div className="text-xs text-gray-600 grid grid-cols-[70px_1fr] gap-x-2 gap-y-1 font-sans">
-                      <span className="font-semibold text-gray-500">Bank:</span> <span className="text-gray-800 font-medium">{company.bank_name || 'HDFC Bank Ltd'}</span>
-                      <span className="font-semibold text-gray-500">A/C Name:</span> <span className="text-gray-800 font-medium">{company.account_holder_name || company.company_name || 'Business Account'}</span>
-                      <span className="font-semibold text-gray-500">A/C No:</span> <span className="text-gray-800 font-medium font-mono font-bold">{company.account_number || '50200089213490'}</span>
-                      <span className="font-semibold text-gray-500">IFSC:</span> <span className="text-gray-800 font-medium font-mono font-bold">{company.ifsc_code || 'HDFC0001248'}</span>
+                      {company.bank_name && (<><span className="font-semibold text-gray-500">Bank:</span> <span className="text-gray-800 font-medium">{company.bank_name}</span></>)}
+                      <span className="font-semibold text-gray-500">A/C Name:</span> <span className="text-gray-800 font-medium">{company.account_holder_name || company.company_name}</span>
+                      {company.account_number && (<><span className="font-semibold text-gray-500">A/C No:</span> <span className="text-gray-800 font-medium font-mono font-bold">{company.account_number}</span></>)}
+                      {company.ifsc_code && (<><span className="font-semibold text-gray-500">IFSC:</span> <span className="text-gray-800 font-medium font-mono font-bold">{company.ifsc_code}</span></>)}
                     </div>
                   </div>
                 </div>
@@ -1021,13 +1166,24 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             )}
             <div className="space-y-1">
               <h4 className="text-[10px] font-bold text-blue-900 uppercase tracking-widest">Terms &amp; Conditions</h4>
-              <p className="text-xs text-gray-600 leading-relaxed italic border-l-2 border-gray-200 pl-3">
+              <div className="text-xs text-gray-600 leading-relaxed italic border-l-2 border-gray-200 pl-3 space-y-1">
                 {isPaid ? (
-                  <span className="font-semibold text-slate-700 not-italic">Thanks for your business!</span>
+                  hasCustomTerms ? (
+                    <>
+                      <p className="whitespace-pre-line not-italic">{invoice.terms}</p>
+                      <p className="font-semibold text-slate-700 not-italic">Thanks for your business!</p>
+                    </>
+                  ) : (
+                    <span className="font-semibold text-slate-700 not-italic">Thanks for your business!</span>
+                  )
                 ) : (
-                  invoice.terms || "Standard corporate terms apply."
+                  invoice.terms ? (
+                    <p className="whitespace-pre-line not-italic">{invoice.terms}</p>
+                  ) : (
+                    <p>Standard corporate terms apply.</p>
+                  )
                 )}
-              </p>
+              </div>
             </div>
           </div>
 
@@ -1182,10 +1338,18 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 const isIntraState = company.state && client.state && company.state === client.state;
                 const taxType = item.tax_rate > 0 ? (isIntraState ? 'CGST/SGST' : 'IGST') : '-';
                 
+                const name = getItemDisplayName(item);
+                const desc = getItemDescription(item, 100);
+                const hsn = getItemHSN(item);
+                
                 return (
                   <tr key={index} className="avoid-break text-slate-700">
                     <td className="py-2.5 px-3 border-r border-slate-200 text-center">{index + 1}</td>
-                    <td className="py-2.5 px-3 border-r border-slate-200 font-bold text-slate-900">{item.description}</td>
+                    <td className="py-2.5 px-3 border-r border-slate-200">
+                      <div className="font-bold text-slate-900">{name}</div>
+                      {desc && <div className="text-[10px] text-slate-500 font-normal mt-0.5 line-clamp-2 max-w-xs">{desc}</div>}
+                      {hsn !== '-' && <div className="text-[9px] font-mono text-slate-500 mt-0.5">HSN/SAC: {hsn}</div>}
+                    </td>
                     <td className="py-2.5 px-3 border-r border-slate-200 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
                     <td className="py-2.5 px-3 border-r border-slate-200 text-center">{item.quantity}</td>
                     <td className="py-2.5 px-3 border-r border-slate-200 text-right font-mono">{currencySymbol}{netAmount.toFixed(2)}</td>
@@ -1223,13 +1387,24 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
             <div className="mt-3">
               <p className="text-[10px] font-bold text-slate-900 mb-0.5">Terms &amp; Conditions:</p>
-              <p className="text-[10px] text-slate-500 whitespace-pre-wrap leading-relaxed">
+              <div className="text-[10px] text-slate-500 whitespace-pre-wrap leading-relaxed space-y-1">
                 {isPaid ? (
-                  <span className="font-semibold text-slate-700">Thanks for your business!</span>
+                  hasCustomTerms ? (
+                    <>
+                      <p>{invoice.terms}</p>
+                      <p className="font-semibold text-slate-700">Thanks for your business!</p>
+                    </>
+                  ) : (
+                    <span className="font-semibold text-slate-700">Thanks for your business!</span>
+                  )
                 ) : (
-                  invoice.terms || "Payment is due within the stipulated time frame."
+                  invoice.terms ? (
+                    <p>{invoice.terms}</p>
+                  ) : (
+                    <p>Payment is due within the stipulated time frame.</p>
+                  )
                 )}
-              </p>
+              </div>
             </div>
           </div>
 
@@ -1260,16 +1435,16 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         {/* Footer: Bank & Sign */}
         <div className="mt-auto pt-6 border-t border-slate-100 grid grid-cols-2 gap-8">
           <div>
-            {!isPaid && (
+            {!isPaid && hasBankDetails && (
               <div className="space-y-1 text-[10px] text-slate-600 p-3 bg-slate-50 rounded border border-slate-200">
                 <p className="font-bold text-slate-900 uppercase text-[9px] mb-2 tracking-widest">Payment Information</p>
                 <div className="flex items-center gap-4">
                   <InvoicePaymentQR size={88} />
                   <div className="grid grid-cols-[70px_1fr] gap-x-2 gap-y-1">
-                    <span className="font-bold">Bank Name:</span> <span>{company.bank_name || 'HDFC Bank Ltd'}</span>
-                    <span className="font-bold">A/C Name:</span> <span>{company.account_holder_name || company.company_name || 'Business Account'}</span>
-                    <span className="font-bold">A/C No:</span> <span className="font-mono font-bold tracking-wider">{company.account_number || '50200089213490'}</span>
-                    <span className="font-bold">IFSC Code:</span> <span className="font-mono font-bold tracking-widest">{company.ifsc_code || 'HDFC0001248'}</span>
+                    {company.bank_name && (<><span className="font-bold">Bank Name:</span> <span>{company.bank_name}</span></>)}
+                    <span className="font-bold">A/C Name:</span> <span>{company.account_holder_name || company.company_name}</span>
+                    {company.account_number && (<><span className="font-bold">A/C No:</span> <span className="font-mono font-bold tracking-wider">{company.account_number}</span></>)}
+                    {company.ifsc_code && (<><span className="font-bold">IFSC Code:</span> <span className="font-mono font-bold tracking-widest">{company.ifsc_code}</span></>)}
                   </div>
                 </div>
               </div>
@@ -1414,19 +1589,25 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               </tr>
             </thead>
             <tbody>
-              {items.map((item, index) => (
-                <tr key={index} className="hover:bg-gray-50 avoid-break">
-                  <td className="border border-gray-300 p-2.5">
-                    <div className="font-medium">{item.description}</div>
-                    {item.hsn_code && <span className="text-[10px] text-gray-500 font-mono">HSN: {item.hsn_code}</span>}
-                  </td>
-                  <td className="border border-gray-300 p-2.5 text-center">{item.quantity}</td>
-                  <td className="border border-gray-300 p-2.5 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
-                  {hasDiscount && <td className="border border-gray-300 p-2.5 text-right">{item.discount || 0}%</td>}
-                  {hasGST && <td className="border border-gray-300 p-2.5 text-right">{item.tax_rate}%</td>}
-                  <td className="border border-gray-300 p-2.5 text-right font-bold font-mono">{currencySymbol}{item.amount.toFixed(2)}</td>
-                </tr>
-              ))}
+              {items.map((item, index) => {
+                const name = getItemDisplayName(item);
+                const desc = getItemDescription(item, 100);
+                const hsn = getItemHSN(item);
+                return (
+                  <tr key={index} className="hover:bg-gray-50 avoid-break">
+                    <td className="border border-gray-300 p-2.5">
+                      <div className="font-bold text-slate-900">{name}</div>
+                      {desc && <div className="text-[10px] text-gray-500 font-normal mt-0.5 line-clamp-2 max-w-xs">{desc}</div>}
+                      {hsn !== '-' && <span className="text-[10px] text-gray-500 font-mono block mt-0.5">HSN: {hsn}</span>}
+                    </td>
+                    <td className="border border-gray-300 p-2.5 text-center">{item.quantity}</td>
+                    <td className="border border-gray-300 p-2.5 text-right font-mono">{currencySymbol}{item.rate.toFixed(2)}</td>
+                    {hasDiscount && <td className="border border-gray-300 p-2.5 text-right">{item.discount || 0}%</td>}
+                    {hasGST && <td className="border border-gray-300 p-2.5 text-right">{item.tax_rate}%</td>}
+                    <td className="border border-gray-300 p-2.5 text-right font-bold font-mono">{currencySymbol}{item.amount.toFixed(2)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1435,29 +1616,35 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         <div className="flex justify-between items-start mb-8 gap-6 avoid-break">
           {/* Bank Details - Hidden if paid */}
           <div className="flex-1">
-            {!isPaid && (
+            {!isPaid && hasBankDetails && (
               <div>
                 <h3 className={`font-bold text-base ${styles.accentColor} mb-2`}>Bank Transfer Details:</h3>
                 <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                   <div className="flex items-center gap-4">
                     <InvoicePaymentQR size={88} />
                     <div className="grid grid-cols-2 gap-3 flex-1">
-                      <div>
-                        <div className="text-gray-500 text-[10px] uppercase tracking-wider">Bank Name</div>
-                        <div className="font-semibold text-xs">{company.bank_name || 'HDFC Bank Ltd'}</div>
-                      </div>
+                      {company.bank_name && (
+                        <div>
+                          <div className="text-gray-500 text-[10px] uppercase tracking-wider">Bank Name</div>
+                          <div className="font-semibold text-xs">{company.bank_name}</div>
+                        </div>
+                      )}
                       <div>
                         <div className="text-gray-500 text-[10px] uppercase tracking-wider">Account Holder</div>
-                        <div className="font-semibold text-xs">{company.account_holder_name || company.company_name || 'Business Account'}</div>
+                        <div className="font-semibold text-xs">{company.account_holder_name || company.company_name}</div>
                       </div>
-                      <div>
-                        <div className="text-gray-500 text-[10px] uppercase tracking-wider">Account Number</div>
-                        <div className="font-semibold text-xs font-mono font-bold">{company.account_number || '50200089213490'}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-500 text-[10px] uppercase tracking-wider">IFSC Code</div>
-                        <div className="font-semibold text-xs font-mono font-bold">{company.ifsc_code || 'HDFC0001248'}</div>
-                      </div>
+                      {company.account_number && (
+                        <div>
+                          <div className="text-gray-500 text-[10px] uppercase tracking-wider">Account Number</div>
+                          <div className="font-semibold text-xs font-mono font-bold">{company.account_number}</div>
+                        </div>
+                      )}
+                      {company.ifsc_code && (
+                        <div>
+                          <div className="text-gray-500 text-[10px] uppercase tracking-wider">IFSC Code</div>
+                          <div className="font-semibold text-xs font-mono font-bold">{company.ifsc_code}</div>
+                        </div>
+                      )}
                       {company.account_type && (
                         <div>
                           <div className="text-gray-500 text-[10px] uppercase tracking-wider">Account Type</div>
@@ -1517,11 +1704,22 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           )}
           <div>
             <h3 className={`font-bold ${styles.accentColor} mb-1`}>Terms &amp; Conditions:</h3>
-            <div className="p-3 bg-gray-50 rounded border-l-4 border-blue-400">
+            <div className="p-3 bg-gray-50 rounded border-l-4 border-blue-400 space-y-1">
               {isPaid ? (
-                <span className="font-semibold text-slate-700">Thanks for your business!</span>
+                hasCustomTerms ? (
+                  <>
+                    <p className="whitespace-pre-line">{invoice.terms}</p>
+                    <p className="font-semibold text-slate-700">Thanks for your business!</p>
+                  </>
+                ) : (
+                  <span className="font-semibold text-slate-700">Thanks for your business!</span>
+                )
               ) : (
-                invoice.terms || "Standard payment terms apply."
+                invoice.terms ? (
+                  <p className="whitespace-pre-line">{invoice.terms}</p>
+                ) : (
+                  <p>Standard payment terms apply.</p>
+                )
               )}
             </div>
           </div>
@@ -1641,9 +1839,13 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 mb-1.5">Project & Payment Status</p>
               <div className="flex items-center gap-2 mt-1">
                 <span className={`px-2.5 py-1 rounded-md text-xs font-black uppercase tracking-wider ${
-                  isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                  isPaid 
+                    ? 'bg-emerald-100 text-emerald-800' 
+                    : isOverdue 
+                    ? 'bg-rose-100 text-rose-800 border border-rose-200' 
+                    : 'bg-amber-100 text-amber-800'
                 }`}>
-                  {invoice.status}
+                  {effectiveStatus}
                 </span>
                 {invoice.payment_terms && (
                   <span className="text-xs font-semibold text-slate-600">Terms: {invoice.payment_terms}</span>
@@ -1672,34 +1874,39 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {items.map((item, idx) => (
-                <tr key={idx} className="hover:bg-slate-50/50">
-                  <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                  <td className="py-2.5 px-3 font-semibold text-slate-900">
-                    {item.description}
-                  </td>
-                  <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">
-                    {item.hsn_code || item.product?.hsn_code || '998311'}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-medium text-slate-700">
-                    {item.quantity} {item.product?.unit || ''}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-mono text-slate-700">
-                    {currencySymbol}{item.rate.toFixed(2)}
-                  </td>
-                  {hasDiscount && (
-                    <td className="py-2.5 px-3 text-right font-mono text-slate-500">
-                      {item.discount ? `${item.discount}%` : '-'}
+              {items.map((item, idx) => {
+                const name = getItemDisplayName(item);
+                const desc = getItemDescription(item, 100);
+                return (
+                  <tr key={idx} className="hover:bg-slate-50/50">
+                    <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                    <td className="py-2.5 px-3 font-semibold text-slate-900">
+                      <div className="font-bold">{name}</div>
+                      {desc && <div className="text-[10px] text-slate-500 font-normal mt-0.5 line-clamp-2 max-w-xs">{desc}</div>}
                     </td>
-                  )}
-                  <td className="py-2.5 px-3 text-right font-mono text-slate-600">
-                    {item.tax_rate ? `${item.tax_rate}%` : '0%'}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
-                    {currencySymbol}{item.amount.toFixed(2)}
-                  </td>
-                </tr>
-              ))}
+                    <td className="py-2.5 px-3 text-center font-mono text-[11px] text-slate-500">
+                      {getItemHSN(item)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-medium text-slate-700">
+                      {item.quantity} {item.product?.unit || ''}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-700">
+                      {currencySymbol}{item.rate.toFixed(2)}
+                    </td>
+                    {hasDiscount && (
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">
+                        {item.discount ? `${item.discount}%` : '-'}
+                      </td>
+                    )}
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                      {item.tax_rate ? `${item.tax_rate}%` : '0%'}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">
+                      {currencySymbol}{item.amount.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1862,8 +2069,13 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 return (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
                     <td className="p-2 text-center font-mono text-slate-500">{idx + 1}</td>
-                    <td className="p-2 font-bold text-slate-900">{item.description}</td>
-                    <td className="p-2 text-center font-mono text-slate-600 text-[11px]">{item.hsn_code || item.product?.hsn_code || '1905'}</td>
+                    <td className="p-2 font-bold text-slate-900">
+                      <div>{getItemDisplayName(item)}</div>
+                      {getItemDescription(item) && (
+                        <div className="text-[10px] text-slate-500 font-normal mt-0.5 line-clamp-2 max-w-xs">{getItemDescription(item)}</div>
+                      )}
+                    </td>
+                    <td className="p-2 text-center font-mono text-slate-600 text-[11px]">{getItemHSN(item)}</td>
                     <td className="p-2 text-right font-mono font-bold text-slate-800">{item.quantity} {item.product?.unit || 'Nos'}</td>
                     <td className="p-2 text-right font-mono text-slate-700">{currencySymbol}{item.rate.toFixed(2)}</td>
                     <td className="p-2 text-right font-mono text-emerald-700 font-semibold">{item.discount ? `${item.discount}%` : '-'}</td>
@@ -1902,11 +2114,22 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
             <div className="p-2.5 rounded bg-slate-50 border border-slate-200 text-[10.5px] text-slate-600 space-y-1">
               <p className="font-bold text-slate-800 uppercase text-[9.5px]">Terms & Return Policy:</p>
-              <ul className="list-disc pl-4 space-y-0.5">
-                <li>Goods once sold can be exchanged within 7 days with original tax invoice.</li>
-                <li>No cash refund; credit note will be issued for valid returns.</li>
-                <li>Manufacturer warranty applicable on electronic items.</li>
-              </ul>
+              {hasCustomTerms ? (
+                <div>
+                  <p className="whitespace-pre-line">{invoice.terms}</p>
+                  {isPaid && (
+                    <p className="font-bold text-slate-800 mt-1">Thanks for your business!</p>
+                  )}
+                </div>
+              ) : isPaid ? (
+                <p className="font-semibold text-slate-700">Thanks for your business!</p>
+              ) : (
+                <ul className="list-disc pl-4 space-y-0.5">
+                  <li>Goods once sold can be exchanged within 7 days with original tax invoice.</li>
+                  <li>No cash refund; credit note will be issued for valid returns.</li>
+                  <li>Manufacturer warranty applicable on electronic items.</li>
+                </ul>
+              )}
             </div>
             <p className="text-[11px] text-slate-500">
               Total items: <span className="font-bold text-slate-800">{items.reduce((s, it) => s + (it.quantity || 1), 0)} Units</span> • Words: <span className="font-bold text-slate-800">{numberToWords(invoice.total_amount)} Only</span>
@@ -2039,20 +2262,25 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-300 font-medium divide-x-2 divide-slate-900">
-          {items.map((item, index) => (
-            <tr key={index}>
-              <td className="py-2 px-1 text-center font-bold">{index + 1}</td>
-              <td className="py-2 px-3">
-                <strong className="text-slate-950 font-black">{item.description}</strong>
-                {item.product?.type && <span className="block text-[8px] text-slate-500">{item.product.type}</span>}
-              </td>
-              <td className="py-2 px-2 text-center font-mono font-bold">{item.hsn_code || item.product?.hsn_code || '5208'}</td>
-              <td className="py-2 px-2 text-center font-bold">{item.quantity} {item.product?.unit || 'Nos'}</td>
-              <td className="py-2 px-2 text-right font-mono">{item.rate.toFixed(2)}</td>
-              <td className="py-2 px-1 text-center text-slate-600">{item.product?.unit || 'Nos'}</td>
-              <td className="py-2 px-3 text-right font-mono font-bold">{item.amount.toFixed(2)}</td>
-            </tr>
-          ))}
+          {items.map((item, index) => {
+            const name = getItemDisplayName(item);
+            const desc = getItemDescription(item, 100);
+            return (
+              <tr key={index}>
+                <td className="py-2 px-1 text-center font-bold">{index + 1}</td>
+                <td className="py-2 px-3">
+                  <strong className="text-slate-950 font-black">{name}</strong>
+                  {desc && <div className="text-[10px] text-slate-600 font-normal mt-0.5 line-clamp-2 max-w-xs">{desc}</div>}
+                  {item.product?.type && <span className="block text-[8px] text-slate-500">{item.product.type}</span>}
+                </td>
+                <td className="py-2 px-2 text-center font-mono font-bold">{getItemHSN(item)}</td>
+                <td className="py-2 px-2 text-center font-bold">{item.quantity} {item.product?.unit || 'Nos'}</td>
+                <td className="py-2 px-2 text-right font-mono">{item.rate.toFixed(2)}</td>
+                <td className="py-2 px-1 text-center text-slate-600">{item.product?.unit || 'Nos'}</td>
+                <td className="py-2 px-3 text-right font-mono font-bold">{item.amount.toFixed(2)}</td>
+              </tr>
+            );
+          })}
 
           <tr className="bg-slate-50 font-bold divide-x-2 divide-slate-900 border-t-2 border-slate-900">
             <td colSpan={6} className="py-1.5 px-3 text-right uppercase font-black">
@@ -2135,15 +2363,15 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
       {/* Tally Bottom Grid: Bank Details + Declaration | Signatory */}
       <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x-2 divide-slate-900">
         <div className="md:col-span-7 p-2.5 space-y-1.5">
-          {!isPaid ? (
+          {!isPaid && hasBankDetails ? (
             <>
               <p className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Company's Bank &amp; Payment Details:</p>
               <div className="flex items-center gap-4">
                 <InvoicePaymentQR size={88} />
                 <div className="font-mono text-[9.5px] text-slate-800 space-y-1">
-                  <p><strong>Bank Name:</strong> {company.bank_name || 'HDFC Bank Ltd'}</p>
-                  <p><strong>A/C No:</strong> <span className="font-bold">{company.account_number || '50200089213490'}</span> ({company.account_type || 'Current'})</p>
-                  <p><strong>Branch &amp; IFSC:</strong> <span className="font-bold">{company.ifsc_code || 'HDFC0001248'}</span></p>
+                  {company.bank_name && <p><strong>Bank Name:</strong> {company.bank_name}</p>}
+                  {company.account_number && <p><strong>A/C No:</strong> <span className="font-bold">{company.account_number}</span> ({company.account_type || 'Current'})</p>}
+                  {company.ifsc_code && <p><strong>Branch &amp; IFSC:</strong> <span className="font-bold">{company.ifsc_code}</span></p>}
                   <p className="text-[8.5px] text-emerald-700 font-sans font-bold">Scan QR code for instant UPI payment settlement</p>
                 </div>
               </div>

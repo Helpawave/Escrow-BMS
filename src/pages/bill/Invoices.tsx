@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import {
   AlertDialog,
@@ -16,79 +17,154 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
-import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, BookOpen, Banknote, Smartphone, ArrowRightCircle, Sparkles } from "lucide-react";
-import { supabase as baseSupabase } from "@/integrations/supabase/client";
-const supabase = baseSupabase as any;
+import { FileText, Plus, Search, Filter, Download, Trash2, Printer, Mail, MoreVertical, Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal, Copy, History, Banknote, Smartphone, ChevronDown, Car } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import { StatusBadge } from "@/components/StatusBadge";
+import { StatusBadge, getInvoiceEffectiveStatus } from "@/components/StatusBadge";
 import { InvoicePreview } from "@/components/InvoicePreview";
 import { InvoiceTemplate } from "@/components/InvoiceTemplate";
 import { safelyToLocaleDate } from "@/utils/dateUtils";
+import { formatInvoiceWhatsAppMessage } from "@/utils/whatsappTemplates";
 import { googleDriveAPI } from "@/utils/googleDriveAPI";
 import { SuccessModal } from "@/components/SuccessModal";
 import { DeleteConfirmation } from "@/components/DeleteConfirmation";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from "@/utils/invoicePDF";
-import { adjustStock, adjustStockBatch } from "@/utils/inventory";
-import { generateInvoiceNumber } from "@/utils/invoice-helpers";
+import { adjustStock } from "@/utils/inventory";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { InvoiceTemplateId } from "@/types/invoice";
 import { AlertCircle, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const getPaymentMethodLabel = (method: string | null | undefined): string => {
+  switch (method) {
+    case 'cash':
+      return 'Cash';
+    case 'upi':
+      return 'UPI / Online';
+    case 'bank_transfer':
+      return 'Bank Transfer';
+    case 'cheque':
+      return 'Cheque';
+    case 'credit_card':
+      return 'Credit Card';
+    case 'debit_card':
+      return 'Debit Card';
+    case 'net_banking':
+      return 'Net Banking';
+    case 'other':
+      return 'Other Method';
+    case 'pending':
+      return 'Pending';
+    default:
+      return method ? method.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Pending';
+  }
+};
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useInvoices } from "@/hooks/useInvoices";
+import { useUserType } from "@/hooks/useUserType";
+
+import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { useQueryClient } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
+import { DataTablePagination } from "@/components/DataTablePagination";
 import {
   fetchFullInvoiceData,
   formatCompanyData,
   formatInvoiceData,
   formatClientData
 } from "@/utils/invoice-service";
-import { Invoice, InvoiceItem, Client, UserSettings, ClientData, CompanyData, ItemData } from "@/types/invoice";
+import { Invoice, InvoiceItem, Client, UserSettings, ClientData, CompanyData, ItemData, InvoiceTemplateId } from "@/types/invoice";
 
-interface InvoicesPageProps {
+
+export interface InvoicesPageProps {
   isQuotationMode?: boolean;
   isLedgerMode?: boolean;
 }
 
 const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLedgerMode }: InvoicesPageProps = {}) => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const location = useLocation();
   const isQuotationTab = propQuotationMode ?? location.pathname.includes('/quotations');
   const isLedgerTab = propLedgerMode ?? (location.pathname.includes('/ledger-bills') || location.pathname.includes('/ledger-invoices'));
-
-  const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const initialInvoiceId = searchParams.get('id') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
-  const [statusFilter, setStatusFilter] = useState(isQuotationTab ? "quotation" : (isLedgerTab ? "ledger" : "sales_only"));
+  const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  const [pageSize, setPageSize] = useState(10);
+  const { isAutomobile } = useUserType();
+
 
   useEffect(() => {
-    setStatusFilter(isQuotationTab ? "quotation" : (isLedgerTab ? "ledger" : "sales_only"));
-  }, [isQuotationTab, isLedgerTab]);
+    setCurrentPage(1);
+  }, [debouncedSearch, statusFilter]);
 
-  const { data, isLoading: loading, isFetching: searchLoading } = useInvoices({
+  const typeParam = searchParams.get('type');
+
+  // Immediately redirect legacy downpayment link to dedicated page
+  useEffect(() => {
+    if (typeParam === 'downpayment') {
+      navigate('/billing/downpayment-invoices', { replace: true });
+    }
+  }, [typeParam, navigate]);
+
+  const { data, isLoading: queryLoading, isPending, isFetching: searchLoading } = useInvoices({
     page: currentPage,
-    pageSize: ITEMS_PER_PAGE,
+    pageSize,
     searchTerm: debouncedSearch,
-    statusFilter
+    statusFilter,
+    typeFilter: (isQuotationTab ? 'quotation' : (isLedgerTab ? 'ledger' : 'sales')) as any
   });
 
   const invoices = data?.invoices || [];
-  const totalCount = data?.totalCount || 0;
 
-  const [convertingQuotationId, setConvertingQuotationId] = useState<string | null>(null);
+  const isDownpaymentInvoice = useCallback((inv: Invoice) => {
+    return (
+      Boolean(inv.notes?.includes('is_downpayment')) ||
+      Boolean(inv.invoice_number?.startsWith('DP-')) ||
+      Boolean(inv.invoice_number?.startsWith('DP')) ||
+      Boolean(inv.notes?.toLowerCase().includes('downpayment')) ||
+      Boolean(inv.notes?.toLowerCase().includes('down payment')) ||
+      Boolean(inv.notes?.toLowerCase().includes('vehicle booking')) ||
+      Boolean(inv.notes?.toLowerCase().includes('booking advance')) ||
+      Boolean(inv.notes?.toLowerCase().includes('token payment')) ||
+      Boolean(inv.notes?.includes('Vehicle:')) ||
+      Boolean(inv.terms?.toLowerCase().includes('downpayment')) ||
+      Boolean(inv.terms?.toLowerCase().includes('down payment')) ||
+      Boolean(inv.payment_terms?.toLowerCase().includes('downpayment')) ||
+      Boolean(inv.payment_terms?.toLowerCase().includes('down payment'))
+    );
+  }, []);
+
+  const resolveTemplateForInvoice = useCallback((inv: Invoice, userSettings?: any): InvoiceTemplateId => {
+    const salesTpl = userSettings?.invoice_template && !userSettings.invoice_template.startsWith('auto_')
+      ? (userSettings.invoice_template as InvoiceTemplateId)
+      : 'corporate';
+    return salesTpl;
+  }, []);
+
+  const displayInvoices = useMemo(() => {
+    return invoices.filter(inv => !isDownpaymentInvoice(inv));
+  }, [invoices, isDownpaymentInvoice]);
+
+  const totalCount = data?.totalCount || 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const loading = queryLoading || isPending || (searchLoading && invoices.length === 0);
 
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -107,13 +183,11 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
   }, [sharedInvoices]);
   const [whatsappConfirmationOpen, setWhatsappConfirmationOpen] = useState(false);
   const [whatsappMessage, setWhatsappMessage] = useState("");
+  const [whatsappPhone, setWhatsappPhone] = useState("");
   const [whatsappPdfUrl, setWhatsappPdfUrl] = useState("");
+  const [whatsappInvoiceId, setWhatsappInvoiceId] = useState("");
   const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [whatsappProvider, setWhatsappProvider] = useState<string | null>(null);
-  const [whatsappResendOpen, setWhatsappResendOpen] = useState(false);
-  const [resendInvoiceData, setResendInvoiceData] = useState<Invoice | null>(null);
-  const [whatsappPhone, setWhatsappPhone] = useState("");
-  const [whatsappInvoiceId, setWhatsappInvoiceId] = useState("");
   const [statusConfirmationOpen, setStatusConfirmationOpen] = useState(false);
   const [statusToConfirm, setStatusToConfirm] = useState<{ id: string, status: string } | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -122,12 +196,15 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
   const [smsPhone, setSmsPhone] = useState("");
   const [smsInvoiceId, setSmsInvoiceId] = useState("");
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [paidDeleteModalOpen, setPaidDeleteModalOpen] = useState(false);
+  const [paidVerificationChecked, setPaidVerificationChecked] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [invoiceToDelete, setInvoiceToDelete] = useState<{ id: string, invoiceNumber: string, status: string } | null>(null);
-  const [markPaidDialogOpen, setMarkPaidDialogOpen] = useState(false);
-  const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<Invoice | null>(null);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'upi' | null>('cash');
   const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
   const uploadingRef = useRef(false);
+  const [markPaidDialogOpen, setMarkPaidDialogOpen] = useState(false);
+  const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<Invoice | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -140,26 +217,152 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
     setCurrentPage(1);
   }, [debouncedSearch, statusFilter]);
 
-  const { user, profile } = useAuth();
+  const { user, effectiveUserId, companyProfile, profile, ownerName, isStaff, staffName } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
-  const { currencySymbol } = useCurrency();
+  const { currencySymbol, formatAmount } = useCurrency();
+
+  const getCreatorTag = (terms?: string | null) => {
+    if (terms && terms.startsWith('Created by:')) {
+      const n = terms.replace('Created by:', '').trim();
+      if (n && n.toLowerCase() !== 'company' && n.toLowerCase() !== 'company owner') {
+        return `Created by: ${n}`;
+      }
+    }
+    const fallback = ownerName || profile?.company_name || companyProfile?.company_name || user?.user_metadata?.full_name || (user?.user_metadata as any)?.name || 'Owner';
+    return `Created by: ${fallback}`;
+  };
+
+  // Helper to mark invoice as shared both in local state and database (syncing across staff & main id)
+  const markInvoiceShared = useCallback(async (invoiceId: string, channel: 'whatsapp' | 'email' | 'sms', invoiceNumber?: string) => {
+    // 1. Immediately update local state & localStorage
+    setSharedInvoices(prev => {
+      const updated = {
+        ...prev,
+        [invoiceId]: { ...(prev[invoiceId] || {}), [channel]: true }
+      };
+      try {
+        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 2. Persist to database notifications for real-time cross-user sync
+    if (targetUserId) {
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const senderLabel = staffName ? `Staff (${staffName})` : (isStaff ? 'Staff' : 'Owner');
+        await (clientToUse as any).from('notifications').insert({
+          user_id: targetUserId,
+          title: `Invoice Sent via ${channel === 'whatsapp' ? 'WhatsApp' : channel.toUpperCase()}`,
+          message: `Invoice #${invoiceNumber || 'INV'} shared on ${channel === 'whatsapp' ? 'WhatsApp' : channel} by ${senderLabel}`,
+          type: `${channel}_shared`,
+          action_url: invoiceId,
+          read: true
+        });
+      } catch (err) {
+        console.warn(`Could not sync ${channel} share status to database:`, err);
+      }
+    }
+  }, [targetUserId, staffName, isStaff]);
+
+  // Sync shared status from database across devices and accounts (staff <-> main id) in real-time
+  useEffect(() => {
+    if (!targetUserId) return;
+
+    let isMounted = true;
+    const clientToUse = serviceSupabase || supabase;
+
+    const fetchSharedHistory = async () => {
+      try {
+        const { data, error } = await (clientToUse as any)
+          .from('notifications')
+          .select('action_url, type')
+          .eq('user_id', targetUserId)
+          .in('type', ['whatsapp_shared', 'email_shared', 'sms_shared']);
+
+        if (!error && data && isMounted) {
+          const rows = data as Array<{ action_url?: string; type?: string }>;
+          setSharedInvoices(prev => {
+            const merged = { ...prev };
+            for (const item of rows) {
+              if (item.action_url) {
+                const invId = item.action_url;
+                if (!merged[invId]) merged[invId] = {};
+                if (item.type === 'whatsapp_shared') merged[invId].whatsapp = true;
+                if (item.type === 'email_shared') merged[invId].email = true;
+                if (item.type === 'sms_shared') merged[invId].sms = true;
+              }
+            }
+            try {
+              localStorage.setItem('invoice_shared_status', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Could not fetch invoice shared history:', err);
+      }
+    };
+
+    fetchSharedHistory();
+
+    const channel = supabase
+      .channel(`invoice-shares-${targetUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${targetUserId}`
+        },
+        (payload) => {
+          const row = payload.new as { action_url?: string; type?: string };
+          if (row?.action_url && (row.type === 'whatsapp_shared' || row.type === 'email_shared' || row.type === 'sms_shared')) {
+            setSharedInvoices(prev => {
+              const updated = {
+                ...prev,
+                [row.action_url!]: {
+                  ...(prev[row.action_url!] || {}),
+                  ...(row.type === 'whatsapp_shared' ? { whatsapp: true } : {}),
+                  ...(row.type === 'email_shared' ? { email: true } : {}),
+                  ...(row.type === 'sms_shared' ? { sms: true } : {})
+                }
+              };
+              try {
+                localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [targetUserId]);
 
   // Handle specific invoice navigation from global search
   useEffect(() => {
     const findInvoicePage = async () => {
-      if (initialInvoiceId && user) {
+      if (initialInvoiceId && targetUserId) {
         try {
-          const { data } = await supabase
+          const clientToUse = (serviceSupabase || supabase) as any;
+          const { data } = await clientToUse
             .from('invoices')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('user_id', targetUserId)
             .order('created_at', { ascending: false });
 
           if (data) {
             const invoices = data as unknown as { id: string }[];
             const index = invoices.findIndex(inv => inv.id === initialInvoiceId);
             if (index !== -1) {
-              const page = Math.ceil((index + 1) / ITEMS_PER_PAGE);
+              const page = Math.ceil((index + 1) / pageSize);
               setCurrentPage(page);
             }
           }
@@ -174,14 +377,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       // Pre-authenticate Google Drive to reduce first-action latency
       (googleDriveAPI as unknown as { ensureAuthenticated: () => Promise<boolean> }).ensureAuthenticated().catch(() => { });
     }
-  }, [initialInvoiceId, user]);
-
-  const totalPages = useMemo(() =>
-    Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE)),
-    [totalCount]
-  );
-
-  const navigate = useNavigate();
+  }, [initialInvoiceId, user, pageSize]);
 
   const downloadInvoicePDF = useCallback(async (invoice: Invoice) => {
     try {
@@ -194,27 +390,27 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         client: clientData,
         settings,
         profile
-      } = await fetchFullInvoiceData(invoice.id, user?.id || "");
+      } = await fetchFullInvoiceData(invoice.id, targetUserId || "");
 
       // 2. Prepare data for utility using formatters
-      const invoiceData = formatInvoiceData(freshInvoiceData);
+      const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
       const clientDataForUtils = formatClientData(clientData);
       const companyDataForUtils = formatCompanyData(profile, user?.email || "");
 
-      const formattedItems = items.map((item) => ({
+      const formattedItems = items.map((item: any) => ({
         description: item.description,
+        product_name: item.product_name || item.products?.name || item.product?.name || item.name || '',
+        name: item.name || item.product_name || item.products?.name || item.product?.name || '',
         quantity: item.quantity,
         rate: item.rate,
         tax_rate: item.tax_rate,
         discount: item.discount || 0,
         amount: item.amount,
-        product: item.products
+        hsn_code: item.hsn_code || item.products?.hsn_code || item.product?.hsn_code || '',
+        product: item.product || item.products
       }));
 
-      const validTemplates: InvoiceTemplateId[] = ['classic', 'modern', 'thermal', 'export', 'minimal', 'corporate', 'professional', 'elegant', 'creative', 'retail'];
-      const template: InvoiceTemplateId = validTemplates.includes(settings?.invoice_template as InvoiceTemplateId)
-        ? (settings?.invoice_template as InvoiceTemplateId)
-        : 'corporate';
+      const template: InvoiceTemplateId = resolveTemplateForInvoice(invoice, settings);
 
       // 3. Generate and download PDF
       const blob = await generateInvoicePDFBlob(
@@ -251,9 +447,89 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
     }
   }, [user, toast]);
 
+  const handleMarkAsPaid = async (invoice: Invoice, paymentMethod: string | null) => {
+    try {
+      const clientToUse = (serviceSupabase || supabase) as any;
+      
+      // 1. Update invoice status to paid
+      const { error: invError } = await clientToUse
+        .from('invoices')
+        .update({ status: 'paid' })
+        .eq('id', invoice.id);
+
+      if (invError) throw invError;
+
+      // 2. Insert into payments table
+      const creatorName = isStaff
+        ? (staffName || user?.user_metadata?.full_name || (user?.user_metadata as any)?.name || 'Staff Member')
+        : (companyProfile?.company_name || 'Company Owner');
+
+      const isPending = !paymentMethod || paymentMethod === 'pending';
+      const actualMethod = isPending ? 'pending' : paymentMethod;
+      const methodLabel = getPaymentMethodLabel(paymentMethod);
+      const paymentNotes = isPending
+        ? `Marked as paid (Mode of payment is pended) • Created by: ${creatorName}`
+        : `Marked as paid via ${methodLabel} • Created by: ${creatorName}`;
+
+      const { error: payError } = await clientToUse
+        .from('payments')
+        .insert([{
+          invoice_id: invoice.id,
+          purchase_invoice_id: null,
+          amount: Number(invoice.total_amount || 0),
+          payment_date: new Date().toISOString().split('T')[0],
+          payment_method: actualMethod,
+          reference_number: '',
+          notes: paymentNotes,
+          user_id: invoice.user_id || targetUserId || user?.id
+        }]);
+
+      if (payError) {
+        console.error('Payment record insertion error:', payError);
+        throw payError;
+      }
+
+      // Create notification for status update
+      await clientToUse.from('notifications').insert({
+        user_id: user?.id,
+        title: isPending ? 'Mode of payment is pended' : 'Invoice Paid',
+        message: isPending 
+          ? `Invoice #${invoice.invoice_number} marked as Paid. Mode of payment is pended.`
+          : `Invoice #${invoice.invoice_number} marked as Paid via ${methodLabel}. Payment recorded.`,
+        type: isPending ? 'warning' : 'info'
+      });
+
+      if (isPending) {
+        toast({
+          title: "Mode of payment is pended ⚠️",
+          description: `Invoice #${invoice.invoice_number} marked as paid. Payment recorded with pending mode — you can set the method in Payments.`
+        });
+      } else {
+        toast({
+          title: "Marked as Paid! ✅",
+          description: `Invoice #${invoice.invoice_number} settled via ${methodLabel}. Payment recorded in Payments.`
+        });
+      }
+
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices', 'pending-for-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (error) {
+      console.error('Error marking invoice as paid:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to mark invoice as paid."
+      });
+    }
+  };
+
   const updateInvoiceStatus = async (id: string, status: string) => {
     try {
-      const { error } = await supabase
+      const clientToUse = (serviceSupabase || supabase) as any;
+      const { error } = await clientToUse
         .from('invoices')
         .update({ status })
         .eq('id', id);
@@ -268,7 +544,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       // Create notification for status update
       const invoice = (invoices as unknown as Invoice[]).find(inv => inv.id === id);
       if (invoice) {
-        await supabase.from('notifications').insert({
+        await clientToUse.from('notifications').insert({
           user_id: user?.id,
           title: 'Status Updated',
           message: `Invoice #${invoice.invoice_number} status changed to ${status}.`,
@@ -285,78 +561,6 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         variant: "destructive",
         title: "Error",
         description: "Failed to update invoice status."
-      });
-    }
-  };
-
-  const handleMarkAsPaid = async (invoice: Invoice, paymentMethod: 'cash' | 'upi' | 'pending' | null) => {
-    try {
-      if (!user?.id) throw new Error("User not authenticated");
-
-      // 1. Update invoice status to paid
-      const { error: invError } = await supabase
-        .from('invoices')
-        .update({ status: 'paid' })
-        .eq('id', invoice.id);
-
-      if (invError) throw invError;
-
-      // 2. Insert into payments table
-      const creatorName = profile?.company_name || user?.user_metadata?.full_name || 'Owner';
-      const isPending = !paymentMethod || paymentMethod === 'pending';
-      const actualMethod = isPending ? 'pending' : paymentMethod;
-      const paymentNotes = isPending
-        ? `Marked as paid (Mode of payment is pended) • Created by: ${creatorName}`
-        : `Marked as paid via ${paymentMethod === 'upi' ? 'UPI' : 'Cash'} • Created by: ${creatorName}`;
-
-      const { error: payError } = await supabase
-        .from('payments')
-        .insert([{
-          invoice_id: invoice.id,
-          amount: Number(invoice.total_amount || 0),
-          payment_date: new Date().toISOString().split('T')[0],
-          payment_method: actualMethod,
-          reference_number: '',
-          notes: paymentNotes,
-          user_id: user.id
-        }]);
-
-      if (payError) {
-        console.warn('Payment record insertion warning:', payError);
-      }
-
-      // Create notification for status update
-      await supabase.from('notifications').insert({
-        user_id: user.id,
-        title: isPending ? 'Mode of payment is pended' : 'Invoice Paid',
-        message: isPending 
-          ? `Invoice #${invoice.invoice_number} marked as Paid. Mode of payment is pended.`
-          : `Invoice #${invoice.invoice_number} marked as Paid via ${paymentMethod === 'upi' ? 'UPI' : 'Cash'}.`,
-        type: isPending ? 'warning' : 'info'
-      });
-
-      if (isPending) {
-        toast({
-          title: "Mode of payment is pended ⚠️",
-          description: `Invoice #${invoice.invoice_number} marked as paid. Payment recorded with pending mode — you can set the method in Payments.`
-        });
-      } else {
-        toast({
-          title: "Marked as Paid! ✅",
-          description: `Invoice #${invoice.invoice_number} settled via ${paymentMethod === 'upi' ? 'UPI' : 'Cash'}.`
-        });
-      }
-
-      // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      queryClient.invalidateQueries({ queryKey: ['payments'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-    } catch (error) {
-      console.error('Error marking invoice as paid:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to mark invoice as paid."
       });
     }
   };
@@ -390,22 +594,26 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         client: clientFullData,
         settings,
         profile
-      } = await fetchFullInvoiceData(invoice.id, user?.id || "");
+      } = await fetchFullInvoiceData(invoice.id, targetUserId || "");
 
-      const invoiceData = formatInvoiceData(freshInvoiceData);
+      const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
       const clientDataForUtils = formatClientData(clientFullData);
       const companyDataForUtils = formatCompanyData(profile, user?.email || "");
 
-      const formattedItems = items.map((item) => ({
+      const formattedItems = items.map((item: any) => ({
         description: item.description,
+        product_name: item.product_name || item.products?.name || item.product?.name || item.name || '',
+        name: item.name || item.product_name || item.products?.name || item.product?.name || '',
         quantity: item.quantity,
         rate: item.rate,
         tax_rate: item.tax_rate,
         discount: item.discount || 0,
-        amount: item.amount
+        amount: item.amount,
+        hsn_code: item.hsn_code || item.products?.hsn_code || item.product?.hsn_code || '',
+        product: item.product || item.products
       }));
 
-      const template = (settings?.invoice_template as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate') || 'professional';
+      const template: InvoiceTemplateId = resolveTemplateForInvoice(invoice, settings);
 
       // 1. Generate PDF Blob and Email HTML in parallel
       const [pdfBlob, emailHTML] = await Promise.all([
@@ -500,10 +708,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         description: "Invoice email sent successfully! Check your inbox."
       });
 
-      setSharedInvoices(prev => ({
-        ...prev,
-        [invoice.id]: { ...prev[invoice.id], email: true }
-      }));
+      markInvoiceShared(invoice.id, 'email', invoice.invoice_number);
 
     } catch (error) {
       console.error('Error sending email:', error);
@@ -542,27 +747,31 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         client: clientFullData,
         settings,
         profile
-      } = await fetchFullInvoiceData(invoice.id, user?.id || "");
+      } = await fetchFullInvoiceData(invoice.id, targetUserId || "");
 
       // Verify Google Drive Token
       const hasValidToken = await googleDriveAPI.ensureAuthenticated();
       if (!hasValidToken) await googleDriveAPI.authenticate();
 
       // Prepare PDF data
-      const invoiceData = formatInvoiceData(freshInvoiceData);
+      const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
       const clientDataForUtils = formatClientData(clientFullData);
       const companyDataForUtils = formatCompanyData(profile, user?.email || "");
 
-      const formattedItems = items.map((item) => ({
+      const formattedItems = items.map((item: any) => ({
         description: item.description,
+        product_name: item.product_name || item.products?.name || item.product?.name || item.name || '',
+        name: item.name || item.product_name || item.products?.name || item.product?.name || '',
         quantity: item.quantity,
         rate: item.rate,
         tax_rate: item.tax_rate,
         discount: item.discount || 0,
-        amount: item.amount
+        amount: item.amount,
+        hsn_code: item.hsn_code || item.products?.hsn_code || item.product?.hsn_code || '',
+        product: item.product || item.products
       }));
 
-      const template = (settings?.invoice_template as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate') || 'professional';
+      const template: InvoiceTemplateId = resolveTemplateForInvoice(invoice, settings);
 
       const blob = await generateInvoicePDFBlob(
         invoiceData,
@@ -590,48 +799,42 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
     }
   };
 
-  const performSendWhatsApp = async (
-    invoiceId: string,
-    phone: string,
-    message: string,
-    pdfUrl: string
-  ) => {
+  const handleSendWhatsApp = async () => {
     try {
-      // Check if user is configured for personal WhatsApp delivery method
-      const { data: settings } = await (supabase as any)
-        .from('user_settings')
-        .select('whatsapp_provider')
-        .eq('user_id', user?.id)
-        .maybeSingle();
+      setSendingWhatsApp(true);
 
-      if (settings?.whatsapp_provider === 'personal') {
+      // Use pre-fetched settings to prevent browser pop-up blocker
+      const currentProvider = whatsappProvider || 'meta';
+
+      if (currentProvider === 'personal') {
         console.log('User is configured for Personal WhatsApp, opening wa.me link...');
-        const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-        window.open(waUrl, '_blank');
-
-        // Mark as sent locally
-        const { data: invData } = await (supabase as any)
-          .from('invoices')
-          .select('status')
-          .eq('id', invoiceId)
-          .maybeSingle();
-        if (invData && invData.status === 'draft') {
-          await updateInvoiceStatus(invoiceId, 'sent');
+        const waUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+        
+        // Synchronous call in direct click handler (will not be blocked by browser popup blocker)
+        const win = window.open(waUrl, '_blank');
+        if (!win) {
+          throw new Error('POPUP_BLOCKED');
         }
 
-        setSharedInvoices(prev => {
-          const updated = {
-            ...prev,
-            [invoiceId]: { ...prev[invoiceId], whatsapp: true }
-          };
-          localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
-          return updated;
-        });
+        // Mark as sent locally
+        const clientToUse = serviceSupabase || supabase;
+        const { data: invData } = await (clientToUse as any)
+          .from('invoices')
+          .select('status')
+          .eq('id', whatsappInvoiceId)
+          .maybeSingle();
+        if (invData && invData.status === 'draft') {
+          await updateInvoiceStatus(whatsappInvoiceId, 'sent');
+        }
+
+        await markInvoiceShared(whatsappInvoiceId, 'whatsapp');
 
         toast({
           title: "WhatsApp Opened! 📱",
           description: "Opening personal WhatsApp link to send invoice."
         });
+
+        setWhatsappConfirmationOpen(false);
         return;
       }
 
@@ -639,105 +842,306 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       console.log('Attempting to send WhatsApp via Cloud API Edge Function...');
       const { data, error } = await supabase.functions.invoke('send-invoice-whatsapp', {
         body: {
-          invoiceId,
-          recipientPhone: phone,
-          message,
-          mediaUrl: pdfUrl
+          invoiceId: whatsappInvoiceId,
+          recipientPhone: whatsappPhone,
+          message: whatsappMessage,
+          mediaUrl: whatsappPdfUrl
         }
       });
 
       if (error) throw error;
 
       // Mark as sent locally
-      const { data: invData } = await (supabase as any)
+      const clientToUse = serviceSupabase || supabase;
+      const { data: invData } = await (clientToUse as any)
         .from('invoices')
         .select('status')
-        .eq('id', invoiceId)
+        .eq('id', whatsappInvoiceId)
         .maybeSingle();
       if (invData && invData.status === 'draft') {
-        await updateInvoiceStatus(invoiceId, 'sent');
+        await updateInvoiceStatus(whatsappInvoiceId, 'sent');
       }
 
-      setSharedInvoices(prev => {
-        const updated = {
-          ...prev,
-          [invoiceId]: { ...prev[invoiceId], whatsapp: true }
-        };
-        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
-        return updated;
-      });
+      await markInvoiceShared(whatsappInvoiceId, 'whatsapp');
 
       toast({
-        title: "WhatsApp Message Sent! 🚀",
-        description: "Invoice sent successfully via WhatsApp Cloud API."
-      });
-    } catch (error) {
-      console.log('Cloud API not configured, opening WhatsApp Web link directly...', error);
-      const formattedPhone = phone.replace(/[^\d]/g, '');
-      const waUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
-      window.open(waUrl, '_blank');
-
-      setSharedInvoices(prev => {
-        const updated = {
-          ...prev,
-          [invoiceId]: { ...prev[invoiceId], whatsapp: true }
-        };
-        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
-        return updated;
+        title: "WhatsApp Message Sent",
+        description: "Invoice sent successfully via WhatsApp."
       });
 
-      toast({
-        title: "WhatsApp Opened! 📱",
-        description: "Opening WhatsApp to send your pre-formatted invoice."
-      });
+      setWhatsappConfirmationOpen(false);
+    } catch (error: any) {
+      console.warn('WhatsApp Cloud API/Personal fallback failed:', error);
+
+      const waUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(whatsappMessage)}`;
+
+      if (error?.message === 'POPUP_BLOCKED') {
+        toast({
+          title: "Pop-up Blocked ⚠️",
+          description: "Please allow pop-ups for this site, or open the link manually using the button below.",
+          action: (
+            <ToastAction altText="Open WhatsApp" onClick={() => {
+              markInvoiceShared(whatsappInvoiceId, 'whatsapp');
+              window.open(waUrl, '_blank');
+            }}>
+              Open WhatsApp
+            </ToastAction>
+          ),
+        });
+        return;
+      }
+
+      // Fallback: Open wa.me so the user can send it from their own WhatsApp
+      const win = window.open(waUrl, '_blank');
+
+      // Mark as sent locally (assuming they will send it in the opened chat)
+      const clientToUse = serviceSupabase || supabase;
+      const { data: invData } = await (clientToUse as any)
+        .from('invoices')
+        .select('status')
+        .eq('id', whatsappInvoiceId)
+        .maybeSingle();
+      if (invData && invData.status === 'draft') {
+        await updateInvoiceStatus(whatsappInvoiceId, 'sent');
+      }
+
+      await markInvoiceShared(whatsappInvoiceId, 'whatsapp');
+
+      if (!win) {
+        toast({
+          title: "Pop-up Blocked",
+          description: "Click below to open WhatsApp.",
+          action: (
+            <ToastAction altText="Open WhatsApp" onClick={() => window.open(waUrl, '_blank')}>
+              Open WhatsApp
+            </ToastAction>
+          ),
+        });
+      } else {
+        toast({
+          title: "WhatsApp Opened",
+          description: "Opened in WhatsApp to send invoice."
+        });
+      }
+
+      setWhatsappConfirmationOpen(false);
+    } finally {
+      setSendingWhatsApp(false);
     }
   };
 
-  const startWhatsAppGenerationAndSend = async (invoice: Invoice) => {
+  const uploadToGoogleDrive = async (invoice: Invoice) => {
     if (uploadingRef.current || uploadingWhatsApp === invoice.id) return;
 
-    uploadingRef.current = true;
-    setUploadingWhatsApp(invoice.id);
-    setWhatsappInvoiceId(invoice.id);
-
-    let phone = "";
-    if (invoice.clients?.phone) {
-      const rawPhone = invoice.clients.phone || '';
-      const digitsOnly = rawPhone.replace(/[^\d]/g, '');
-      phone = digitsOnly.startsWith('91') ? digitsOnly : `91${digitsOnly}`;
-      setWhatsappPhone(phone);
+    if (sharedInvoices[invoice.id]?.whatsapp) {
+      toast({
+        title: "Already Sent ⚠️",
+        description: "This WhatsApp message has already been sent once.",
+      });
     }
 
-    setWhatsappMessage("Generating your invoice PDF, please wait...");
-    setWhatsappConfirmationOpen(true);
+    // Format phone with country code
+    const rawPhone = invoice.clients?.phone || '';
+    const digitsOnly = rawPhone.replace(/[^\d]/g, '');
+    let phoneWithCC = digitsOnly;
+    if (rawPhone.trim().startsWith('+')) {
+      phoneWithCC = digitsOnly;
+    } else if (digitsOnly.length === 10) {
+      phoneWithCC = `91${digitsOnly}`;
+    }
+
+    // Check user settings for whatsapp_provider
+    let provider = 'meta';
+    try {
+      const clientToUse = (serviceSupabase || supabase) as any;
+      const { data: settings } = await clientToUse
+        .from('user_settings')
+        .select('whatsapp_provider')
+        .eq('user_id', effectiveUserId || user?.id)
+        .maybeSingle();
+      if ((settings as any)?.whatsapp_provider) {
+        provider = (settings as any).whatsapp_provider;
+      }
+    } catch (e) {
+      // fallback
+    }
+
+    // 1. Personal WhatsApp Mode: Direct Open without preview modal
+    if (provider === 'personal') {
+      let invoiceItems: { description?: string; quantity?: number; amount?: number }[] = [];
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const { data: itms } = await (clientToUse as any)
+          .from('invoice_items')
+          .select('description, quantity, amount')
+          .eq('invoice_id', invoice.id)
+          .order('created_at', { ascending: true })
+          .limit(10);
+        if (itms) invoiceItems = itms as { description?: string; quantity?: number; amount?: number }[];
+      } catch (e) {
+        // non-blocking
+      }
+
+      // Ensure the PDF actually exists on Supabase Storage so the link never breaks
+      let directPdfUrl = '';
+      const storageClient = serviceSupabase || supabase;
+      const cleanFileName = `invoice-${invoice.invoice_number}.pdf`.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const supabaseFileName = `${effectiveUserId || user?.id}/invoices/${invoice.id}/${cleanFileName}`;
+
+      try {
+        const { data: existingFiles } = await storageClient.storage
+          .from('company-assets')
+          .list(`${effectiveUserId || user?.id}/invoices/${invoice.id}`, { search: cleanFileName });
+
+        if (existingFiles && existingFiles.length > 0) {
+          const { data } = storageClient.storage
+            .from('company-assets')
+            .getPublicUrl(supabaseFileName);
+          if (data?.publicUrl) directPdfUrl = data.publicUrl;
+        }
+      } catch {}
+
+      // If PDF file does not exist in storage yet, generate and upload it now
+      if (!directPdfUrl) {
+        try {
+          const {
+            invoice: freshInvoiceData,
+            items,
+            client: clientFullData,
+            settings,
+            profile: freshProfile
+          } = await fetchFullInvoiceData(invoice.id, effectiveUserId || user?.id || "");
+
+          const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
+          const clientDataForUtils = formatClientData(clientFullData);
+          const companyDataForUtils = formatCompanyData(freshProfile || profile, user?.email || "");
+
+          const itemsData = items.map((item: any) => ({
+            description: item.description,
+            product_name: item.product_name || item.products?.name || item.product?.name || item.name || '',
+            name: item.name || item.product_name || item.products?.name || item.product?.name || '',
+            quantity: item.quantity,
+            rate: item.rate,
+            tax_rate: item.tax_rate,
+            discount: item.discount || 0,
+            amount: item.amount,
+            hsn_code: item.hsn_code || item.products?.hsn_code || item.product?.hsn_code || '',
+            product: item.product || item.products
+          }));
+
+          const template: InvoiceTemplateId = resolveTemplateForInvoice(invoice, settings);
+
+          const blob = await generateInvoicePDFBlob(
+            invoiceData,
+            clientDataForUtils as ClientData,
+            itemsData as ItemData[],
+            companyDataForUtils as CompanyData,
+            template,
+            currencySymbol
+          );
+
+          const { error: uploadError } = await storageClient.storage
+            .from('company-assets')
+            .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
+
+          if (!uploadError) {
+            const { data } = storageClient.storage
+              .from('company-assets')
+              .getPublicUrl(supabaseFileName);
+            if (data?.publicUrl) directPdfUrl = data.publicUrl;
+          }
+        } catch (uploadErr) {
+          console.warn('Auto-generating invoice PDF failed, using public URL fallback:', uploadErr);
+        }
+      }
+
+      if (!directPdfUrl) {
+        try {
+          const { data } = storageClient.storage
+            .from('company-assets')
+            .getPublicUrl(supabaseFileName);
+          if (data?.publicUrl) directPdfUrl = data.publicUrl;
+        } catch {}
+      }
+
+      const personalMsg = formatInvoiceWhatsAppMessage({
+        invoiceNumber: invoice.invoice_number,
+        clientName: invoice.clients?.name,
+        companyName: companyProfile?.company_name || profile?.company_name || ownerName,
+        totalAmount: Number(invoice.total_amount || 0),
+        currencySymbol: currencySymbol,
+        issueDate: safelyToLocaleDate(invoice.issue_date),
+        dueDate: invoice.due_date ? safelyToLocaleDate(invoice.due_date) : undefined,
+        status: invoice.status,
+        pdfUrl: directPdfUrl || undefined,
+        items: invoiceItems,
+        bankDetails: {
+          bankName: (companyProfile as any)?.bank_name || (profile as any)?.bank_name,
+          accountNumber: (companyProfile as any)?.account_number || (profile as any)?.account_number,
+          ifscCode: (companyProfile as any)?.ifsc_code || (profile as any)?.ifsc_code,
+          accountHolder: (companyProfile as any)?.account_holder_name || (profile as any)?.account_holder_name,
+        },
+        companyPhone: companyProfile?.phone || profile?.phone,
+        companyEmail: companyProfile?.email || profile?.email || user?.email,
+      });
+
+      // Auto-copy text with real emojis to clipboard as instant backup
+      try {
+        navigator.clipboard.writeText(personalMsg);
+      } catch {}
+
+      const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(personalMsg)}`;
+      window.open(waUrl, '_blank');
+
+      if (invoice.status === 'draft') {
+        await updateInvoiceStatus(invoice.id, 'sent');
+      }
+
+      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
+
+      toast({
+        title: "WhatsApp Opened! 📱",
+        description: `Direct WhatsApp chat opened for invoice #${invoice.invoice_number}.`
+      });
+      return;
+    }
+
+    // 2. Official WhatsApp Cloud API Mode: Run in background with notifications
+    uploadingRef.current = true;
+    setUploadingWhatsApp(invoice.id);
+    let directPdfUrl = '';
+    toast({
+      title: "Sending via WhatsApp...",
+      description: `Sending invoice #${invoice.invoice_number} via WhatsApp.`
+    });
 
     try {
-      // Fetch all required data in parallel using consolidated service
       const {
         invoice: freshInvoiceData,
         items,
         client: clientFullData,
         settings,
         profile
-      } = await fetchFullInvoiceData(invoice.id, user?.id || "");
+      } = await fetchFullInvoiceData(invoice.id, effectiveUserId || user?.id || "");
 
-      const invoiceData = formatInvoiceData(freshInvoiceData);
+      const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
       const clientDataForUtils = formatClientData(clientFullData);
       const companyDataForUtils = formatCompanyData(profile, user?.email || "");
 
-      const itemsData = items.map((item) => ({
+      const itemsData = items.map((item: any) => ({
         description: item.description,
+        product_name: item.product_name || item.products?.name || item.product?.name || item.name || '',
+        name: item.name || item.product_name || item.products?.name || item.product?.name || '',
         quantity: item.quantity,
         rate: item.rate,
         tax_rate: item.tax_rate,
         discount: item.discount || 0,
-        amount: item.amount
+        amount: item.amount,
+        hsn_code: item.hsn_code || item.products?.hsn_code || item.product?.hsn_code || '',
+        product: item.product || item.products
       }));
 
-      const template = (settings?.invoice_template as 'professional' | 'elegant' | 'minimal' | 'modern' | 'corporate') || 'professional';
-
-      const hasValidToken = await googleDriveAPI.ensureAuthenticated();
-      if (!hasValidToken) await googleDriveAPI.authenticate();
+      const template: InvoiceTemplateId = resolveTemplateForInvoice(invoice, settings);
 
       const blob = await generateInvoicePDFBlob(
         invoiceData,
@@ -749,90 +1153,163 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       );
 
       const fileName = `invoice-${freshInvoiceData.invoice_number}.pdf`;
-      const driveFile = await googleDriveAPI.uploadPDF(blob, fileName);
 
-      let directPdfUrl = driveFile?.webContentLink || "";
-      if (driveFile) {
-        try {
-          const cleanFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-          const supabaseFileName = `${user?.id}/invoices/${invoice.id}/${cleanFileName}`;
+      try {
+        const cleanFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const supabaseFileName = `${effectiveUserId || user?.id}/invoices/${invoice.id}/${cleanFileName}`;
+        const storageClient = serviceSupabase || supabase;
 
-          const { error: uploadError } = await supabase.storage
+        const { error: uploadError } = await storageClient.storage
+          .from('company-assets')
+          .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
+
+        if (!uploadError) {
+          const { data } = storageClient.storage
             .from('company-assets')
-            .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
-
-          if (!uploadError) {
-            const { data } = supabase.storage
-              .from('company-assets')
-              .getPublicUrl(supabaseFileName);
-            if (data?.publicUrl) {
-              directPdfUrl = data.publicUrl;
-            }
+            .getPublicUrl(supabaseFileName);
+          if (data?.publicUrl) {
+            directPdfUrl = data.publicUrl;
           }
-        } catch (storageErr) {
-          console.error('Error during Supabase Storage upload:', storageErr);
+        } else {
+          console.warn('Upload error during cloud send, trying fallback:', uploadError);
         }
+      } catch (storageErr) {
+        console.error('Error during Supabase Storage upload:', storageErr);
       }
 
-      const message = `Hello ${clientFullData.name},\n\n` +
-        `Your invoice ${freshInvoiceData.invoice_number} is ready!\n` +
-        `Amount: ${currencySymbol}${freshInvoiceData.total_amount.toFixed(2)}\n\n` +
-        (directPdfUrl ? `📄 Download PDF: ${directPdfUrl}\n\n` : '') +
-        `*Thanks for business with ${companyDataForUtils.company_name}. We appreciate your trust!*`;
+      const message = formatInvoiceWhatsAppMessage({
+        invoiceNumber: freshInvoiceData.invoice_number,
+        clientName: clientFullData.name,
+        companyName: companyDataForUtils.company_name,
+        totalAmount: Number(freshInvoiceData.total_amount || 0),
+        currencySymbol: currencySymbol,
+        issueDate: safelyToLocaleDate(freshInvoiceData.issue_date),
+        dueDate: freshInvoiceData.due_date ? safelyToLocaleDate(freshInvoiceData.due_date) : undefined,
+        status: freshInvoiceData.status,
+        pdfUrl: directPdfUrl || undefined,
+        items: items.map(i => ({ description: i.description, quantity: i.quantity, amount: i.amount })),
+        bankDetails: {
+          bankName: companyDataForUtils.bank_name,
+          accountNumber: companyDataForUtils.account_number,
+          ifscCode: companyDataForUtils.ifsc_code,
+          accountHolder: companyDataForUtils.account_holder_name,
+        },
+        companyPhone: companyDataForUtils.phone,
+        companyEmail: companyDataForUtils.email,
+      });
 
-      setWhatsappMessage(message);
-      setWhatsappPdfUrl(directPdfUrl);
-    } catch (error) {
-      console.error('Error uploading/sending to WhatsApp:', error);
-      const fallbackMessage = `Hello ${invoice.clients?.name || 'Customer'},\n\nYour invoice ${invoice.invoice_number} is ready!\nAmount: ${currencySymbol}${invoice.total_amount.toFixed(2)}\n\nThank you for your business!`;
-      setWhatsappMessage(fallbackMessage);
+      const { error: cloudApiError } = await supabase.functions.invoke('send-invoice-whatsapp', {
+        body: {
+          invoiceId: invoice.id,
+          recipientPhone: phoneWithCC,
+          message,
+          mediaUrl: directPdfUrl,
+          companyName: companyDataForUtils.company_name,
+          clientName: clientFullData.name
+        }
+      });
+
+      if (cloudApiError) throw cloudApiError;
+
+      if (freshInvoiceData.status === 'draft') {
+        await updateInvoiceStatus(invoice.id, 'sent');
+      }
+
+      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
+
+      toast({
+        title: "WhatsApp Message Sent",
+        description: `Invoice #${invoice.invoice_number} sent successfully.`
+      });
+    } catch (error: any) {
+      console.warn('WhatsApp Cloud API background send failed:', error);
+      const fallbackMsg = formatInvoiceWhatsAppMessage({
+        invoiceNumber: invoice.invoice_number,
+        clientName: invoice.clients?.name,
+        companyName: companyProfile?.company_name || profile?.company_name || ownerName,
+        totalAmount: Number(invoice.total_amount || 0),
+        currencySymbol: currencySymbol,
+        issueDate: safelyToLocaleDate(invoice.issue_date),
+        dueDate: invoice.due_date ? safelyToLocaleDate(invoice.due_date) : undefined,
+        status: invoice.status,
+        pdfUrl: directPdfUrl || undefined,
+        bankDetails: {
+          bankName: (companyProfile as any)?.bank_name || (profile as any)?.bank_name,
+          accountNumber: (companyProfile as any)?.account_number || (profile as any)?.account_number,
+          ifscCode: (companyProfile as any)?.ifsc_code || (profile as any)?.ifsc_code,
+          accountHolder: (companyProfile as any)?.account_holder_name || (profile as any)?.account_holder_name,
+        },
+        companyPhone: companyProfile?.phone || profile?.phone,
+        companyEmail: companyProfile?.email || profile?.email || user?.email,
+      });
+      try {
+        navigator.clipboard.writeText(fallbackMsg);
+      } catch {}
+
+      const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(fallbackMsg)}`;
+      
+      toast({
+        title: "WhatsApp Delivery Notice",
+        description: "Could not send automatically. Click below to open WhatsApp.",
+        action: (
+          <ToastAction altText="Open WhatsApp" onClick={() => {
+            markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
+            window.open(waUrl, '_blank');
+          }}>
+            Open WhatsApp
+          </ToastAction>
+        ),
+      });
     } finally {
       setUploadingWhatsApp(null);
       uploadingRef.current = false;
     }
   };
 
-  const handleWhatsAppClick = (invoice: Invoice) => {
-    if (sharedInvoices[invoice.id]?.whatsapp) {
-      setResendInvoiceData(invoice);
-      setWhatsappResendOpen(true);
-    } else {
-      startWhatsAppGenerationAndSend(invoice);
-    }
-  };
-
 
   const deleteInvoice = (invoiceId: string, invoiceNumber: string, status: string) => {
     setInvoiceToDelete({ id: invoiceId, invoiceNumber, status });
-    setDeleteConfirmationOpen(true);
+    setPaidVerificationChecked(false);
+    setDeleteConfirmText("");
+    if (status === 'paid') {
+      setPaidDeleteModalOpen(true);
+    } else {
+      setDeleteConfirmationOpen(true);
+    }
   };
 
   const confirmDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
 
     try {
+      const clientToUse = (serviceSupabase || supabase) as any;
+
+      // Delete any payment records if any exist
+      await clientToUse
+        .from('payments')
+        .delete()
+        .eq('invoice_id', invoiceToDelete.id);
+
       // First fetch items to restore stock
-      const { data: items, error: fetchError } = await supabase
+      const { data: items, error: fetchError } = await clientToUse
         .from('invoice_items')
         .select('product_id, quantity')
         .eq('invoice_id', invoiceToDelete.id);
 
       if (fetchError) throw fetchError;
 
-      // Restore stock for each item atomically if it has a product_id
+      // Restore stock for each item if it has a product_id
       if (items && items.length > 0) {
-        const deleteOpId = crypto.randomUUID();
-        const validItems = (items as unknown as { product_id: string | null; quantity: number }[])
-          .filter(i => i.product_id && i.quantity > 0)
-          .map(i => ({ product_id: i.product_id!, quantity: i.quantity }));
-
-        if (validItems.length > 0) {
-          await adjustStockBatch(validItems, 'SALE_CANCEL', invoiceToDelete.id, `${deleteOpId}:DELETE`);
+        const invoiceItems = items as unknown as { product_id: string | null; quantity: number }[];
+        for (const item of invoiceItems) {
+          if (item.product_id && item.quantity > 0) {
+            await adjustStock(item.product_id, item.quantity);
+          }
         }
       }
 
       // Then delete related invoice items
-      const { error: itemsError } = await supabase
+      const { error: itemsError } = await clientToUse
         .from('invoice_items')
         .delete()
         .eq('invoice_id', invoiceToDelete.id);
@@ -840,7 +1317,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       if (itemsError) throw itemsError;
 
       // Then delete the invoice
-      const { error: invoiceError } = await supabase
+      const { error: invoiceError } = await clientToUse
         .from('invoices')
         .delete()
         .eq('id', invoiceToDelete.id);
@@ -849,117 +1326,20 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
 
       setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       queryClient.invalidateQueries({ queryKey: ['products'] }); // Refresh product stock in UI
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error deleting invoice:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error?.message || "Failed to delete invoice."
-      });
-    }
-  };
-
-  const handleConvertToInvoice = async (quotation: Invoice) => {
-    try {
-      setConvertingQuotationId(quotation.id);
-      const { data: items, error: fetchError } = await supabase
-        .from('invoice_items')
-        .select('*')
-        .eq('invoice_id', quotation.id);
-
-      if (fetchError) throw fetchError;
-
-      const newInvNumber = await generateInvoiceNumber('INV');
-
-      const { error: updateError } = await supabase
-        .from('invoices')
-        .update({
-          invoice_number: newInvNumber,
-          status: 'draft',
-          issue_date: new Date().toISOString().split('T')[0]
-        })
-        .eq('id', quotation.id);
-
-      if (updateError) throw updateError;
-
-      if (items && items.length > 0) {
-        const opId = crypto.randomUUID();
-        const validItems = (items as unknown as { product_id: string | null; quantity: number }[])
-          .filter(i => i.product_id && i.quantity > 0)
-          .map(i => ({ product_id: i.product_id!, quantity: i.quantity }));
-
-        if (validItems.length > 0) {
-          await adjustStockBatch(validItems, 'SALE', quotation.id, `${opId}:CONVERT`);
-        }
-      }
-
-      toast({
-        title: "Converted to Tax Invoice!",
-        description: `Quotation ${quotation.invoice_number} is now Tax Invoice ${newInvNumber}. Stock has been updated.`
-      });
-
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-    } catch (err) {
-      console.error("Error converting quotation:", err);
-      toast({
-        variant: "destructive",
-        title: "Conversion Failed",
-        description: "Could not convert quotation to invoice."
+        description: "Failed to delete invoice."
       });
     } finally {
-      setConvertingQuotationId(null);
+      setDeleteConfirmationOpen(false);
+      setInvoiceToDelete(null);
     }
-  };
-
-  const getPageTitle = () => {
-    if (isQuotationTab) return 'Quotations & Estimates';
-    if (isLedgerTab) return 'Ledger Settlement Bills';
-    return 'Sales Invoices';
-  };
-
-  const getPageSubtitle = () => {
-    if (isQuotationTab) return 'Manage price quotes and estimates for your clients';
-    if (isLedgerTab) return 'Manage official settlement bills generated from Account Ledger party remaining balances';
-    return 'Manage customer sales invoices, receivables and payments';
-  };
-
-  const getCreateButtonLabel = () => {
-    if (isQuotationTab) return 'Create Quotation';
-    if (isLedgerTab) return 'Create Ledger Bill';
-    return 'Create Sales Invoice';
-  };
-
-  const getCreateRoute = () => {
-    if (isQuotationTab) return '/billing/create-invoice?type=quotation';
-    if (isLedgerTab) return '/billing/create-invoice?type=ledger';
-    return '/billing/create-invoice';
-  };
-
-  const getSearchPlaceholder = () => {
-    if (isQuotationTab) return 'Search quotations by number, client name, email or phone...';
-    if (isLedgerTab) return 'Search ledger bills by number, party name, email or phone...';
-    return 'Search invoices by number, client name, email or phone...';
-  };
-
-  const getEmptyStateTitle = () => {
-    if (isQuotationTab) return 'No Quotations Found';
-    if (isLedgerTab) return 'No Ledger Bills Found';
-    return 'No Sales Invoices Found';
-  };
-
-  const getEmptyStateDescription = () => {
-    if (totalCount === 0) {
-      if (isQuotationTab) return 'Start creating price quotes and estimates for your clients.';
-      if (isLedgerTab) return 'Generate official settlement bills directly from party remaining balances in Account Ledger.';
-      return 'Start issuing GST and tax invoices to your clients.';
-    }
-    if (isQuotationTab) return 'No quotations match your search criteria.';
-    if (isLedgerTab) return 'No ledger bills match your search criteria.';
-    return 'No invoices match your search criteria.';
   };
 
   if (loading) {
@@ -974,31 +1354,27 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
     <div className="space-y-4 md:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl md:text-3xl font-bold text-foreground">
-            {getPageTitle()}
-          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl md:text-3xl font-bold text-foreground">
+              {isAutomobile ? "Sales & Services" : "Sales Invoices"}
+            </h1>
+            <StaffHeaderBadge />
+          </div>
           <p className="text-xs md:text-base text-muted-foreground mt-1">
-            {getPageSubtitle()}
+            {isAutomobile ? "Create and manage your vehicle sales & service invoices" : "Create and manage your sales invoices"}
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-          <Button
-            variant="default"
-            size="lg"
-            onClick={() => navigate(getCreateRoute())}
-            className={cn(
-              "w-full sm:w-auto h-11 text-white font-bold",
-              isQuotationTab 
-                ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700" 
-                : (isLedgerTab 
-                    ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" 
-                    : "bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700")
-            )}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            <span className="text-sm md:text-base">{getCreateButtonLabel()}</span>
-          </Button>
-        </div>
+        <Button
+          variant="default"
+          size="lg"
+          onClick={() => navigate('/create-invoice')}
+          className="w-full sm:w-auto h-11"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          <span className="text-sm md:text-base">
+            Create Invoice
+          </span>
+        </Button>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -1006,7 +1382,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             type="text"
-            placeholder={getSearchPlaceholder()}
+            placeholder="Search by invoice number or client name..."
             className="pl-10 h-11 bg-background border-border/50 rounded-xl"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -1017,31 +1393,17 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
             </div>
           )}
         </div>
-        <div className="w-full sm:w-56">
+        <div className="w-full sm:w-48">
           <select
-            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            {isQuotationTab ? (
-              <>
-                <option value="quotation">All Quotations</option>
-              </>
-            ) : isLedgerTab ? (
-              <>
-                <option value="ledger">All Ledger Bills</option>
-                <option value="ledger_draft">Draft Bills</option>
-                <option value="ledger_sent">Sent Bills</option>
-                <option value="ledger_paid">Paid Bills</option>
-              </>
-            ) : (
-              <>
-                <option value="sales_only">All Statuses</option>
-                <option value="draft">Draft Invoices</option>
-                <option value="sent">Sent Invoices</option>
-                <option value="paid">Paid Invoices</option>
-              </>
-            )}
+            <option value="all">All Statuses</option>
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="paid">Paid</option>
+            <option value="overdue">Overdue</option>
           </select>
         </div>
       </div>
@@ -1073,29 +1435,27 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
             </Card>
           ))}
         </div>
-      ) : invoices.length === 0 ? (
+      ) : displayInvoices.length === 0 ? (
         <Card className="p-4 md:p-6 md:p-8 text-center bg-card dark:bg-card">
           <FileText className="w-12 h-12 md:w-16 md:h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg md:text-xl font-semibold text-foreground mb-2">
-            {getEmptyStateTitle()}
-          </h3>
+          <h3 className="text-lg md:text-xl font-semibold text-foreground mb-2">No Invoices Found</h3>
           <p className="text-sm md:text-base text-muted-foreground mb-4">
-            {getEmptyStateDescription()}
+            {totalCount === 0 ? "Create your first invoice to start billing your clients." : "No invoices match your search criteria."}
           </p>
           {totalCount === 0 && (
             <Button
               variant="default"
-              onClick={() => navigate(getCreateRoute())}
+              onClick={() => navigate('/create-invoice')}
               className="w-full sm:w-auto"
             >
               <Plus className="w-4 h-4 mr-2" />
-              {getCreateButtonLabel()}
+              Create Your First Invoice
             </Button>
           )}
         </Card>
       ) : (
         <div className="space-y-3 md:space-y-4">
-          {invoices.map((invoice) => (
+          {displayInvoices.map((invoice) => (
             <Card key={invoice.id} className="p-4 md:p-6 rounded-md border-border bg-card shadow-sm">
               {/* Mobile Card Layout */}
               <div className="md:hidden space-y-4">
@@ -1105,17 +1465,25 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                 >
                   <div className="flex justify-between items-start">
                     <div className="space-y-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-foreground">{invoice.invoice_number}</span>
-                        <StatusBadge status={invoice.status as "sent" | "paid" | "draft"} />
+                        {isDownpaymentInvoice(invoice) && (
+                          <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] font-bold py-0 px-1.5 flex items-center gap-1">
+                            <Car className="w-3 h-3" /> Downpayment
+                          </Badge>
+                        )}
+                        <StatusBadge status={invoice.status} dueDate={invoice.due_date} />
                       </div>
                       <p className="text-sm font-medium text-muted-foreground">{invoice.clients?.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {safelyToLocaleDate(invoice.issue_date)}
+                      <p className="text-[10px] text-muted-foreground/60 font-normal">
+                        {getCreatorTag(invoice.payment_terms)}
                       </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{safelyToLocaleDate(invoice.issue_date)}</span>
+                      </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-lg font-bold">{currencySymbol}{invoice.total_amount.toFixed(2)}</p>
+                      <p className="text-lg font-bold">{formatAmount(invoice.total_amount)}</p>
                       <p className="text-xs text-muted-foreground uppercase">{invoice.currency}</p>
                     </div>
                   </div>
@@ -1147,15 +1515,15 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                     <Button
                       variant="outline"
                       size="sm"
-                      className={`h-10 w-full ${(sharedInvoices[invoice.id]?.whatsapp && invoice.status !== 'draft') ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); handleWhatsAppClick(invoice); }}
+                      className={`h-10 w-full ${sharedInvoices[invoice.id]?.whatsapp ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); uploadToGoogleDrive(invoice); }}
                       title="Share to WhatsApp"
                       aria-label="Share to WhatsApp"
                       disabled={uploadingWhatsApp === invoice.id}
                     >
                       {uploadingWhatsApp === invoice.id
                         ? <Loader2 className="w-4 h-4 animate-spin" />
-                        : <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${(sharedInvoices[invoice.id]?.whatsapp && invoice.status !== 'draft') ? 'text-emerald-700' : 'text-emerald-500'}`}>
+                        : <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${sharedInvoices[invoice.id]?.whatsapp ? 'text-emerald-700' : 'text-emerald-500'}`}>
                           <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
                         </svg>}
                     </Button>
@@ -1187,37 +1555,24 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                           <Phone className={`mr-2 h-4 w-4 ${sharedInvoices[invoice.id]?.sms ? "text-emerald-600" : ""}`} />
                           Send via SMS {sharedInvoices[invoice.id]?.sms && "✓"}
                         </DropdownMenuItem>
-                        {invoice.status === 'quotation' && (
-                          <DropdownMenuItem
-                            onClick={() => handleConvertToInvoice(invoice)}
-                            className="text-amber-600 font-bold"
-                          >
-                            <Sparkles className="mr-2 h-4 w-4 text-amber-600" />
-                            Convert to Tax Invoice
-                          </DropdownMenuItem>
-                        )}
-                        {invoice.status !== 'paid' && invoice.status !== 'quotation' ? (
+                        {invoice.status !== 'paid' ? (
                           <>
-                            <DropdownMenuItem onClick={() => navigate(`/invoices/${invoice.id}/edit`)}>
+                            <DropdownMenuItem onClick={() => navigate(isDownpaymentInvoice(invoice) ? `/invoices/${invoice.id}/edit?type=downpayment` : `/invoices/${invoice.id}/edit`)}>
                               <Pencil className="mr-2 h-4 w-4" />
                               Edit Invoice
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => {
                                 setInvoiceToMarkPaid(invoice);
-                                setSelectedPaymentMethod('cash');
+                                setSelectedPaymentMethod(null);
                                 setMarkPaidDialogOpen(true);
                               }}
+                              className="cursor-pointer font-medium text-emerald-700 dark:text-emerald-400"
                             >
                               <CreditCard className="mr-2 h-4 w-4 text-emerald-600" />
                               Mark as Paid
                             </DropdownMenuItem>
                           </>
-                        ) : invoice.status === 'quotation' ? (
-                          <DropdownMenuItem onClick={() => navigate(`/invoices/${invoice.id}/edit`)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit Quotation
-                          </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem
                             disabled
@@ -1227,9 +1582,12 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                             Paid
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)} className="text-destructive">
+                        <DropdownMenuItem
+                          onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)}
+                          className="text-destructive font-medium cursor-pointer"
+                        >
                           <Trash2 className="mr-2 h-4 w-4" />
-                          Delete {invoice.status === 'quotation' ? 'Quotation' : 'Invoice'}
+                          {invoice.status === 'paid' ? 'Delete Paid Invoice ⚠️' : 'Delete Invoice'}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -1242,136 +1600,124 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                 {/* Left: Invoice info */}
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="min-w-0">
-                    <h3 className="text-base lg:text-lg font-semibold truncate">{invoice.invoice_number}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base lg:text-lg font-semibold truncate">{invoice.invoice_number}</h3>
+                      {isDownpaymentInvoice(invoice) && (
+                        <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] font-bold py-0 px-1.5 flex items-center gap-1">
+                          <Car className="w-3 h-3" /> Downpayment
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground truncate">
                       {invoice.clients?.name}
                     </p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                      <span>{safelyToLocaleDate(invoice.issue_date)}</span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        {getCreatorTag(invoice.payment_terms)}
+                      </span>
+                    </div>
                   </div>
-                  <StatusBadge status={invoice.status as "sent" | "paid" | "draft"} />
+                  <StatusBadge status={invoice.status} dueDate={invoice.due_date} />
                 </div>
 
                 {/* Right: Amount + Actions */}
                 <div className="flex items-center gap-2 lg:gap-4 flex-shrink-0">
                   <div className="text-right">
-                    <p className="text-base lg:text-lg font-bold">{currencySymbol}{invoice.total_amount.toFixed(2)}</p>
+                    <p className="text-base lg:text-lg font-bold">{formatAmount(invoice.total_amount)}</p>
                     <p className="text-xs lg:text-sm text-muted-foreground">{invoice.currency}</p>
                   </div>
 
                   <div className="flex items-center gap-1 lg:gap-2">
-                    {/* Convert to Tax Invoice for Quotations */}
-                    {invoice.status === 'quotation' && (
+                    {/* Email */}
+                    {invoice.clients?.email && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleConvertToInvoice(invoice)}
-                        disabled={convertingQuotationId === invoice.id}
-                        className="h-8 lg:h-9 px-2.5 text-xs font-bold bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 cursor-pointer"
-                        title="Convert this Quotation into a Tax Invoice"
-                      >
-                        {convertingQuotationId === invoice.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-600" />
-                        )}
-                        <span>Convert to Invoice</span>
-                      </Button>
-                    )}
-
-                    {/* Communication utilities (Email, SMS, WhatsApp) */}
-                    {invoice.clients?.email && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
                         onClick={() => { setInvoiceToSend(invoice); setEmailConfirmationOpen(true); }}
                         title="Send via Email"
-                        className={`h-8 lg:h-9 px-2 text-xs font-semibold ${sharedInvoices[invoice.id]?.email ? 'text-emerald-700 bg-emerald-50' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[invoice.id]?.email ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
                       >
-                        <Mail className="w-4 h-4 lg:mr-1" />
+                        <Mail className={`w-4 h-4 lg:mr-1 ${sharedInvoices[invoice.id]?.email ? 'text-emerald-700' : ''}`} />
                         <span className="hidden lg:inline">Email</span>
                       </Button>
                     )}
 
+                    {/* SMS */}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       onClick={() => sendInvoiceSMS(invoice)}
                       title="Send SMS"
-                      className={`h-8 lg:h-9 px-2 text-xs font-semibold ${sharedInvoices[invoice.id]?.sms ? 'text-emerald-700 bg-emerald-50' : 'text-slate-600 hover:text-slate-900'}`}
+                      className={`h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[invoice.id]?.sms ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
                     >
-                      <Phone className="w-4 h-4 lg:mr-1" />
+                      <Phone className={`w-4 h-4 lg:mr-1 ${sharedInvoices[invoice.id]?.sms ? 'text-emerald-700' : ''}`} />
                       <span className="hidden lg:inline">SMS</span>
                     </Button>
 
+                    {/* WhatsApp */}
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleWhatsAppClick(invoice)}
+                      onClick={() => uploadToGoogleDrive(invoice)}
                       title="Send PDF via WhatsApp"
-                      className={`h-8 lg:h-9 px-2 text-xs font-semibold ${sharedInvoices[invoice.id]?.whatsapp ? 'text-emerald-700 bg-emerald-50' : 'text-emerald-600 hover:text-emerald-700'}`}
+                      className={`flex items-center gap-1 h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[invoice.id]?.whatsapp ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
                       disabled={uploadingWhatsApp === invoice.id}
                     >
                       {uploadingWhatsApp === invoice.id
                         ? <Loader2 className="w-4 h-4 animate-spin" />
-                        : <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 lg:mr-1">
+                        : <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${sharedInvoices[invoice.id]?.whatsapp ? 'text-emerald-700' : 'text-emerald-500'}`}>
                           <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                        </svg>}
+                      </svg>}
                       <span className="hidden lg:inline">WhatsApp</span>
                     </Button>
 
-                    {/* Secondary: Mark as Paid (Only for actual invoices) */}
-                    {invoice.status !== 'paid' && invoice.status !== 'quotation' && (
+                    {/* Mark as Paid */}
+                    {invoice.status !== 'paid' && (
                       <Button
                         variant="outline"
                         size="sm"
+                        title="Mark as Paid"
                         onClick={() => {
                           setInvoiceToMarkPaid(invoice);
-                          setSelectedPaymentMethod('cash');
+                          setSelectedPaymentMethod(null);
                           setMarkPaidDialogOpen(true);
                         }}
-                        title="Mark as Paid"
-                        className="h-8 lg:h-9 px-2 lg:px-3 text-xs font-semibold text-emerald-700 bg-emerald-50/80 border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                        className="h-8 lg:h-9 px-2 lg:px-3 font-semibold bg-emerald-50/60 hover:bg-emerald-100/80 border-emerald-300 text-emerald-800 hover:text-emerald-900 transition-all active:scale-95"
                       >
-                        <CreditCard className="w-3.5 h-3.5 lg:mr-1" />
-                        <span className="hidden lg:inline">Mark Paid</span>
+                        <CreditCard className="w-4 h-4 lg:mr-1 text-emerald-600" />
+                        <span className="hidden lg:inline">Mark as Paid</span>
                       </Button>
                     )}
 
-                    {/* Secondary: Download PDF */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => downloadInvoicePDF(invoice)}
-                      title="Download PDF"
-                      disabled={downloadingPDFId === invoice.id}
-                      className="h-8 lg:h-9 px-2 lg:px-3 text-xs font-semibold"
-                    >
+                    {/* Preview */}
+                    <Button variant="ghost" size="sm" onClick={() => handlePreviewInvoice(invoice)} title="Preview Invoice" className="h-8 lg:h-9 w-8 lg:w-9 p-0">
+                      <Eye className="w-4 h-4" />
+                    </Button>
+
+                    {/* Download */}
+                    <Button variant="ghost" size="sm" onClick={() => downloadInvoicePDF(invoice)} title="Download PDF" disabled={downloadingPDFId === invoice.id} className="h-8 lg:h-9 w-8 lg:w-9 p-0" aria-label={downloadingPDFId === invoice.id ? 'Generating PDF...' : 'Download PDF'}>
                       {downloadingPDFId === invoice.id
-                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        : <Download className="w-3.5 h-3.5 lg:mr-1" />}
-                      <span className="hidden lg:inline">PDF</span>
+                        ? <div className="w-4 h-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                        : <Download className="w-4 h-4" />}
                     </Button>
 
-                    {/* Primary: Preview */}
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => handlePreviewInvoice(invoice)}
-                      title="Preview Invoice"
-                      className="h-8 lg:h-9 px-3 text-xs font-semibold"
-                    >
-                      <Eye className="w-3.5 h-3.5 lg:mr-1" />
-                      <span className="hidden lg:inline">View</span>
-                    </Button>
-
-                    {/* Utility Edit & Destructive Delete */}
+                    {/* Edit */}
                     {invoice.status !== 'paid' && (
-                      <Button variant="ghost" size="sm" onClick={() => navigate(`/invoices/${invoice.id}/edit`)} title="Edit Invoice" className="h-8 lg:h-9 w-8 lg:w-9 p-0 text-slate-500 hover:text-amber-600 hover:bg-amber-50">
-                        <Pencil className="w-3.5 h-3.5" />
+                      <Button variant="ghost" size="sm" onClick={() => navigate(isDownpaymentInvoice(invoice) ? `/invoices/${invoice.id}/edit?type=downpayment` : `/invoices/${invoice.id}/edit`)} title="Edit Invoice" className="h-8 lg:h-9 w-8 lg:w-9 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50">
+                        <Pencil className="w-4 h-4" />
                       </Button>
                     )}
 
-                    <Button variant="ghost" size="sm" onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)} title="Delete Invoice" className="h-8 lg:h-9 w-8 lg:w-9 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50">
-                      <Trash2 className="w-3.5 h-3.5" />
+                    {/* Delete */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)}
+                      title={invoice.status === 'paid' ? 'Delete Paid Invoice' : 'Delete Invoice'}
+                      className={`h-8 lg:h-9 w-8 lg:w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10 ${invoice.status === 'paid' ? 'opacity-60' : ''}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
@@ -1382,29 +1728,16 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       )}
 
       {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="flex justify-center items-center space-x-2 mt-6">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-          >
-            Previous
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+      <DataTablePagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        entityName="invoices"
+        isLoading={loading}
+      />
 
       {previewInvoice && (
         <InvoicePreview
@@ -1438,72 +1771,95 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={whatsappResendOpen} onOpenChange={setWhatsappResendOpen}>
-        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4">
-            <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-500" />
+      <AlertDialog open={whatsappConfirmationOpen} onOpenChange={setWhatsappConfirmationOpen}>
+        <AlertDialogContent className="max-w-lg rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
+          <AlertDialogHeader className="p-4 md:p-8 pb-4 border-b">
+            <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4">
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-emerald-500">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+              </svg>
             </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">WhatsApp Sent Already</AlertDialogTitle>
+            <AlertDialogTitle className="text-2xl font-black tracking-tight">WhatsApp Preview</AlertDialogTitle>
             <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              This invoice has already been sent once. Do you want to send it again?
+              Review and edit the message below. Clicking <strong>Open WhatsApp</strong> will open WhatsApp with this message pre-filled — just press Send.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
-            <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">
-              No
+          <div className="p-4 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat flex flex-col gap-3">
+            {whatsappInvoiceId && sharedInvoices[whatsappInvoiceId]?.whatsapp && (
+              <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl p-3 flex items-start gap-2 max-w-[85%] self-start shadow-sm backdrop-blur-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed font-semibold">
+                  Notice: This WhatsApp message has already been sent once.
+                </div>
+              </div>
+            )}
+            <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-tr-lg rounded-tl-lg rounded-br-lg p-3 shadow-sm relative max-w-[85%] mb-2">
+              <div className="relative">
+                <Textarea
+                  value={whatsappMessage}
+                  onChange={(e) => setWhatsappMessage(e.target.value)}
+                  className="min-h-[150px] border-none focus-visible:ring-0 resize-none p-0 text-sm leading-relaxed text-gray-800 dark:text-gray-200 bg-transparent"
+                  disabled={uploadingWhatsApp !== null}
+                />
+                {uploadingWhatsApp !== null && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-800/50 rounded-lg">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                      <p className="text-xs font-bold text-emerald-600 animate-pulse">Preparing PDF...</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
+                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <span className="text-[#34B7F1]">✓✓</span>
+              </div>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-1 right-1 h-6 w-6 text-gray-400 hover:text-gray-600 dark:text-gray-400"
+                onClick={() => {
+                  navigator.clipboard.writeText(whatsappMessage);
+                  toast({
+                    title: "Copied!",
+                    description: "Message copied to clipboard",
+                    duration: 2000,
+                  });
+                }}
+                title="Copy message"
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+
+          <AlertDialogFooter className="p-4 bg-muted/5 flex flex-row gap-3 items-center justify-end border-t">
+            <AlertDialogCancel className="m-0 h-11 px-6 font-bold rounded-xl border-2 hover:bg-muted/50 transition-all">
+              Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
-                if (resendInvoiceData) {
-                  startWhatsAppGenerationAndSend(resendInvoiceData);
-                }
+              disabled={uploadingWhatsApp !== null || sendingWhatsApp}
+              onClick={(e) => {
+                e.preventDefault();
+                handleSendWhatsApp();
               }}
-              className="flex-1 h-11 font-bold rounded-xl shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white transition-all animate-in fade-in"
+              className="h-11 px-8 font-black rounded-xl shadow-lg shadow-emerald-500/20 bg-[#25D366] hover:bg-[#128C7E] text-white flex items-center gap-2 transition-all disabled:opacity-50"
             >
-              Yes
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={smsConfirmationOpen} onOpenChange={setSmsConfirmationOpen}>
-        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
-              <Phone className="w-6 h-6 text-primary" />
-            </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">Preview SMS Message</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              Edit the message below before sending via SMS to your client.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="px-8 py-4">
-            <Textarea
-              value={smsMessage}
-              onChange={(e) => setSmsMessage(e.target.value)}
-              className="min-h-[120px] rounded-xl border-2 focus-visible:ring-primary/20 bg-muted/30 font-medium"
-            />
-          </div>
-          <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
-            <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0 hover:bg-muted/50 transition-all">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                const smsUrl = `sms:${smsPhone}?body=${encodeURIComponent(smsMessage)}`;
-                window.location.href = smsUrl;
-                toast({
-                  title: "SMS App Opened",
-                  description: "The default SMS app has been triggered."
-                });
-                setSharedInvoices(prev => ({
-                  ...prev,
-                  [smsInvoiceId]: { ...prev[smsInvoiceId], sms: true }
-                }));
-              }}
-              className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-primary/20 bg-primary hover:opacity-90 transition-all"
-            >
-              Send SMS
+              {sendingWhatsApp ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Opening...
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                  </svg>
+                  Open WhatsApp
+                </>
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1520,7 +1876,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
               Mark Invoice as Paid
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground mt-1">
-              Invoice #{invoiceToMarkPaid?.invoice_number} • Amount: {currencySymbol}{Number(invoiceToMarkPaid?.total_amount || 0).toFixed(2)}
+              Invoice #{invoiceToMarkPaid?.invoice_number} • Amount: {formatAmount(Number(invoiceToMarkPaid?.total_amount || 0))}
             </DialogDescription>
           </DialogHeader>
 
@@ -1533,7 +1889,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                 <button
                   type="button"
                   onClick={() => setSelectedPaymentMethod(null)}
-                  className="text-[11px] font-bold text-amber-600 hover:underline cursor-pointer"
+                  className="text-[11px] font-bold text-amber-600 hover:underline"
                 >
                   Clear Selection
                 </button>
@@ -1584,6 +1940,53 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
               </button>
             </div>
 
+            <div className="space-y-1.5 pt-1">
+              <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                Or Other Payment Method
+              </Label>
+              <Select
+                value={
+                  selectedPaymentMethod && selectedPaymentMethod !== 'cash' && selectedPaymentMethod !== 'upi'
+                    ? selectedPaymentMethod
+                    : ""
+                }
+                onValueChange={(val) => {
+                  if (val === 'none') {
+                    setSelectedPaymentMethod(null);
+                  } else {
+                    setSelectedPaymentMethod(val);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full h-11 bg-muted/20 border-border/70 rounded-xl text-sm font-medium focus:ring-emerald-500">
+                  <SelectValue placeholder="Choose other payment method..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border border-border shadow-xl z-50">
+                  <SelectItem value="none" className="cursor-pointer py-2 text-muted-foreground italic font-medium">
+                    -- None (Mode is Pended) --
+                  </SelectItem>
+                  <SelectItem value="bank_transfer" className="cursor-pointer py-2 font-medium">
+                    🏦 Bank Transfer (NEFT / RTGS / IMPS)
+                  </SelectItem>
+                  <SelectItem value="cheque" className="cursor-pointer py-2 font-medium">
+                    📜 Cheque
+                  </SelectItem>
+                  <SelectItem value="credit_card" className="cursor-pointer py-2 font-medium">
+                    💳 Credit Card
+                  </SelectItem>
+                  <SelectItem value="debit_card" className="cursor-pointer py-2 font-medium">
+                    💳 Debit Card
+                  </SelectItem>
+                  <SelectItem value="net_banking" className="cursor-pointer py-2 font-medium">
+                    🌐 Net Banking
+                  </SelectItem>
+                  <SelectItem value="other" className="cursor-pointer py-2 font-medium">
+                    📦 Other Method
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {!selectedPaymentMethod && (
               <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
@@ -1597,7 +2000,7 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
               type="button"
               variant="outline"
               onClick={() => setMarkPaidDialogOpen(false)}
-              className="flex-1 h-11 font-bold rounded-xl cursor-pointer"
+              className="w-24 sm:w-28 h-11 font-bold rounded-xl shrink-0"
             >
               Cancel
             </Button>
@@ -1610,15 +2013,17 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
                   setInvoiceToMarkPaid(null);
                 }
               }}
-              className="flex-1 h-11 font-black rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 cursor-pointer"
+              className="flex-1 h-11 font-bold text-xs sm:text-sm rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 px-3 whitespace-nowrap overflow-hidden text-ellipsis"
             >
-              {selectedPaymentMethod ? `OK (Confirm ${selectedPaymentMethod.toUpperCase()})` : 'OK (Mode is Pended)'}
+              {selectedPaymentMethod 
+                ? `Confirm (${getPaymentMethodLabel(selectedPaymentMethod)})` 
+                : 'Confirm (Mode is Pended)'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Modal */}
+      {/* Simple Delete Confirmation for Non-Paid Invoices */}
       <DeleteConfirmation
         isOpen={deleteConfirmationOpen}
         onOpenChange={setDeleteConfirmationOpen}
@@ -1627,96 +2032,124 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
         description={`Are you sure you want to delete invoice #${invoiceToDelete?.invoiceNumber || ''}? This action cannot be undone and will restore item stock.`}
       />
 
+      {/* Delete Modal for PAID Invoices - Single Tick & Type Confirmation */}
+      <Dialog open={paidDeleteModalOpen} onOpenChange={(open) => {
+        setPaidDeleteModalOpen(open);
+        if (!open) {
+          setInvoiceToDelete(null);
+          setPaidVerificationChecked(false);
+          setDeleteConfirmText("");
+        }
+      }}>
+        <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden rounded-2xl border border-destructive/20 shadow-2xl bg-background">
+          {/* Header */}
+          <div className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-destructive/10 via-destructive/5 to-transparent border-b border-destructive/15">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-destructive/15 ring-4 ring-destructive/10 text-destructive flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-base font-bold text-foreground tracking-tight leading-tight">
+                  Delete Paid Invoice
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5 font-medium">
+                  Invoice <span className="font-bold text-destructive">#{invoiceToDelete?.invoiceNumber}</span>
+                </DialogDescription>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-5 py-4 space-y-3.5">
+            {/* Warning alert */}
+            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 dark:text-amber-200 font-medium leading-relaxed">
+                This invoice is marked as <strong>PAID</strong>. Deleting it will permanently erase linked payment records, restore inventory stock, and update reports.
+              </div>
+            </div>
+
+            {/* Single Tick Confirmation */}
+            <label
+              htmlFor="paid-single-check"
+              className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all duration-150 select-none ${
+                paidVerificationChecked
+                  ? 'border-destructive/50 bg-destructive/5 ring-1 ring-destructive/20'
+                  : 'border-border/60 hover:border-destructive/30 hover:bg-muted/30 bg-muted/10'
+              }`}
+            >
+              <Checkbox
+                id="paid-single-check"
+                checked={paidVerificationChecked}
+                onCheckedChange={(v) => setPaidVerificationChecked(!!v)}
+                className="mt-0.5 shrink-0 border-2 border-destructive/60 data-[state=checked]:bg-destructive data-[state=checked]:border-destructive"
+              />
+              <div className="min-w-0">
+                <p className="text-xs text-foreground font-semibold leading-relaxed">
+                  I understand this will permanently delete the invoice, its payment records, and restore item stock.
+                </p>
+              </div>
+            </label>
+
+            {/* Type Confirmation */}
+            <div className="space-y-1.5 pt-1">
+              <Label htmlFor="delete-paid-input" className="text-xs font-bold text-foreground flex items-center justify-between">
+                <span>
+                  Type <span className="font-mono font-black text-destructive bg-destructive/10 px-1.5 py-0.5 rounded text-xs">DELETE</span> to confirm:
+                </span>
+                {deleteConfirmText.trim().toUpperCase() === 'DELETE' && (
+                  <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">✓ Verified</span>
+                )}
+              </Label>
+              <Input
+                id="delete-paid-input"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+                spellCheck={false}
+                className={`h-9 text-sm font-mono font-bold border-2 transition-all ${
+                  deleteConfirmText.trim().toUpperCase() === 'DELETE'
+                    ? 'border-destructive/60 bg-destructive/5 text-destructive'
+                    : deleteConfirmText.length > 0
+                    ? 'border-amber-400/60 bg-amber-50/30 dark:bg-amber-950/20'
+                    : 'border-border/60'
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 py-3.5 border-t border-border/40 bg-muted/10 flex items-center gap-2.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaidDeleteModalOpen(false)}
+              className="flex-1 h-9 font-semibold text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setPaidDeleteModalOpen(false);
+                confirmDeleteInvoice();
+              }}
+              disabled={!paidVerificationChecked || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
+              className="flex-1 h-9 text-xs font-bold bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Delete Paid Invoice
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <SuccessModal
         isOpen={showSuccess}
         onOpenChange={setShowSuccess}
         title="Invoice Deleted"
         message="The invoice has been permanently removed from your records."
       />
-
-      {/* WhatsApp Confirmation & Preview Dialog */}
-      <AlertDialog open={whatsappConfirmationOpen} onOpenChange={setWhatsappConfirmationOpen}>
-        <AlertDialogContent className="max-w-lg rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4 border-b">
-            <div className="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center mb-4">
-              <svg viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 text-emerald-500">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-              </svg>
-            </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">WhatsApp Preview</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              Review and edit the phone & message below. Clicking <strong>Open WhatsApp</strong> will open WhatsApp with this message pre-filled.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="p-4 bg-slate-50 dark:bg-slate-900 flex flex-col gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs font-bold text-slate-600 dark:text-slate-400">Recipient Phone Number</Label>
-              <Input
-                value={whatsappPhone}
-                onChange={(e) => setWhatsappPhone(e.target.value)}
-                placeholder="e.g. 919876543210"
-                className="bg-white dark:bg-slate-800 font-bold"
-              />
-            </div>
-
-            <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm rounded-lg p-3 shadow-sm relative mb-2">
-              <Label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-1 block">Message Content</Label>
-              <div className="relative">
-                <Textarea
-                  value={whatsappMessage}
-                  onChange={(e) => setWhatsappMessage(e.target.value)}
-                  className="min-h-[140px] border border-slate-200 dark:border-slate-700 resize-none p-2 text-sm leading-relaxed text-gray-800 dark:text-gray-200 bg-transparent rounded-lg"
-                  disabled={uploadingWhatsApp !== null}
-                />
-                {uploadingWhatsApp !== null && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-slate-800/60 rounded-lg">
-                    <div className="flex flex-col items-center gap-2">
-                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
-                      <p className="text-xs font-bold text-emerald-600 animate-pulse">Preparing PDF Link...</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="text-[10px] text-gray-400 text-right mt-1 flex items-center justify-end gap-1">
-                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                <span className="text-[#34B7F1]">✓✓</span>
-              </div>
-            </div>
-          </div>
-
-          <AlertDialogFooter className="p-4 bg-muted/5 flex flex-row gap-3 items-center justify-end border-t">
-            <AlertDialogCancel className="m-0 h-11 px-6 font-bold rounded-xl border-2 hover:bg-muted/50 transition-all">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={uploadingWhatsApp !== null || sendingWhatsApp}
-              onClick={async (e) => {
-                e.preventDefault();
-                setSendingWhatsApp(true);
-                await performSendWhatsApp(whatsappInvoiceId, whatsappPhone, whatsappMessage, whatsappPdfUrl);
-                setSendingWhatsApp(false);
-                setWhatsappConfirmationOpen(false);
-              }}
-              className="h-11 px-8 font-black rounded-xl shadow-lg shadow-emerald-500/20 bg-[#25D366] hover:bg-[#128C7E] text-white flex items-center gap-2 transition-all disabled:opacity-50"
-            >
-              {sendingWhatsApp ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Opening...
-                </>
-              ) : (
-                <>
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                  </svg>
-                  Open WhatsApp
-                </>
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };

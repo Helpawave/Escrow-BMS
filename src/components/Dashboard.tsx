@@ -13,7 +13,9 @@ import {
   IndianRupee,
   ShoppingCart,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  ShoppingBag,
+  Building2
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useUserType } from "@/hooks/useUserType";
 
 import { DashboardCharts } from "./DashboardCharts";
 import {
@@ -36,8 +39,33 @@ import { DateRangeFilter } from "@/hooks/useDashboardStats";
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const [dateRange, setDateRange] = useState<string>("current_month");
+  const { user, isStaff, staffPermissions, profile: authProfile, companyProfile, effectiveUserId } = useAuth();
+  const { isFoodKitchen } = useUserType();
+
+  useEffect(() => {
+    if (isStaff) {
+      const permissionPathMap: Record<string, string> = {
+        'invoices': '/invoices',
+        'purchase-invoices': '/purchase-invoices',
+        'clients': '/clients',
+        'vendors': '/vendors',
+        'products': '/products',
+        'payments': '/payments',
+        'expenses': '/expenses',
+        'einvoice': '/einvoice',
+      };
+      let target = '/settings';
+      for (const perm of (staffPermissions || [])) {
+        if (permissionPathMap[perm]) {
+          target = permissionPathMap[perm];
+          break;
+        }
+      }
+      navigate(target, { replace: true });
+    }
+  }, [isStaff, staffPermissions, navigate]);
+
+  const [dateRange, setDateRange] = useState<string>("all");
   const [customFrom, setCustomFrom] = useState<string>("");
   const [customTo, setCustomTo] = useState<string>("");
   const [showCustomPicker, setShowCustomPicker] = useState(false);
@@ -56,12 +84,17 @@ export function Dashboard() {
     error 
   } = useDashboardStats(effectiveRange);
 
+  if (isStaff) {
+    return null;
+  }
+
   const {
     totalRevenue = 0,
     totalSalesAll = 0,
     totalInvoices = 0,
     activeClients = 0,
     totalProducts = 0,
+    totalQuantitySold = 0,
     outstanding = 0,
     totalExpenses = 0,
     totalPurchase = 0,
@@ -71,39 +104,93 @@ export function Dashboard() {
     trends = { sales: 0, purchase: 0, revenue: 0, expense: 0 }
   } = stats || {};
 
+  const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+  const [logoImageError, setLogoImageError] = useState(false);
+
   const { data: profile } = useQuery({
-    queryKey: ['profile', user?.id],
+    queryKey: ['profile', targetUserId],
     queryFn: async () => {
-      if (!user?.id) return null;
-      const { data, error } = await supabase
+      if (!targetUserId) return null;
+      const { data, error } = await (supabase as any)
         .from('profiles')
         .select('company_name, logo_url')
-        .eq('id', user?.id)
+        .eq('user_id', targetUserId)
         .maybeSingle();
-      if (error) throw error;
-      return data;
+
+      if (error && error.code !== 'PGRST116') {
+        console.warn('Dashboard profile query warning:', error);
+      }
+
+      const profData = data as any;
+      let logoUrl = profData?.logo_url || authProfile?.logo_url || companyProfile?.logo_url || null;
+
+      // Check localStorage backup
+      if (!logoUrl && typeof window !== 'undefined') {
+        try {
+          const cachedLogo = localStorage.getItem('escrow_company_logo_url');
+          if (cachedLogo) logoUrl = cachedLogo;
+        } catch {}
+      }
+
+      // Check storage bucket if still null
+      if (!logoUrl) {
+        try {
+          const { data: files } = await supabase.storage
+            .from('company-assets')
+            .list(targetUserId);
+
+          const logoFile = files?.find(f => f.name.toLowerCase().startsWith('logo.'));
+          if (logoFile) {
+            const { data: pubData } = supabase.storage
+              .from('company-assets')
+              .getPublicUrl(`${targetUserId}/${logoFile.name}`);
+
+            if (pubData?.publicUrl) {
+              logoUrl = `${pubData.publicUrl}?t=${Date.now()}`;
+              // Auto-sync back to profiles table
+              void (supabase as any)
+                .from('profiles')
+                .update({ logo_url: logoUrl })
+                .eq('user_id', targetUserId);
+              try {
+                localStorage.setItem('escrow_company_logo_url', logoUrl);
+              } catch {}
+            }
+          }
+        } catch (e) {
+          console.warn('Storage logo check error:', e);
+        }
+      }
+
+      return {
+        company_name: profData?.company_name || authProfile?.company_name || companyProfile?.company_name || 'Business',
+        logo_url: logoUrl
+      };
     },
-    enabled: !!user?.id,
-    staleTime: 5 * 60 * 1000,
+    enabled: !!targetUserId,
+    initialData: authProfile ? {
+      company_name: authProfile.company_name || 'Business',
+      logo_url: authProfile.logo_url || companyProfile?.logo_url || (typeof window !== 'undefined' ? localStorage.getItem('escrow_company_logo_url') : null)
+    } : undefined
   });
 
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!targetUserId) return;
 
     const channel = supabase
-      .channel(`profile-updates-${user.id}`)
+      .channel(`profile-updates-${targetUserId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'profiles',
-          filter: `user_id=eq.${user.id}`
+          filter: `user_id=eq.${targetUserId}`
         },
         () => {
-          void queryClient.invalidateQueries({ queryKey: ['profile', user.id] });
+          void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
         }
       )
       .subscribe();
@@ -111,7 +198,7 @@ export function Dashboard() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [user?.id, queryClient]);
+  }, [targetUserId, queryClient]);
 
   const handleCreateInvoice = () => navigate('/create-invoice');
   const handleViewAllInvoices = () => navigate('/invoices');
@@ -122,26 +209,45 @@ export function Dashboard() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const safeProfile = profile as any;
+  const companyDisplayName = safeProfile?.company_name || authProfile?.company_name || companyProfile?.company_name || 'Business';
+  const companyInitial = companyDisplayName.trim().charAt(0).toUpperCase() || 'B';
+  const effectiveLogoUrl = !logoImageError 
+    ? (safeProfile?.logo_url || authProfile?.logo_url || companyProfile?.logo_url || (typeof window !== 'undefined' ? localStorage.getItem('escrow_company_logo_url') : null))
+    : null;
 
-  const { currencySymbol } = useCurrency();
+  const { currencySymbol, formatAmount, currencyCode } = useCurrency();
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          {safeProfile?.logo_url ? (
-            <div className="w-14 h-14 bg-white dark:bg-slate-900 border border-border/50 rounded-2xl overflow-hidden shadow-xl flex items-center justify-center p-2">
-              <img src={safeProfile.logo_url} alt="Logo" className="w-full h-full object-contain" />
+          {effectiveLogoUrl ? (
+            <div 
+              onClick={() => navigate('/settings')}
+              title="Company Logo • Click to manage in Settings"
+              className="w-14 h-14 bg-white dark:bg-slate-900 border border-border/70 rounded-2xl overflow-hidden shadow-md hover:shadow-lg flex items-center justify-center p-1.5 cursor-pointer hover:border-primary/50 transition-all group shrink-0"
+            >
+              <img 
+                src={effectiveLogoUrl} 
+                alt={`${companyDisplayName} Logo`} 
+                onError={() => setLogoImageError(true)}
+                className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300" 
+              />
             </div>
           ) : (
-            <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center text-primary shadow-inner">
-              <Plus className="w-6 h-6 rotate-45" />
+            <div 
+              onClick={() => navigate('/settings')}
+              title="Upload Company Logo in Settings"
+              className="w-14 h-14 bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 rounded-2xl border border-primary/25 flex items-center justify-center text-primary font-black text-xl shadow-inner hover:scale-105 cursor-pointer transition-all group shrink-0"
+            >
+              <span className="group-hover:hidden select-none">{companyInitial}</span>
+              <Building2 className="w-6 h-6 hidden group-hover:block transition-all animate-in fade-in zoom-in" />
             </div>
           )}
           <div className="space-y-1">
             <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-              Hello, {safeProfile?.company_name || 'Business'}
+              Hello, {companyDisplayName}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
               <Calendar className="w-4 h-4" />
@@ -202,66 +308,83 @@ export function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
         <StatCard
           title="Total Sales"
-          value={`${currencySymbol}${(totalSalesAll || 0).toLocaleString()}`}
+          value={formatAmount(totalSalesAll || 0)}
           trend={trends?.sales}
           change="Lifetime sales value"
           changeType={(trends?.sales || 0) >= 0 ? "positive" : "negative"}
-          icon={<IndianRupee className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={currencyCode === 'INR' ? <IndianRupee /> : <DollarSign />}
         />
         <StatCard
           title="Total Collected"
-          value={`${currencySymbol}${(totalRevenue || 0).toLocaleString()}`}
+          value={formatAmount(totalRevenue || 0)}
           trend={trends?.revenue}
           change="Payments received"
           changeType="positive"
-          icon={<IndianRupee className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={currencyCode === 'INR' ? <IndianRupee /> : <DollarSign />}
         />
         <StatCard
           title="Outstanding"
-          value={`${currencySymbol}${(outstanding || 0).toLocaleString()}`}
+          value={formatAmount(outstanding || 0)}
           change="Pending collection"
           changeType="negative"
-          icon={<IndianRupee className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={currencyCode === 'INR' ? <IndianRupee /> : <DollarSign />}
         />
         <StatCard
           title="Net Profit"
-          value={`${currencySymbol}${(netProfit || 0).toLocaleString()}`}
+          value={
+            netProfit < 0
+              ? `-${formatAmount(Math.abs(netProfit || 0))}`
+              : formatAmount(netProfit || 0)
+          }
           trend={trends?.revenue}
           change={netProfit >= 0 ? "Profitable period" : "Review spending"}
           changeType={netProfit >= 0 ? "positive" : "negative"}
-          icon={<TrendingUp className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={<TrendingUp />}
         />
         <StatCard
           title="Total Invoices"
-          value={(totalInvoices || 0).toString()}
+          value={(totalInvoices || 0).toLocaleString('en-IN')}
           change="Invoices generated"
           changeType="neutral"
-          icon={<FileText className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={<FileText />}
         />
         <StatCard
           title="Total Purchase"
-          value={`${currencySymbol}${(totalPurchase || 0).toLocaleString()}`}
+          value={formatAmount(totalPurchase || 0)}
           change="Lifetime procurement"
           changeType="negative"
-          icon={<ShoppingCart className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={<ShoppingCart />}
         />
-        <StatCard
-          title="Total Products"
-          value={(totalProducts || 0).toString()}
-          change="Inventory items"
-          changeType="neutral"
-          icon={<ShoppingCart className="w-5 h-5 lg:w-6 lg:h-6" />}
-        />
+        {(isFoodKitchen ||
+          (user?.id === 'dddbc465-7743-42c6-88f0-039a4332711d') || 
+          safeProfile?.company_name?.toLowerCase().includes('geeta') || 
+          user?.email === 'krishnayadav240225@gmail.com') ? (
+          <StatCard
+            title="Total Quantity Sold"
+            value={(totalQuantitySold || 0).toLocaleString('en-IN')}
+            change="Plates / Units sold"
+            changeType="positive"
+            icon={<ShoppingBag />}
+          />
+        ) : (
+          <StatCard
+            title="Total Products"
+            value={(totalProducts || 0).toLocaleString('en-IN')}
+            change="Inventory items"
+            changeType="neutral"
+            icon={<ShoppingCart />}
+          />
+        )}
         <StatCard
           title="Total Expenses"
-          value={`${currencySymbol}${(totalExpenses || 0).toLocaleString()}`}
+          value={formatAmount(totalExpenses || 0)}
           trend={trends?.expense}
           change="Operational costs"
           changeType="negative"
-          icon={<TrendingDown className="w-5 h-5 lg:w-6 lg:h-6" />}
+          icon={<TrendingDown />}
         />
       </div>
 

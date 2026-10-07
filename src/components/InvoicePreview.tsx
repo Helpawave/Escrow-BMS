@@ -12,10 +12,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { InvoiceTemplate } from "./InvoiceTemplate";
+import { StatusBadge } from "./StatusBadge";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from '@/utils/invoicePDF';
 import { ResponsiveInvoiceWrapper } from './ResponsiveInvoiceWrapper';
 
@@ -57,6 +58,7 @@ interface CompanyProfile {
   website?: string;
   signature_url?: string;
   upi_qr_url?: string;
+  upi_id?: string;
   bank_name?: string;
   account_number?: string;
   ifsc_code?: string;
@@ -89,6 +91,20 @@ interface InvoicePreviewProps {
   onClose: () => void;
 }
 
+const isGenericPaymentDue = (terms?: string | null) => {
+  if (!terms || !terms.trim()) return true;
+  const t = terms.trim().toLowerCase();
+  return (
+    t === 'payment due within 30 days' ||
+    t === 'payment due on receipt.' ||
+    t === 'payment due on receipt' ||
+    t === 'payment due as per terms' ||
+    t === 'standard corporate terms apply.' ||
+    t === 'standard payment terms apply.' ||
+    t === 'payment is due within the stipulated time frame.'
+  );
+};
+
 export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   invoice,
   open,
@@ -97,11 +113,13 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [company, setCompany] = useState<CompanyProfile>({});
   const [template, setTemplate] = useState('corporate');
+  const [defaultTerms, setDefaultTerms] = useState<string>('');
+  const [defaultPaymentTerms, setDefaultPaymentTerms] = useState<string>('30');
   const [loading, setLoading] = useState(true);
   const [emailConfirmationOpen, setEmailConfirmationOpen] = useState(false);
   const [fullInvoice, setFullInvoice] = useState<Invoice | null>(null);
 
-  const { user } = useAuth();
+  const { user, effectiveUserId, isStaff, companyProfile } = useAuth();
   const { toast } = useToast();
 
   const fetchInvoiceData = useCallback(async () => {
@@ -109,22 +127,32 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
     setLoading(true);
     try {
+      const clientToUse = serviceSupabase || supabase;
+
       // Fetch full invoice details to ensure all fields (subtotal, notes, terms, etc.) are populated
-      const { data: invoiceData, error: invoiceError } = await supabase
+      const { data: invoiceData, error: invoiceError } = await clientToUse
         .from('invoices')
         .select('*, clients(*)')
         .eq('id', invoice.id)
-        .single();
+        .maybeSingle();
 
-      if (invoiceError) throw invoiceError;
-      setFullInvoice(invoiceData as unknown as Invoice);
+      if (invoiceError) {
+        console.warn('Could not fetch full invoice with relation, falling back to prop invoice:', invoiceError);
+      }
+      
+      const resolvedInvoice = (invoiceData as unknown as Invoice) || invoice;
+      setFullInvoice(resolvedInvoice);
 
       // Fetch invoice items
-      const { data: itemsData, error: itemsError } = await supabase
+      const { data: itemsData, error: itemsError } = await clientToUse
         .from('invoice_items')
         .select(`
           *,
           products (
+            id,
+            name,
+            description,
+            hsn_code,
             opening_stock,
             type,
             unit
@@ -132,47 +160,86 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         `)
         .eq('invoice_id', invoice.id);
 
-      if (itemsError) throw itemsError;
+      if (itemsError) {
+        console.warn('Could not fetch invoice items with products relation:', itemsError);
+      }
 
-      // Fetch company profile
-      const { data: profileData, error: profileError } = await supabase
+      // Fetch company profile & settings using owner's ID
+      const targetOwnerId = (resolvedInvoice as any)?.user_id || (isStaff && effectiveUserId ? effectiveUserId : user.id);
+
+      const { data: profileData } = await (clientToUse as any)
         .from('profiles')
         .select('*')
-        .eq('user_id', user.id)
-        .single();
+        .eq('user_id', targetOwnerId)
+        .maybeSingle();
 
-      if (profileError) throw profileError;
-
-      // Fetch user settings for template
-      const { data: settingsData, error: settingsError } = await supabase
+      // Fetch user settings for template and default terms
+      const { data: rawSettingsData, error: settingsError } = await (clientToUse as any)
         .from('user_settings')
-        .select('invoice_template, hide_company_details')
-        .eq('user_id', user.id)
-        .single();
+        .select('*')
+        .eq('user_id', targetOwnerId)
+        .maybeSingle();
+
+      const settingsData = rawSettingsData as {
+        invoice_template?: string;
+        hide_company_details?: boolean;
+        default_terms?: string;
+        default_payment_terms?: string;
+      } | null;
 
       if (settingsError) console.warn('Could not fetch user settings, using default template');
+
+      const isDownpayment = Boolean(
+        resolvedInvoice?.notes?.includes('is_downpayment') ||
+        resolvedInvoice?.notes?.includes('Vehicle:') ||
+        resolvedInvoice?.invoice_number?.startsWith('DP-') ||
+        resolvedInvoice?.notes?.toLowerCase().includes('downpayment') ||
+        resolvedInvoice?.notes?.toLowerCase().includes('vehicle booking') ||
+        resolvedInvoice?.notes?.toLowerCase().includes('booking advance')
+      );
+
+      const savedDownpaymentTemplate = (settingsData as any)?.downpayment_template || localStorage.getItem('downpayment_template') || 'auto_dealership';
+      const savedSalesTemplate = settingsData?.invoice_template && !settingsData.invoice_template.startsWith('auto_')
+        ? settingsData.invoice_template
+        : 'corporate';
+
+      if (isDownpayment) {
+        setTemplate(savedDownpaymentTemplate);
+      } else {
+        setTemplate(savedSalesTemplate);
+      }
+
+      if (settingsData) {
+        if (settingsData.default_terms !== undefined) setDefaultTerms(settingsData.default_terms || '');
+        if (settingsData.default_payment_terms) setDefaultPaymentTerms(settingsData.default_payment_terms);
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const itemsRaw = (itemsData as unknown as any[]) || [];
       setItems(itemsRaw.map(item => ({
-        description: item.description,
+        description: item.description || '',
+        product_name: item.products?.name || item.product_name || item.name || '',
+        name: item.products?.name || item.product_name || item.name || '',
         quantity: item.quantity,
         rate: item.rate,
         tax_rate: item.tax_rate,
         discount: item.discount || 0,
         amount: item.amount,
+        hsn_code: item.hsn_code || item.products?.hsn_code || '',
         product: item.products ? {
+          name: item.products.name,
           opening_stock: item.products.opening_stock,
           type: item.products.type,
-          unit: item.products.unit
+          unit: item.products.unit,
+          hsn_code: item.products.hsn_code
         } : undefined
       })) || []);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const prof = (profileData as unknown as any) || {};
+      const prof = (profileData as unknown as any) || (companyProfile as any) || {};
       setCompany({
         company_name: prof?.company_name || '',
-        email: user?.email || '',
+        email: prof?.email || user?.email || '',
         phone: prof?.phone || '',
         mobile: prof?.mobile || '',
         business_address: prof?.business_address || '',
@@ -181,6 +248,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         website: prof?.website || '',
         signature_url: prof?.signature_url || '',
         upi_qr_url: prof?.upi_qr_url || '',
+        upi_id: prof?.upi_id || '',
         bank_name: prof?.bank_name || '',
         account_number: prof?.account_number || '',
         ifsc_code: prof?.ifsc_code || '',
@@ -189,21 +257,13 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         hide_company_details: (settingsData as any)?.hide_company_details ?? false
       });
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setTemplate((settingsData as any)?.invoice_template || 'corporate');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('Error fetching invoice data:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: `Failed to load invoice data: ${errorMessage}`
-      });
+      console.warn('Error in fetchInvoiceData, using fallback props:', error);
+      setFullInvoice(invoice);
     } finally {
       setLoading(false);
     }
-  }, [invoice, user, toast]);
+  }, [invoice, user, effectiveUserId, isStaff, companyProfile]);
 
   useEffect(() => {
     if (invoice && open) {
@@ -215,12 +275,27 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     if (!invoice || !user) throw new Error("Missing data");
 
     const invToUse = fullInvoice || invoice;
+    const isGeneric = isGenericPaymentDue(invToUse?.terms);
+    const paymentDaysMatch = (defaultPaymentTerms || '').match(/\d+/);
+    const paymentDays = paymentDaysMatch ? parseInt(paymentDaysMatch[0], 10) : 30;
+
+    const effectiveTerms = invToUse?.terms && invToUse.terms.trim() && !isGeneric
+      ? invToUse.terms.trim()
+      : (defaultTerms && defaultTerms.trim() 
+          ? defaultTerms.trim() 
+          : (paymentDays === 0 ? 'Payment due on receipt' : `Payment due within ${paymentDays} days`));
+
+    let effectiveDueDate = invToUse?.due_date;
+    if (isGeneric && invToUse?.issue_date && invToUse?.status !== 'paid' && paymentDays) {
+      const nextDue = new Date(new Date(invToUse.issue_date).getTime() + paymentDays * 24 * 60 * 60 * 1000);
+      effectiveDueDate = nextDue.toISOString().split('T')[0];
+    }
 
     return await generateInvoicePDFBlob(
       {
         invoice_number: invToUse.invoice_number,
         issue_date: invToUse.issue_date,
-        due_date: invToUse.due_date,
+        due_date: effectiveDueDate,
         status: invToUse.status,
         subtotal: invToUse.subtotal || 0,
         discount_amount: invToUse.discount_amount || 0,
@@ -228,7 +303,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         total_amount: invToUse.total_amount,
         currency: invToUse.currency,
         notes: invToUse.notes,
-        terms: invToUse.terms
+        terms: effectiveTerms
       } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       {
         name: invToUse.clients?.name || 'N/A',
@@ -357,13 +432,14 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
             <div className="space-y-1">
               <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-3">
                 <FileText className="w-5 h-5 text-primary" />
-                Invoice Preview - {invToUse.invoice_number}
+                <span>Invoice Preview - {invToUse.invoice_number}</span>
+                <StatusBadge status={invToUse.status} dueDate={invToUse.due_date} />
               </DialogTitle>
               <DialogDescription className="text-slate-500 dark:text-slate-400 text-sm font-medium">
                 Review and manage invoice details before sending to client
               </DialogDescription>
             </div>
-            <div className="flex items-center gap-3 sm:pr-8">
+            <div className="flex items-center gap-3 pr-8 sm:pr-10">
               {invToUse.clients?.email && (
                 <Button
                   variant="outline"
@@ -386,15 +462,6 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                 <Download className="w-4 h-4 mr-2" />
                 Download PDF
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                className="font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 px-4"
-              >
-                <X className="w-4 h-4 mr-2" />
-                Close
-              </Button>
             </div>
           </div>
         </DialogHeader>
@@ -406,27 +473,47 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
             </div>
           ) : (
             <div className="w-full max-w-[820px]">
-              <ResponsiveInvoiceWrapper maxWidth={template === 'thermal' ? 380 : 800}>
+              <ResponsiveInvoiceWrapper maxWidth={template === 'thermal' ? 380 : template === 'auto_compact' ? 440 : 800}>
                 <div className="shadow-xl ring-1 ring-slate-200 dark:ring-slate-800 bg-white dark:bg-slate-900 rounded-sm mb-6">
-                  <InvoiceTemplate
-                    invoice={{
-                      invoice_number: invToUse.invoice_number,
-                      issue_date: invToUse.issue_date,
-                      due_date: invToUse.due_date,
-                      status: invToUse.status,
-                      subtotal: invToUse.subtotal || 0,
-                      discount_amount: invToUse.discount_amount || 0,
-                      tax_amount: invToUse.tax_amount || 0,
-                      total_amount: invToUse.total_amount,
-                      currency: invToUse.currency,
-                      notes: invToUse.notes,
-                      terms: invToUse.terms
-                    }}
-                    client={invToUse.clients || { name: 'Customer', email: '' }}
-                    items={items}
-                    company={company as any} // eslint-disable-line @typescript-eslint/no-explicit-any
-                    template={template as any} // eslint-disable-line @typescript-eslint/no-explicit-any
-                  />
+                  {(() => {
+                    const isGeneric = isGenericPaymentDue(invToUse?.terms);
+                    const paymentDaysMatch = (defaultPaymentTerms || '').match(/\d+/);
+                    const paymentDays = paymentDaysMatch ? parseInt(paymentDaysMatch[0], 10) : 30;
+
+                    const effectiveTerms = invToUse?.terms && invToUse.terms.trim() && !isGeneric
+                      ? invToUse.terms.trim()
+                      : (defaultTerms && defaultTerms.trim() 
+                          ? defaultTerms.trim() 
+                          : (paymentDays === 0 ? 'Payment due on receipt' : `Payment due within ${paymentDays} days`));
+
+                    let effectiveDueDate = invToUse?.due_date;
+                    if (isGeneric && invToUse?.issue_date && invToUse?.status !== 'paid' && paymentDays) {
+                      const nextDue = new Date(new Date(invToUse.issue_date).getTime() + paymentDays * 24 * 60 * 60 * 1000);
+                      effectiveDueDate = nextDue.toISOString().split('T')[0];
+                    }
+
+                    return (
+                      <InvoiceTemplate
+                        invoice={{
+                          invoice_number: invToUse.invoice_number,
+                          issue_date: invToUse.issue_date,
+                          due_date: effectiveDueDate,
+                          status: invToUse.status,
+                          subtotal: invToUse.subtotal || 0,
+                          discount_amount: invToUse.discount_amount || 0,
+                          tax_amount: invToUse.tax_amount || 0,
+                          total_amount: invToUse.total_amount,
+                          currency: invToUse.currency,
+                          notes: invToUse.notes,
+                          terms: effectiveTerms
+                        }}
+                        client={invToUse.clients || { name: 'Customer', email: '' }}
+                        items={items}
+                        company={company as any} // eslint-disable-line @typescript-eslint/no-explicit-any
+                        template={template as any} // eslint-disable-line @typescript-eslint/no-explicit-any
+                      />
+                    );
+                  })()}
                 </div>
               </ResponsiveInvoiceWrapper>
             </div>

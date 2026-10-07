@@ -137,3 +137,36 @@ export async function adjustStock(
     console.warn("Direct product stock update warning:", err);
   }
 }
+
+/**
+ * Formats a product category string with proper first letter capitalization (Title Case).
+ * Handles predefined values and custom values cleanly.
+ * Example: 'general' -> 'General', 'it' -> 'IT & Software', 'hardware' -> 'Hardware'
+ */
+export function formatCategory(category?: string | null): string {
+  if (!category) return 'General';
+  const raw = String(category).trim();
+  if (!raw) return 'General';
+
+  const lower = raw.toLowerCase();
+  if (lower === 'it' || lower === 'it & software' || lower === 'it services') return 'IT & Software';
+  if (lower === 'general' || lower === 'general items') return 'General';
+  if (lower === 'hardware' || lower === 'hardware & electronics') return 'Hardware';
+  if (lower === 'consulting' || lower === 'consulting & professional services') return 'Consulting';
+  if (lower === 'retail' || lower === 'retail & e-commerce') return 'Retail';
+  if (lower === 'others' || lower === 'other') return 'Others';
+
+  return raw
+    .split(' ')
+    .map(word => {
+      if (!word) return '';
+      if (word.toUpperCase() === 'IT' || word.toUpperCase() === 'GST' || word.toUpperCase() === 'HSN') {
+        return word.toUpperCase();
+      }
+      return word
+        .split('-')
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join('-');
+    })
+    .join(' ');
+}

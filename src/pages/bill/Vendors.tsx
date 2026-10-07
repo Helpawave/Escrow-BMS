@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useVendors } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
+import { DataTablePagination } from "@/components/DataTablePagination";
 
 export interface Vendor {
   id: string;
@@ -41,17 +42,17 @@ const VendorsPage = () => {
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [viewMode] = useState<'grid' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  const [pageSize, setPageSize] = useState(10);
 
   const { data, isLoading: loading, isFetching: searchLoading } = useVendors({
     page: currentPage,
-    pageSize: ITEMS_PER_PAGE,
+    pageSize,
     searchTerm: debouncedSearch
   });
 
   const vendors = (data as unknown as { vendors: Vendor[] })?.vendors || [];
   const totalCount = (data as unknown as { totalCount: number })?.totalCount || 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const [formData, setFormData] = useState({
     name: '',
@@ -642,29 +643,17 @@ const VendorsPage = () => {
             </Table>
           </Card>
 
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center space-x-2 mt-6">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-              >
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Next
-              </Button>
-            </div>
-          )}
+          {/* Pagination Controls */}
+          <DataTablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+            entityName="vendors"
+            isLoading={loading}
+          />
         </>
       )}
 

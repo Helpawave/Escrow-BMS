@@ -20,6 +20,8 @@ interface InvoiceTotalsProps {
   submitLabel: string;
   navigate: (path: string) => void;
   onAddExpense: () => void;
+  isPurchase?: boolean;
+  isDownpayment?: boolean;
 }
 
 export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
@@ -35,7 +37,9 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
   isEditing,
   submitLabel,
   navigate,
-  onAddExpense
+  onAddExpense,
+  isPurchase = false,
+  isDownpayment = false
 }) => {
   return (
     <div className="space-y-6">
@@ -44,23 +48,27 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
         {/* Left Side: Notes & Terms */}
         <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="notes" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Notes</Label>
+            <Label htmlFor="notes" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
+              {isPurchase ? "Vendor / Dispatch Notes" : "Notes"}
+            </Label>
             <Textarea
               id="notes"
               value={formData.notes || ''}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Additional notes for the invoice"
-              className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200"
+              placeholder={isPurchase ? "Enter vendor notes, transport LR details, or delivery notes..." : "Additional notes for the invoice"}
+              className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200 text-sm"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="terms" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Terms & Conditions</Label>
+            <Label htmlFor="terms" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
+              {isPurchase ? "Supplier Terms & Conditions" : "Terms & Conditions"}
+            </Label>
             <Textarea
               id="terms"
               value={formData.terms || ''}
               onChange={(e) => setFormData({ ...formData, terms: e.target.value })}
-              placeholder="Payment terms and conditions"
-              className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200"
+              placeholder={isPurchase ? "Payment terms, credit period, or return conditions agreed with supplier..." : "Payment terms and conditions"}
+              className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200 text-sm"
             />
           </div>
         </div>
@@ -90,8 +98,8 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
         </div>
       </div>
 
-      {/* Add Billable Expense Button */}
-      {formData.client_id && (
+      {/* Add Billable Expense Button - Sales only */}
+      {!isPurchase && formData.client_id && (
         <div className="pt-4">
           <Button
             type="button"
@@ -110,7 +118,11 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
         <Button
           type="button"
           variant="outline"
-          onClick={() => navigate('/invoices')}
+          onClick={() => {
+            if (isPurchase) navigate('/purchase-invoices');
+            else if (isDownpayment) navigate('/downpayment-invoices');
+            else navigate('/invoices');
+          }}
           className="w-full h-12 text-base font-bold rounded-2xl order-2 sm:order-1 border-slate-200"
         >
           Cancel

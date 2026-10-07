@@ -295,6 +295,25 @@ export function usePayments({
         }
       });
 
+      // Calculate pending invoice and bill counts
+      let pendingSalesCount = 0;
+      try {
+        const { count } = await clientToUse
+          .from('invoices')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', targetUserId)
+          .neq('status', 'paid')
+          .neq('status', 'cancelled');
+        pendingSalesCount = count || 0;
+      } catch (err) {
+        console.warn('Error fetching pending sales count:', err);
+      }
+
+      const pendingPurchaseCount = pBillsList.filter(b => {
+        const st = String(b.status || '').toLowerCase().trim();
+        return st !== 'paid' && st !== 'cancelled';
+      }).length;
+
       const computedStats = {
         overallTotal,
         overallCash,
@@ -304,6 +323,8 @@ export function usePayments({
         overallCard,
         overallOther,
         totalRecords: allPaymentsList.length,
+        pendingSalesCount,
+        pendingPurchaseCount,
         salesTotal,
         salesCash,
         salesCashCount,
@@ -488,18 +509,26 @@ export function usePendingPaymentInvoices() {
         .order('created_at', { ascending: false });
 
       // 3. Fetch existing payments
-      const { data: payments, error: payError } = await clientToUse
-        .from('payments')
-        .select('invoice_id, purchase_invoice_id, amount, payment_method')
-        .eq('user_id', targetUserId);
+      const salesIds = ((invoices as unknown as { id: string }[]) || []).map(i => i.id);
+      const purchaseIds = ((purchaseBills as unknown as { id: string }[]) || []).map(b => b.id);
+      const allTargetIds = [...salesIds, ...purchaseIds];
 
-      if (payError) throw payError;
-      const paymentsData = (payments as unknown) as { invoice_id?: string; purchase_invoice_id?: string; amount: number; payment_method?: string }[];
+      let paymentsData: { invoice_id?: string; purchase_invoice_id?: string; amount: number; payment_method?: string }[] = [];
+
+      if (allTargetIds.length > 0) {
+        const { data: payments, error: payError } = await clientToUse
+          .from('payments')
+          .select('invoice_id, purchase_invoice_id, amount, payment_method');
+
+        if (!payError && payments) {
+          paymentsData = payments as unknown as { invoice_id?: string; purchase_invoice_id?: string; amount: number; payment_method?: string }[];
+        }
+      }
 
       const paidAmountsMap: Record<string, number> = {};
       const paidMethodMap: Record<string, string> = {};
       const recordedInvoiceIds = new Set<string>();
-      paymentsData?.forEach(p => {
+      paymentsData.forEach(p => {
         const targetId = p.purchase_invoice_id || p.invoice_id;
         if (targetId) {
           recordedInvoiceIds.add(targetId);
@@ -514,6 +543,7 @@ export function usePendingPaymentInvoices() {
         .filter(inv => String(inv.status || '').toLowerCase().trim() === 'paid')
         .map(inv => {
           const totalPaid = paidAmountsMap[inv.id] || 0;
+          const isFullySettled = recordedInvoiceIds.has(inv.id) && totalPaid >= Number(inv.total_amount || 0);
           return {
             id: inv.id,
             invoice_number: inv.invoice_number,
@@ -521,7 +551,7 @@ export function usePendingPaymentInvoices() {
             status: inv.status,
             type: 'sales' as const,
             party_name: inv.clients?.name || 'Unknown Client',
-            has_payment_record: recordedInvoiceIds.has(inv.id) || (paidAmountsMap[inv.id] !== undefined && paidAmountsMap[inv.id] > 0),
+            has_payment_record: isFullySettled,
             payment_method: paidMethodMap[inv.id] || 'cash',
             total_paid: totalPaid,
             remaining_amount: Math.max(0, Number(inv.total_amount || 0) - totalPaid),
@@ -533,6 +563,7 @@ export function usePendingPaymentInvoices() {
         .filter(bill => String(bill.status || '').toLowerCase().trim() === 'paid')
         .map(bill => {
           const totalPaid = paidAmountsMap[bill.id] || 0;
+          const isFullySettled = recordedInvoiceIds.has(bill.id) && totalPaid >= Number(bill.total_amount || 0);
           return {
             id: bill.id,
             invoice_number: bill.invoice_number,
@@ -540,7 +571,7 @@ export function usePendingPaymentInvoices() {
             status: bill.status,
             type: 'purchase' as const,
             party_name: bill.vendors?.name || 'Unknown Vendor',
-            has_payment_record: recordedInvoiceIds.has(bill.id) || (paidAmountsMap[bill.id] !== undefined && paidAmountsMap[bill.id] > 0),
+            has_payment_record: isFullySettled,
             payment_method: paidMethodMap[bill.id] || 'cash',
             total_paid: totalPaid,
             remaining_amount: Math.max(0, Number(bill.total_amount || 0) - totalPaid),

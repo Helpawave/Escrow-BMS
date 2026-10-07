@@ -8,6 +8,7 @@ import { InvoiceItem } from '@/types/invoice';
 
 interface InvoiceItemsTableProps {
   billingType?: 'sales' | 'purchase' | 'ledger' | 'quotation';
+  isPurchase?: boolean;
   items: InvoiceItem[];
   setItems: (items: InvoiceItem[]) => void;
   removeItem: (index: number) => void;
