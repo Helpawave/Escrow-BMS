@@ -48,13 +48,26 @@ export function useInvoices({
         .order('created_at', { ascending: false });
 
       if (searchTerm) {
-        query = query.or(`invoice_number.ilike.%${searchTerm}%,notes.ilike.%${searchTerm}%`);
+        let clientFilter = '';
+        try {
+          const { data: matchedClients } = await clientToUse
+            .from('clients')
+            .select('id')
+            .eq('user_id', targetUserId)
+            .or(`name.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`)
+            .limit(20);
+          if (matchedClients && matchedClients.length > 0) {
+            const clientIds = matchedClients.map((c: any) => c.id).join(',');
+            clientFilter = `,client_id.in.(${clientIds})`;
+          }
+        } catch {}
+        query = query.or(`invoice_number.ilike.%${searchTerm}%,notes.ilike.%${searchTerm}%${clientFilter}`);
       }
 
       if (typeFilter === 'downpayment') {
-        query = query.or('invoice_number.ilike.DP-%,notes.ilike.%is_downpayment%,notes.ilike.%downpayment%');
+        query = query.or('invoice_number.ilike.DP-%,invoice_number.ilike.DP%,notes.ilike.%is_downpayment%,notes.ilike.%downpayment%,notes.ilike.%down payment%,notes.ilike.%Vehicle:%,notes.ilike.%vehicle%,notes.ilike.%booking%');
       } else if (typeFilter === 'sales') {
-        query = query.not('invoice_number', 'ilike', 'DP-%');
+        query = query.not('invoice_number', 'ilike', 'DP-%').not('notes', 'ilike', '%is_downpayment%');
       }
 
       if (statusFilter && statusFilter !== 'all') {

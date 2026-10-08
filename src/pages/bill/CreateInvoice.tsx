@@ -63,9 +63,9 @@ const CreateInvoicePage = () => {
   useEffect(() => {
     if (formData.notes) {
       const hasMeta = formData.notes.includes('is_downpayment') || formData.notes.includes('Vehicle:') || isDownpayment;
-      if (hasMeta && !vehicleDetails.model) {
+      if (hasMeta && (!vehicleDetails.model && !vehicleDetails.chassisNo && !vehicleDetails.engineNo)) {
         const extracted = extractVehicleDetails({ notes: formData.notes });
-        if (extracted.model && extracted.model !== 'Swift ZXI+ Dual Tone (Petrol MT)') {
+        if (extracted && (extracted.model || extracted.chassisNo || extracted.engineNo || extracted.color || extracted.regNo || extracted.financer)) {
           setVehicleDetails({
             model: extracted.model || '',
             chassisNo: extracted.chassisNo || '',
@@ -118,7 +118,7 @@ const CreateInvoicePage = () => {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => navigate(isPurchase ? '/purchase-invoices' : isDownpayment ? '/downpayment-invoices' : '/invoices')}
+            onClick={() => navigate(isPurchase ? '/purchase-invoices' : isDownpayment ? '/billing/downpayment-invoices' : '/invoices')}
             className="rounded-full hover:bg-indigo-50 hover:text-indigo-600 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -418,7 +418,7 @@ const CreateInvoicePage = () => {
         isOpen={showSuccess}
         onOpenChange={(open) => {
           setShowSuccess(open);
-          if (!open) navigate(isPurchase ? '/purchase-invoices' : isDownpayment ? '/downpayment-invoices' : '/invoices');
+          if (!open) navigate(isPurchase ? '/purchase-invoices' : isDownpayment ? '/billing/downpayment-invoices' : '/invoices');
         }}
         title={successInfo.title}
         message={successInfo.message}

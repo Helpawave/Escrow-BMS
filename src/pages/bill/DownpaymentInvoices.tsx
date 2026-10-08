@@ -10,7 +10,7 @@ import {
 import {
   FileText, Plus, Search, Download, Trash2, Printer,
   Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal,
-  Smartphone, Car, CheckCircle2, Coins, Landmark
+  Smartphone, Car, CheckCircle2, Coins, Landmark, Mail, Check
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
@@ -33,7 +33,7 @@ import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { DataTablePagination } from "@/components/DataTablePagination";
 import { extractVehicleDetails, extractPaymentDetails } from "@/components/AutoInvoiceTemplate";
 import { useInvoices } from "@/hooks/useInvoices";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Invoice } from "@/types/invoice";
 import {
   fetchFullInvoiceData,
@@ -87,6 +87,126 @@ export default function DownpaymentInvoices() {
   const [loanAccountNo, setLoanAccountNo] = useState<string>('');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
   const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
+  const [sharedInvoices, setSharedInvoices] = useState<Record<string, { whatsapp?: boolean; email?: boolean; sms?: boolean }>>(() => {
+    try {
+      const saved = localStorage.getItem('invoice_shared_status');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const markInvoiceShared = useCallback(async (invoiceId: string, channel: 'whatsapp' | 'sms' | 'email', invoiceNumber?: string) => {
+    setSharedInvoices(prev => {
+      const updated = {
+        ...prev,
+        [invoiceId]: {
+          ...(prev[invoiceId] || {}),
+          [channel]: true
+        }
+      };
+      try {
+        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    if (targetUserId) {
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const senderLabel = staffName ? `Staff (${staffName})` : (isStaff ? 'Staff' : 'Owner');
+        await (clientToUse as any).from('notifications').insert({
+          user_id: targetUserId,
+          title: `Downpayment Receipt Sent via ${channel === 'whatsapp' ? 'WhatsApp' : channel.toUpperCase()}`,
+          message: `Downpayment receipt #${invoiceNumber || 'DP'} shared on ${channel === 'whatsapp' ? 'WhatsApp' : channel} by ${senderLabel}`,
+          type: `${channel}_shared`,
+          action_url: invoiceId,
+          read: true
+        });
+      } catch (err) {
+        console.warn(`Could not sync ${channel} share status to database:`, err);
+      }
+    }
+  }, [targetUserId, staffName, isStaff]);
+
+  // Sync shared status across devices and staff in real-time
+  useEffect(() => {
+    if (!targetUserId) return;
+    let isMounted = true;
+    const clientToUse = serviceSupabase || supabase;
+
+    const fetchSharedHistory = async () => {
+      try {
+        const { data, error } = await (clientToUse as any)
+          .from('notifications')
+          .select('action_url, type')
+          .eq('user_id', targetUserId)
+          .in('type', ['whatsapp_shared', 'email_shared', 'sms_shared']);
+
+        if (!error && data && isMounted) {
+          const rows = data as Array<{ action_url?: string; type?: string }>;
+          setSharedInvoices(prev => {
+            const merged = { ...prev };
+            for (const item of rows) {
+              if (item.action_url) {
+                const invId = item.action_url;
+                if (!merged[invId]) merged[invId] = {};
+                if (item.type === 'whatsapp_shared') merged[invId].whatsapp = true;
+                if (item.type === 'email_shared') merged[invId].email = true;
+                if (item.type === 'sms_shared') merged[invId].sms = true;
+              }
+            }
+            try {
+              localStorage.setItem('invoice_shared_status', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Could not fetch downpayment invoice shared history:', err);
+      }
+    };
+
+    fetchSharedHistory();
+
+    const channel = supabase
+      .channel(`downpayment-shares-${targetUserId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${targetUserId}`
+        },
+        (payload) => {
+          const row = payload.new as { action_url?: string; type?: string };
+          if (row?.action_url && (row.type === 'whatsapp_shared' || row.type === 'email_shared' || row.type === 'sms_shared')) {
+            setSharedInvoices(prev => {
+              const updated = {
+                ...prev,
+                [row.action_url!]: {
+                   ...(prev[row.action_url!] || {}),
+                   ...(row.type === 'whatsapp_shared' ? { whatsapp: true } : {}),
+                   ...(row.type === 'email_shared' ? { email: true } : {}),
+                   ...(row.type === 'sms_shared' ? { sms: true } : {})
+                }
+              };
+              try {
+                localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(channel);
+    };
+  }, [targetUserId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -105,6 +225,27 @@ export default function DownpaymentInvoices() {
     searchTerm: debouncedSearch,
     statusFilter,
     typeFilter: 'downpayment'
+  });
+
+  // Query all downpayment invoices for the user to compute high-level KPI stat cards
+  const { data: allDownpaymentStats } = useQuery({
+    queryKey: ['downpayment-kpis', targetUserId],
+    queryFn: async () => {
+      if (!targetUserId) return null;
+      const client = (serviceSupabase || supabase) as any;
+      const { data, error } = await client
+        .from('invoices')
+        .select('id, status, total_amount, notes, due_date, invoice_number')
+        .eq('user_id', targetUserId)
+        .or('invoice_number.ilike.DP-%,invoice_number.ilike.DP%,notes.ilike.%is_downpayment%,notes.ilike.%downpayment%,notes.ilike.%down payment%,notes.ilike.%Vehicle:%,notes.ilike.%vehicle%,notes.ilike.%booking%');
+
+      if (error) {
+        console.warn('Error fetching downpayment stats:', error);
+        return null;
+      }
+      return data || [];
+    },
+    enabled: !!targetUserId
   });
 
   const isDownpaymentInvoice = useCallback((inv: Invoice) => {
@@ -133,6 +274,50 @@ export default function DownpaymentInvoices() {
   const totalCount = data?.totalCount || 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const loading = queryLoading || isPending || (searchLoading && invoices.length === 0);
+
+  // High-Level KPI Aggregates
+  const kpiStats = useMemo(() => {
+    const list = (allDownpaymentStats && allDownpaymentStats.length > 0) ? allDownpaymentStats : invoices;
+    let totalBookings = list.length;
+    let totalBookingValue = 0;
+    let totalCollected = 0;
+    let totalPending = 0;
+    let fullySettled = 0;
+
+    list.forEach((inv: any) => {
+      const total = Number(inv.total_amount || 0);
+      totalBookingValue += total;
+
+      const payment = extractPaymentDetails(inv);
+      if (inv.status === 'paid') {
+        totalCollected += total;
+        fullySettled += 1;
+      } else if (payment?.type === 'partial') {
+        const received = Number(payment.amountReceived || 0);
+        totalCollected += received;
+        totalPending += Math.max(0, total - received);
+      } else if (payment?.type === 'finance') {
+        const dp = Number(payment.finance?.downpayment || 0);
+        if (payment.finance?.disbursed) {
+          totalCollected += total;
+          fullySettled += 1;
+        } else {
+          totalCollected += dp;
+          totalPending += Math.max(0, total - dp);
+        }
+      } else {
+        totalPending += total;
+      }
+    });
+
+    return {
+      totalBookings: totalCount > totalBookings ? totalCount : totalBookings,
+      totalBookingValue,
+      totalCollected,
+      totalPending,
+      fullySettled
+    };
+  }, [allDownpaymentStats, invoices, totalCount]);
 
   const getCreatorTag = (terms?: string | null) => {
     if (terms && terms.startsWith('Created by:')) {
@@ -178,12 +363,13 @@ export default function DownpaymentInvoices() {
         product: item.product || item.products
       }));
 
+      const selectedTemplate = (settings as any)?.downpayment_template || (typeof window !== 'undefined' ? localStorage.getItem('downpayment_template') : '') || 'auto_dealership';
       const blob = await generateInvoicePDFBlob(
         invoiceData,
         clientDataForUtils,
         formattedItems,
         companyDataForUtils,
-        'auto_dealership',
+        selectedTemplate as any,
         currencySymbol
       );
 
@@ -239,12 +425,13 @@ export default function DownpaymentInvoices() {
         product: item.product || item.products
       }));
 
+      const selectedTemplate = (settings as any)?.downpayment_template || (typeof window !== 'undefined' ? localStorage.getItem('downpayment_template') : '') || 'auto_dealership';
       const html = await generateInvoiceHTML(
         invoiceData,
         clientDataForUtils,
         formattedItems,
         companyDataForUtils,
-        'auto_dealership',
+        selectedTemplate as any,
         currencySymbol
       );
 
@@ -317,6 +504,15 @@ export default function DownpaymentInvoices() {
     if (provider === 'personal') {
       const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(message)}`;
       window.open(waUrl, '_blank');
+      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
+      if (invoice.status === 'draft') {
+        try {
+          const clientToUse = serviceSupabase || supabase;
+          await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
+          queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
+        } catch {}
+      }
       return;
     }
 
@@ -339,6 +535,17 @@ export default function DownpaymentInvoices() {
 
       if (cloudApiError) throw cloudApiError;
 
+      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
+
+      if (invoice.status === 'draft') {
+        try {
+          const clientToUse = serviceSupabase || supabase;
+          await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
+          queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
+        } catch {}
+      }
+
       toast({
         title: "WhatsApp Message Sent ✅",
         description: `Downpayment receipt #${invoice.invoice_number} delivered successfully via WhatsApp API.`
@@ -351,10 +558,19 @@ export default function DownpaymentInvoices() {
       });
       const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(message)}`;
       window.open(waUrl, '_blank');
+      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
+      if (invoice.status === 'draft') {
+        try {
+          const clientToUse = serviceSupabase || supabase;
+          await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
+          queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
+        } catch {}
+      }
     }
   };
 
-  const handleShareSMS = (invoice: Invoice) => {
+  const handleShareSMS = async (invoice: Invoice) => {
     const phone = invoice.clients?.phone?.replace(/\D/g, '') || '';
     const vehicle = extractVehicleDetails({ notes: invoice.notes });
     const vehicleText = vehicle.model ? ` for ${vehicle.model}` : '';
@@ -362,6 +578,50 @@ export default function DownpaymentInvoices() {
       `Vehicle Booking Downpayment #${invoice.invoice_number}${vehicleText}. Amount: ${currencySymbol}${invoice.total_amount}. Thank you!`
     );
     window.open(`sms:${phone}?body=${text}`, '_blank');
+    await markInvoiceShared(invoice.id, 'sms', invoice.invoice_number);
+
+    if (invoice.status === 'draft') {
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
+        queryClient.invalidateQueries({ queryKey: ['invoices'] });
+        queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
+      } catch {}
+    }
+  };
+
+  const handleShareEmail = async (invoice: Invoice) => {
+    const email = invoice.clients?.email || '';
+    const vehicle = extractVehicleDetails(invoice);
+    const companyName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Dealership';
+    const totalFormatted = `${currencySymbol}${Number(invoice.total_amount || 0).toLocaleString('en-IN')}`;
+
+    const subject = encodeURIComponent(`Vehicle Booking Downpayment Receipt #${invoice.invoice_number} - ${companyName}`);
+    const body = encodeURIComponent(
+      `Dear ${invoice.clients?.name || 'Customer'},\n\n` +
+      `Thank you for booking with ${companyName}.\n\n` +
+      `Receipt Details:\n` +
+      `• Receipt No: #${invoice.invoice_number}\n` +
+      `• Total Amount: ${totalFormatted}\n` +
+      `• Status: ${invoice.status.toUpperCase()}\n` +
+      (vehicle.model ? `• Vehicle: ${vehicle.model}\n` : '') +
+      (vehicle.chassisNo ? `• Chassis/VIN: ${vehicle.chassisNo}\n` : '') +
+      (vehicle.engineNo ? `• Engine No: ${vehicle.engineNo}\n` : '') +
+      `\nPlease feel free to contact us if you have any questions.\n\n` +
+      `Warm regards,\n${companyName}`
+    );
+
+    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
+    await markInvoiceShared(invoice.id, 'email', invoice.invoice_number);
+
+    if (invoice.status === 'draft') {
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
+        queryClient.invalidateQueries({ queryKey: ['invoices'] });
+        queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
+      } catch {}
+    }
   };
 
   const handleOpenMarkPaid = (invoice: Invoice) => {
@@ -463,6 +723,8 @@ export default function DownpaymentInvoices() {
           payment_date: todayStr,
           payment_method: methodToUse,
           invoice_id: invoiceToMarkPaid.id,
+          purchase_invoice_id: null,
+          reference_number: transactionRef || '',
           user_id: targetUserId,
           notes: `Full payment for downpayment receipt #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
         });
@@ -509,6 +771,8 @@ export default function DownpaymentInvoices() {
           payment_date: todayStr,
           payment_method: methodToUse,
           invoice_id: invoiceToMarkPaid.id,
+          purchase_invoice_id: null,
+          reference_number: transactionRef || '',
           user_id: targetUserId,
           notes: `Partial payment of ${currencySymbol}${amtReceived} received for downpayment #${invoiceToMarkPaid.invoice_number}. Balance due: ${currencySymbol}${balPending}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
         });
@@ -566,8 +830,10 @@ export default function DownpaymentInvoices() {
           payment_date: todayStr,
           payment_method: methodToUse,
           invoice_id: invoiceToMarkPaid.id,
+          purchase_invoice_id: null,
+          reference_number: transactionRef || '',
           user_id: targetUserId,
-          notes: `Customer Downpayment/Margin money of ${currencySymbol}${dpAmt} for #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)} • Recorded by: ${creatorName}`
+          notes: `Customer Downpayment/Margin money of ${currencySymbol}${dpAmt} for #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
         });
 
         if (isDisbursed && loanAmt > 0) {
@@ -576,6 +842,8 @@ export default function DownpaymentInvoices() {
             payment_date: todayStr,
             payment_method: 'bank_transfer',
             invoice_id: invoiceToMarkPaid.id,
+            purchase_invoice_id: null,
+            reference_number: loanAccountNo || '',
             user_id: targetUserId,
             notes: `Vehicle loan disbursed by ${effectiveFinancier} for #${invoiceToMarkPaid.invoice_number}${loanAccountNo ? ` (Loan A/C: ${loanAccountNo})` : ''}`
           });
@@ -598,6 +866,7 @@ export default function DownpaymentInvoices() {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
       setMarkPaidDialogOpen(false);
       setInvoiceToMarkPaid(null);
     } catch (err: any) {
@@ -688,12 +957,85 @@ export default function DownpaymentInvoices() {
         <Button
           variant="default"
           size="lg"
-          onClick={() => navigate('/create-downpayment')}
+          onClick={() => navigate('/billing/create-invoice?type=downpayment')}
           className="w-full sm:w-auto h-11 bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md shadow-amber-600/20"
         >
           <Plus className="w-4 h-4 mr-2" />
           <span className="text-sm md:text-base">Create Downpayment Invoice</span>
         </Button>
+      </div>
+
+      {/* KPI Stats Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        {/* Card 1: Total Bookings */}
+        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-amber-500/30 transition-all">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Bookings</p>
+              <h3 className="text-xl md:text-2xl font-black text-foreground mt-1">{kpiStats.totalBookings}</h3>
+            </div>
+            <div className="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl shrink-0">
+              <Car className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
+            Value: <span className="font-bold text-foreground">{formatAmount(kpiStats.totalBookingValue)}</span>
+          </p>
+        </Card>
+
+        {/* Card 2: Advance Collected */}
+        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-emerald-500/30 transition-all">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Advance Collected</p>
+              <h3 className="text-xl md:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                {formatAmount(kpiStats.totalCollected)}
+              </h3>
+            </div>
+            <div className="p-2.5 bg-emerald-500/10 text-emerald-600 rounded-xl shrink-0">
+              <Coins className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
+            Margin money & tokens received
+          </p>
+        </Card>
+
+        {/* Card 3: Pending Balance */}
+        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-blue-500/30 transition-all">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pending Balance</p>
+              <h3 className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
+                {formatAmount(kpiStats.totalPending)}
+              </h3>
+            </div>
+            <div className="p-2.5 bg-blue-500/10 text-blue-600 rounded-xl shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
+            Awaiting disbursal / settlement
+          </p>
+        </Card>
+
+        {/* Card 4: Cleared & Disbursed */}
+        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-indigo-500/30 transition-all">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cleared / Disbursed</p>
+              <h3 className="text-xl md:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
+                {kpiStats.fullySettled}
+              </h3>
+            </div>
+            <div className="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl shrink-0">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+          </div>
+          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
+            100% cleared or disbursed
+          </p>
+        </Card>
       </div>
 
       {/* Search and Filters */}
@@ -753,7 +1095,7 @@ export default function DownpaymentInvoices() {
           {totalCount === 0 && (
             <Button
               variant="default"
-              onClick={() => navigate('/create-downpayment')}
+              onClick={() => navigate('/billing/create-invoice?type=downpayment')}
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-11 px-6 shadow-md"
             >
               <Plus className="w-4 h-4 mr-2" />
@@ -839,11 +1181,16 @@ export default function DownpaymentInvoices() {
                     <Button variant="outline" size="sm" onClick={() => handlePreviewInvoice(invoice)} className="h-9">
                       <Eye className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleShareWhatsApp(invoice)} className="h-9 text-emerald-600">
+                    <Button variant="outline" size="sm" onClick={() => handleShareWhatsApp(invoice)} className="h-9 text-emerald-600 relative">
                       <Send className="w-4 h-4" />
+                      {sharedInvoices[invoice.id]?.whatsapp && (
+                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-xs">
+                          ✓
+                        </span>
+                      )}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDownloadPDF(invoice)} className="h-9">
-                      <Download className="w-4 h-4" />
+                    <Button variant="outline" size="sm" onClick={() => handleDownloadPDF(invoice)} disabled={downloadingPDFId === invoice.id} className="h-9">
+                      {downloadingPDFId === invoice.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -855,12 +1202,23 @@ export default function DownpaymentInvoices() {
                         <DropdownMenuItem onClick={() => handlePrint(invoice)}>
                           <Printer className="mr-2 h-4 w-4" /> Print
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleShareEmail(invoice)}>
+                          <Mail className="mr-2 h-4 w-4 text-blue-600" />
+                          <span>Email</span>
+                          {sharedInvoices[invoice.id]?.email && (
+                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
+                          )}
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleShareSMS(invoice)}>
-                          <Smartphone className="mr-2 h-4 w-4" /> SMS
+                          <Smartphone className="mr-2 h-4 w-4 text-purple-600" />
+                          <span>SMS</span>
+                          {sharedInvoices[invoice.id]?.sms && (
+                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
+                          )}
                         </DropdownMenuItem>
                         {invoice.status !== 'paid' && (
                           <>
-                            <DropdownMenuItem onClick={() => navigate(`/invoices/${invoice.id}/edit?type=downpayment`)}>
+                            <DropdownMenuItem onClick={() => navigate(`/billing/invoices/${invoice.id}/edit?type=downpayment`)}>
                               <Pencil className="mr-2 h-4 w-4 text-amber-600" /> Edit
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleOpenMarkPaid(invoice)} className="text-emerald-600 font-semibold">
@@ -968,15 +1326,40 @@ export default function DownpaymentInvoices() {
                     <Button variant="outline" size="sm" onClick={() => handlePreviewInvoice(invoice)} title="Preview Receipt" className="h-9 w-9 p-0">
                       <Eye className="w-4 h-4" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleShareWhatsApp(invoice)} title="Share WhatsApp" className="h-9 w-9 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleShareWhatsApp(invoice)}
+                      title={sharedInvoices[invoice.id]?.whatsapp ? "WhatsApp (Already Sent)" : "Share via WhatsApp"}
+                      className="h-9 w-9 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 relative"
+                    >
                       <Send className="w-4 h-4" />
+                      {sharedInvoices[invoice.id]?.whatsapp && (
+                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-xs">
+                          ✓
+                        </span>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleShareEmail(invoice)}
+                      title={sharedInvoices[invoice.id]?.email ? "Email (Already Sent)" : "Share via Email"}
+                      className="h-9 w-9 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 relative"
+                    >
+                      <Mail className="w-4 h-4" />
+                      {sharedInvoices[invoice.id]?.email && (
+                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-xs">
+                          ✓
+                        </span>
+                      )}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => handleDownloadPDF(invoice)} disabled={downloadingPDFId === invoice.id} title="Download PDF" className="h-9 w-9 p-0">
                       {downloadingPDFId === invoice.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                     </Button>
                     {invoice.status !== 'paid' && (
                       <>
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/invoices/${invoice.id}/edit?type=downpayment`)} title="Edit Receipt" className="h-9 w-9 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50">
+                        <Button variant="ghost" size="sm" onClick={() => navigate(`/billing/invoices/${invoice.id}/edit?type=downpayment`)} title="Edit Receipt" className="h-9 w-9 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50">
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
@@ -1000,8 +1383,19 @@ export default function DownpaymentInvoices() {
                         <DropdownMenuItem onClick={() => handlePrint(invoice)}>
                           <Printer className="mr-2 h-4 w-4" /> Print
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleShareEmail(invoice)}>
+                          <Mail className="mr-2 h-4 w-4 text-blue-600" />
+                          <span>Email Receipt</span>
+                          {sharedInvoices[invoice.id]?.email && (
+                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
+                          )}
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleShareSMS(invoice)}>
-                          <Smartphone className="mr-2 h-4 w-4" /> Share SMS
+                          <Smartphone className="mr-2 h-4 w-4 text-purple-600" />
+                          <span>SMS Receipt</span>
+                          {sharedInvoices[invoice.id]?.sms && (
+                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
+                          )}
                         </DropdownMenuItem>
                         {invoice.status !== 'paid' && (
                           <DropdownMenuItem onClick={() => handleOpenMarkPaid(invoice)} className="text-emerald-600 font-semibold">
