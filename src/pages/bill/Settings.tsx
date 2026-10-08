@@ -1164,20 +1164,28 @@ const SettingsPage = () => {
         .from('company-assets')
         .getPublicUrl(fileName);
 
-      const signatureUrl = data.publicUrl;
-      setProfile({ ...profile, signature_url: signatureUrl });
+      const publicSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
+      setProfile({ ...profile, signature_url: publicSignatureUrl });
 
-      // Auto-save signature URL to database
+      try {
+        localStorage.setItem('escrow_company_signature_url', publicSignatureUrl);
+      } catch {}
+
+      // Auto-save signature URL to database table immediately
+      const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user.id;
       const { error: saveError } = await supabase
         .from('profiles')
         .upsert({
-          user_id: user.id,
-          signature_url: signatureUrl
+          user_id: targetUserId,
+          signature_url: publicSignatureUrl,
+          updated_at: new Date().toISOString()
         }, { onConflict: 'user_id' });
 
       if (saveError) {
         console.error('Error saving signature to database:', saveError);
       }
+
+      await refreshProfile(true);
 
       toast({
         title: "Success",
@@ -1186,6 +1194,9 @@ const SettingsPage = () => {
 
       // Invalidate queries to update Dashboard
       void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
+      if (targetUserId) {
+        void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
+      }
     } catch (error) {
       console.error('Error uploading signature:', error);
       toast({
@@ -1193,6 +1204,29 @@ const SettingsPage = () => {
         title: "Error",
         description: "Failed to upload signature."
       });
+    }
+  };
+
+  const handleRemoveSignature = async () => {
+    setProfile({ ...profile, signature_url: '' });
+    try {
+      localStorage.removeItem('escrow_company_signature_url');
+      const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+      if (targetUserId) {
+        await supabase
+          .from('profiles')
+          .update({ signature_url: null, updated_at: new Date().toISOString() })
+          .eq('user_id', targetUserId);
+        await refreshProfile(true);
+        void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
+        void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
+      }
+      toast({
+        title: "Signature Removed",
+        description: "Authorized signature has been removed."
+      });
+    } catch (err) {
+      console.error('Error removing signature:', err);
     }
   };
 
@@ -1229,6 +1263,12 @@ const SettingsPage = () => {
 
       if (data) {
         const pData = data as Partial<Profile>;
+        if (pData.logo_url) {
+          try { localStorage.setItem('escrow_company_logo_url', pData.logo_url); } catch {}
+        }
+        if (pData.signature_url) {
+          try { localStorage.setItem('escrow_company_signature_url', pData.signature_url); } catch {}
+        }
         setProfile({
           company_name: pData.company_name || '',
           business_address: pData.business_address || '',
@@ -2956,7 +2996,7 @@ const SettingsPage = () => {
                             <img src={profile.signature_url} alt="Sign" className="w-full h-full object-contain bg-white rounded-lg shadow-xs border p-1" />
                             {!isStaff && (
                               <button
-                                onClick={() => setProfile({ ...profile, signature_url: '' })}
+                                onClick={handleRemoveSignature}
                                 className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-all"
                               >
                                 <X className="w-3 h-3" />

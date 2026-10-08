@@ -267,18 +267,91 @@ export default function DownpaymentInvoices() {
     }
   };
 
-  const handleShareWhatsApp = (invoice: Invoice) => {
-    const phone = invoice.clients?.phone?.replace(/\D/g, '') || '';
-    const vehicle = extractVehicleDetails({ notes: invoice.notes });
-    const vehicleText = vehicle.model ? ` for vehicle ${vehicle.model}` : '';
-    const text = encodeURIComponent(
-      `Hello ${invoice.clients?.name || 'Customer'},\n\n` +
-      `Here is your vehicle booking downpayment receipt #${invoice.invoice_number}${vehicleText}.\n` +
-      `Amount Paid / Token: ${currencySymbol}${invoice.total_amount}\n` +
-      `Status: ${invoice.status.toUpperCase()}\n\n` +
-      `Thank you for booking with us!`
-    );
-    window.open(`https://wa.me/${phone ? (phone.startsWith('91') ? phone : `91${phone}`) : ''}?text=${text}`, '_blank');
+  const handleShareWhatsApp = async (invoice: Invoice) => {
+    const rawPhone = invoice.clients?.phone || '';
+    const digitsOnly = rawPhone.replace(/\D/g, '');
+    let phoneWithCC = digitsOnly;
+    if (rawPhone.trim().startsWith('+')) {
+      phoneWithCC = digitsOnly;
+    } else if (digitsOnly.length === 10) {
+      phoneWithCC = `91${digitsOnly}`;
+    }
+
+    const vehicle = extractVehicleDetails(invoice);
+    const vehicleText = vehicle.model ? `\n🚗 Vehicle: ${vehicle.model}` : '';
+    const chassisText = vehicle.chassisNo ? `\n🔢 Chassis/VIN: ${vehicle.chassisNo}` : '';
+    const companyName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Dealership';
+
+    const message = [
+      `Hello ${invoice.clients?.name || 'Customer'},`,
+      ``,
+      `Here is your vehicle booking downpayment receipt from *${companyName}*:`,
+      ``,
+      `📄 Receipt No: #${invoice.invoice_number}`,
+      `💰 Amount: ${currencySymbol}${Number(invoice.total_amount || 0).toLocaleString('en-IN')}`,
+      `📌 Status: ${invoice.status.toUpperCase()}`,
+      `${vehicleText}${chassisText}`,
+      ``,
+      `Thank you for booking with us!`,
+      `_Powered by ESCROW BILL_`
+    ].filter(Boolean).join('\n');
+
+    // Check user settings for whatsapp_provider
+    let provider = 'meta';
+    try {
+      const clientToUse = (serviceSupabase || supabase) as any;
+      const ownerId = (invoice as any)?.user_id || targetUserId;
+      const { data: settings } = await clientToUse
+        .from('user_settings')
+        .select('whatsapp_provider')
+        .eq('user_id', ownerId)
+        .maybeSingle();
+      if (settings?.whatsapp_provider) {
+        provider = settings.whatsapp_provider;
+      }
+    } catch (e) {
+      // fallback
+    }
+
+    // 1. Personal WhatsApp Mode: Direct Open
+    if (provider === 'personal') {
+      const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(message)}`;
+      window.open(waUrl, '_blank');
+      return;
+    }
+
+    // 2. WhatsApp Cloud API / Edge Function Mode
+    try {
+      toast({
+        title: "Sending via WhatsApp API...",
+        description: `Delivering downpayment receipt #${invoice.invoice_number} to ${phoneWithCC || 'customer'}...`
+      });
+
+      const { error: cloudApiError } = await (serviceSupabase || supabase).functions.invoke('send-invoice-whatsapp', {
+        body: {
+          invoiceId: invoice.id,
+          recipientPhone: phoneWithCC,
+          message,
+          companyName,
+          clientName: invoice.clients?.name || 'Customer'
+        }
+      });
+
+      if (cloudApiError) throw cloudApiError;
+
+      toast({
+        title: "WhatsApp Message Sent ✅",
+        description: `Downpayment receipt #${invoice.invoice_number} delivered successfully via WhatsApp API.`
+      });
+    } catch (apiErr) {
+      console.warn('WhatsApp API send failed, opening personal WhatsApp fallback:', apiErr);
+      toast({
+        title: "WhatsApp Cloud API Notice",
+        description: "API delivery could not be completed. Opening WhatsApp directly...",
+      });
+      const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(message)}`;
+      window.open(waUrl, '_blank');
+    }
   };
 
   const handleShareSMS = (invoice: Invoice) => {
@@ -379,7 +452,6 @@ export default function DownpaymentInvoices() {
           .update({
             status: 'paid',
             payment_date: todayStr,
-            paid_at: new Date().toISOString(),
             notes: updatedNotes
           })
           .eq('id', invoiceToMarkPaid.id);
@@ -483,7 +555,6 @@ export default function DownpaymentInvoices() {
           .update({
             status: newStatus,
             payment_date: todayStr,
-            paid_at: isDisbursed ? new Date().toISOString() : null,
             notes: updatedNotes
           })
           .eq('id', invoiceToMarkPaid.id);

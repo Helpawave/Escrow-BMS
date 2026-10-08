@@ -119,7 +119,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const [emailConfirmationOpen, setEmailConfirmationOpen] = useState(false);
   const [fullInvoice, setFullInvoice] = useState<Invoice | null>(null);
 
-  const { user, effectiveUserId, isStaff, companyProfile } = useAuth();
+  const { user, effectiveUserId, isStaff, companyProfile, profile } = useAuth();
   const { toast } = useToast();
 
   const fetchInvoiceData = useCallback(async () => {
@@ -170,7 +170,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       const { data: profileData } = await (clientToUse as any)
         .from('profiles')
         .select('*')
-        .eq('user_id', targetOwnerId)
+        .or(`user_id.eq.${targetOwnerId},id.eq.${targetOwnerId}`)
         .maybeSingle();
 
       // Fetch user settings for template and default terms
@@ -236,17 +236,19 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       })) || []);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const prof = (profileData as unknown as any) || (companyProfile as any) || {};
+      const prof = (profileData as unknown as any) || (companyProfile as any) || (profile as any) || {};
+      const storedLogo = typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_logo_url') || '') : '';
+      const storedSign = typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_signature_url') || '') : '';
       setCompany({
-        company_name: prof?.company_name || '',
-        email: prof?.email || user?.email || '',
-        phone: prof?.phone || '',
-        mobile: prof?.mobile || '',
-        business_address: prof?.business_address || '',
-        gstin: prof?.gstin || '',
-        logo_url: prof?.logo_url || '',
-        website: prof?.website || '',
-        signature_url: prof?.signature_url || '',
+        company_name: prof?.company_name || (companyProfile as any)?.company_name || (profile as any)?.company_name || '',
+        email: prof?.email || (companyProfile as any)?.email || (profile as any)?.email || user?.email || '',
+        phone: prof?.phone || (companyProfile as any)?.phone || (profile as any)?.phone || '',
+        mobile: prof?.mobile || (companyProfile as any)?.mobile || (profile as any)?.mobile || '',
+        business_address: prof?.business_address || (companyProfile as any)?.business_address || (profile as any)?.business_address || '',
+        gstin: prof?.gstin || (companyProfile as any)?.gstin || (profile as any)?.gstin || '',
+        logo_url: prof?.logo_url || (companyProfile as any)?.logo_url || (profile as any)?.logo_url || storedLogo || '',
+        website: prof?.website || (companyProfile as any)?.website || (profile as any)?.website || '',
+        signature_url: prof?.signature_url || (companyProfile as any)?.signature_url || (profile as any)?.signature_url || storedSign || '',
         upi_qr_url: prof?.upi_qr_url || '',
         upi_id: prof?.upi_id || '',
         bank_name: prof?.bank_name || '',
@@ -263,7 +265,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [invoice, user, effectiveUserId, isStaff, companyProfile]);
+  }, [invoice, user, effectiveUserId, isStaff, companyProfile, profile]);
 
   useEffect(() => {
     if (invoice && open) {

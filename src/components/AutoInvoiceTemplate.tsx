@@ -160,6 +160,9 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
     return invoice.notes.replace(/\[META:.*?\]/g, '').replace(/--- VEHICLE BOOKING DETAILS ---[\s\S]*?(?=\n\n|$)/g, '').trim();
   }, [invoice?.notes]);
 
+  const effectiveLogoUrl = company?.logo_url || company?.logo || company?.company_logo || (typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_logo_url') || '') : '') || '';
+  const effectiveSignatureUrl = company?.signature_url || company?.signature || company?.signature_image || (typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_signature_url') || '') : '') || '';
+
   // =========================================================================
   // 1. SHOWROOM DEALERSHIP SLIP (auto_dealership)
   // =========================================================================
@@ -169,10 +172,18 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
         {/* Dealership Top Banner */}
         <div className="border-b-2 border-slate-900 pb-4 flex flex-col sm:flex-row justify-between items-start gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 bg-red-600 text-white rounded-lg">
-                <Car className="w-5 h-5" />
-              </span>
+            <div className="flex items-center gap-3">
+              {effectiveLogoUrl ? (
+                <img
+                  src={effectiveLogoUrl}
+                  alt={company.company_name || 'Logo'}
+                  className="max-h-14 max-w-[150px] object-contain rounded-md"
+                />
+              ) : (
+                <span className="p-1.5 bg-red-600 text-white rounded-lg">
+                  <Car className="w-5 h-5" />
+                </span>
+              )}
               <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900">
                 {company.company_name || 'AUTHORIZED AUTOMOBILE DEALERSHIP'}
               </h1>
@@ -337,7 +348,16 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
               <div className="w-32 border-b border-slate-400 mb-1"></div>
               <p className="text-[10px] font-bold text-slate-600 uppercase">Customer Signature</p>
             </div>
-            <div className="text-center">
+            <div className="text-center flex flex-col items-center">
+              {effectiveSignatureUrl ? (
+                <img
+                  src={effectiveSignatureUrl}
+                  alt="Authorized Signatory"
+                  className="h-12 max-h-12 object-contain mix-blend-multiply mb-1"
+                />
+              ) : (
+                <div className="h-10"></div>
+              )}
               <div className="w-36 border-b border-slate-900 mb-1"></div>
               <p className="text-[10px] font-black text-slate-900 uppercase">Authorized Dealer Signatory</p>
             </div>
@@ -355,12 +375,21 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
       <div className="invoice-template bg-white text-slate-900 p-6 sm:p-8 max-w-4xl mx-auto rounded-2xl shadow-xl border border-slate-200 font-sans">
         {/* Header with Dark Modern Drive Banner */}
         <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-amber-950 text-white p-6 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-amber-400 text-xs font-black uppercase tracking-widest">
-              <Car className="w-4 h-4" /> Automotive Booking Receipt
+          <div className="flex items-center gap-3">
+            {effectiveLogoUrl ? (
+              <img
+                src={effectiveLogoUrl}
+                alt="Logo"
+                className="max-h-14 max-w-[140px] object-contain rounded bg-white/10 p-1"
+              />
+            ) : null}
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-amber-400 text-xs font-black uppercase tracking-widest">
+                <Car className="w-4 h-4" /> Automotive Booking Receipt
+              </div>
+              <h1 className="text-2xl font-black text-white tracking-tight">{company.company_name || 'ELITE MOTORS'}</h1>
+              <p className="text-xs text-slate-300">{company.city || 'Gurugram'}, {company.state || 'Haryana'} • Tel: {company.phone || '+91 9876543210'}</p>
             </div>
-            <h1 className="text-2xl font-black text-white tracking-tight">{company.company_name || 'ELITE MOTORS'}</h1>
-            <p className="text-xs text-slate-300">{company.city || 'Gurugram'}, {company.state || 'Haryana'} • Tel: {company.phone || '+91 9876543210'}</p>
           </div>
           <div className="bg-white/10 backdrop-blur-md p-3 rounded-lg border border-white/20 text-right">
             <span className="text-[10px] uppercase font-bold text-amber-300 block">Voucher No</span>
@@ -439,8 +468,13 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
         {/* Footer */}
         <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-500">
           <p>© {company.company_name || 'Dealership'} • Computer Generated Downpayment Slip</p>
-          <div className="text-right font-bold text-slate-800">
-            Authorized Signature: _______________________
+          <div className="flex flex-col items-end">
+            {effectiveSignatureUrl && (
+              <img src={effectiveSignatureUrl} alt="Signature" className="h-10 max-h-10 object-contain mix-blend-multiply mb-1" />
+            )}
+            <div className="text-right font-bold text-slate-800">
+              Authorized Signature: _______________________
+            </div>
           </div>
         </div>
       </div>
@@ -454,6 +488,9 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
     return (
       <div className="invoice-template bg-white text-slate-900 p-6 sm:p-8 max-w-4xl mx-auto border-2 border-slate-900 font-serif">
         <div className="text-center pb-3 border-b-2 border-slate-900">
+          {effectiveLogoUrl && (
+            <img src={effectiveLogoUrl} alt="Logo" className="max-h-14 max-w-[140px] mx-auto object-contain mb-1" />
+          )}
           <h1 className="text-xl sm:text-2xl font-bold uppercase tracking-wider text-slate-900">{company.company_name || 'AUTOMOTIVE AGENCY'}</h1>
           <p className="text-xs italic">{company.business_address || 'Main Road Showroom'}, {company.city || 'New Delhi'}</p>
           <p className="text-xs font-mono font-bold mt-1">VEHICLE BOOKING ORDER & ADVANCE RECEIPT</p>
@@ -511,9 +548,14 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
           <span className="text-base font-black">{currencySymbol}{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
         </div>
 
-        <div className="pt-10 flex justify-between text-xs font-bold">
+        <div className="pt-10 flex justify-between items-end text-xs font-bold">
           <div>Customer Signature</div>
-          <div>For {company.company_name || 'Dealer'}<br /><span className="text-[10px] font-normal">(Authorized Signatory)</span></div>
+          <div className="text-right flex flex-col items-end">
+            {effectiveSignatureUrl && (
+              <img src={effectiveSignatureUrl} alt="Sign" className="h-10 max-h-10 object-contain mix-blend-multiply mb-1" />
+            )}
+            <div>For {company.company_name || 'Dealer'}<br /><span className="text-[10px] font-normal">(Authorized Signatory)</span></div>
+          </div>
         </div>
       </div>
     );
@@ -526,12 +568,17 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
     return (
       <div className="invoice-template bg-white text-slate-900 p-6 sm:p-8 max-w-4xl mx-auto border border-blue-900/40 rounded-xl shadow-xl font-sans">
         <div className="border-b-4 border-blue-900 pb-4 flex justify-between items-center">
-          <div>
-            <span className="text-xs font-black uppercase text-blue-900 tracking-widest flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-amber-500" /> Executive Vehicle Confirmation
-            </span>
-            <h1 className="text-2xl font-black text-slate-900 mt-1">{company.company_name || 'PREMIUM AUTOMOBILES'}</h1>
-            <p className="text-xs text-slate-600">{company.business_address} • GSTIN: {company.gstin || '07AAAAA0000A1Z5'}</p>
+          <div className="flex items-center gap-3">
+            {effectiveLogoUrl && (
+              <img src={effectiveLogoUrl} alt="Logo" className="max-h-14 max-w-[140px] object-contain rounded" />
+            )}
+            <div>
+              <span className="text-xs font-black uppercase text-blue-900 tracking-widest flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-500" /> Executive Vehicle Confirmation
+              </span>
+              <h1 className="text-2xl font-black text-slate-900 mt-1">{company.company_name || 'PREMIUM AUTOMOBILES'}</h1>
+              <p className="text-xs text-slate-600">{company.business_address} • GSTIN: {company.gstin || '07AAAAA0000A1Z5'}</p>
+            </div>
           </div>
           <div className="text-right">
             <span className="text-xs font-mono font-bold bg-blue-900 text-white px-3 py-1 rounded-md">
@@ -611,7 +658,10 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
               <p>Scan to verify booking deposit</p>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-right flex flex-col items-end">
+            {effectiveSignatureUrl && (
+              <img src={effectiveSignatureUrl} alt="Signature" className="h-10 max-h-10 object-contain mix-blend-multiply mb-1" />
+            )}
             <p className="font-bold text-slate-800">Executive Signature</p>
             <p className="text-[10px] text-slate-500">Authorized Dealer Stamp</p>
           </div>
@@ -626,6 +676,9 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
   return (
     <div className="invoice-template bg-white text-slate-900 p-5 max-w-md mx-auto border-2 border-dashed border-slate-400 font-mono text-xs shadow-md">
       <div className="text-center pb-2 border-b border-dashed border-slate-400 space-y-0.5">
+        {effectiveLogoUrl && (
+          <img src={effectiveLogoUrl} alt="Logo" className="max-h-10 max-w-[100px] mx-auto object-contain mb-1" />
+        )}
         <h2 className="font-black text-sm uppercase">{company.company_name || 'AUTO BOOKING DESK'}</h2>
         <p className="text-[10px] text-slate-600">TOKEN ADVANCE RECEIPT</p>
         <p className="text-[11px] font-bold text-slate-900">SLIP #{invoice.invoice_number}</p>
