@@ -198,6 +198,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data) {
         setProfile(data as Profile);
         try { localStorage.setItem('escrow_cached_profile', JSON.stringify(data)); } catch { }
+        if ((data as any).logo_url) {
+          try { localStorage.setItem('escrow_company_logo_url', (data as any).logo_url); } catch { }
+        }
+        if ((data as any).signature_url) {
+          try { localStorage.setItem('escrow_company_signature_url', (data as any).signature_url); } catch { }
+        }
       }
 
       // Check if user is a staff member from profile or employees
