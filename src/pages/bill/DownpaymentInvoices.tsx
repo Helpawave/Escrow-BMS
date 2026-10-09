@@ -711,7 +711,6 @@ export default function DownpaymentInvoices() {
           .from('invoices')
           .update({
             status: 'paid',
-            payment_date: todayStr,
             notes: updatedNotes
           })
           .eq('id', invoiceToMarkPaid.id);
@@ -725,7 +724,7 @@ export default function DownpaymentInvoices() {
           invoice_id: invoiceToMarkPaid.id,
           purchase_invoice_id: null,
           reference_number: transactionRef || '',
-          user_id: targetUserId,
+          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
           notes: `Full payment for downpayment receipt #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
         });
 
@@ -758,7 +757,6 @@ export default function DownpaymentInvoices() {
           .from('invoices')
           .update({
             status: 'sent',
-            payment_date: todayStr,
             due_date: balanceDueDate || invoiceToMarkPaid.due_date,
             notes: updatedNotes
           })
@@ -773,7 +771,7 @@ export default function DownpaymentInvoices() {
           invoice_id: invoiceToMarkPaid.id,
           purchase_invoice_id: null,
           reference_number: transactionRef || '',
-          user_id: targetUserId,
+          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
           notes: `Partial payment of ${currencySymbol}${amtReceived} received for downpayment #${invoiceToMarkPaid.invoice_number}. Balance due: ${currencySymbol}${balPending}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
         });
 
@@ -818,7 +816,6 @@ export default function DownpaymentInvoices() {
           .from('invoices')
           .update({
             status: newStatus,
-            payment_date: todayStr,
             notes: updatedNotes
           })
           .eq('id', invoiceToMarkPaid.id);
@@ -832,7 +829,7 @@ export default function DownpaymentInvoices() {
           invoice_id: invoiceToMarkPaid.id,
           purchase_invoice_id: null,
           reference_number: transactionRef || '',
-          user_id: targetUserId,
+          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
           notes: `Customer Downpayment/Margin money of ${currencySymbol}${dpAmt} for #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
         });
 
@@ -844,7 +841,7 @@ export default function DownpaymentInvoices() {
             invoice_id: invoiceToMarkPaid.id,
             purchase_invoice_id: null,
             reference_number: loanAccountNo || '',
-            user_id: targetUserId,
+            user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
             notes: `Vehicle loan disbursed by ${effectiveFinancier} for #${invoiceToMarkPaid.invoice_number}${loanAccountNo ? ` (Loan A/C: ${loanAccountNo})` : ''}`
           });
         }
@@ -856,6 +853,18 @@ export default function DownpaymentInvoices() {
 
       if (paymentRecordsToInsert.length > 0) {
         await (clientToUse as any).from('payments').insert(paymentRecordsToInsert);
+      }
+
+      try {
+        await (clientToUse as any).from('notifications').insert({
+          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+          title: newStatus === 'paid' ? 'Downpayment Receipt Paid' : 'Downpayment Payment Recorded',
+          message: summaryToast,
+          type: 'invoice_status_update',
+          action_url: `/dashboard/downpayment-invoices`
+        });
+      } catch (notifyErr) {
+        console.warn('Notification log skipped:', notifyErr);
       }
 
       toast({
