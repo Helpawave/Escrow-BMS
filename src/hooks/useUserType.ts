@@ -177,8 +177,11 @@ export function useUserType() {
 
     ensureGlobalChannel(targetUserId, companyName);
 
+    let lastFocusFetchTime = 0;
     const onFocus = () => {
-      if (targetUserId) {
+      const now = Date.now();
+      if (targetUserId && now - lastFocusFetchTime > 30000) {
+        lastFocusFetchTime = now;
         void fetchUserTypeGlobal(targetUserId, companyName);
       }
     };

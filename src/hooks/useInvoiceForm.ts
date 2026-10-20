@@ -183,11 +183,23 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     if (!targetUserId) return;
     try {
       const clientToUse = serviceSupabase || supabase;
-      const { data, error } = await clientToUse
+      let { data, error } = await clientToUse
         .from('user_settings')
         .select('hide_company_details, default_currency, default_payment_terms, default_terms')
         .eq('user_id', targetUserId)
         .maybeSingle();
+
+      if (error) {
+        // Fallback without default_terms in case the column is not yet in the DB schema
+        const fallback = await clientToUse
+          .from('user_settings')
+          .select('hide_company_details, default_currency, default_payment_terms')
+          .eq('user_id', targetUserId)
+          .maybeSingle();
+        data = fallback.data;
+        error = fallback.error;
+      }
+
       if (!error && data) {
         const s = data as unknown as {
           hide_company_details?: boolean;
@@ -741,15 +753,25 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
     setCreatingClient(true);
     try {
       const clientToUse = serviceSupabase || supabase;
-      const { data, error } = await clientToUse
+      let res = await clientToUse
         .from('clients')
         .insert([{ ...newClientFormData, user_id: targetUserId }])
         .select()
         .single();
 
-      if (error) throw error;
+      if (res.error) {
+        // Fallback without hide_contact_details in case the column is not yet in DB schema
+        const { hide_contact_details, ...clientPayloadWithoutHide } = newClientFormData;
+        res = await clientToUse
+          .from('clients')
+          .insert([{ ...clientPayloadWithoutHide, user_id: targetUserId }])
+          .select()
+          .single();
+      }
 
-      const newClient = data as unknown as Client;
+      if (res.error) throw res.error;
+
+      const newClient = res.data as unknown as Client;
       setClients(prev => [...prev, newClient].sort((a, b) => a.name.localeCompare(b.name)));
       setFormData(prev => ({ ...prev, client_id: newClient.id }));
       
