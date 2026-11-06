@@ -39,9 +39,8 @@ export const supabase = (() => {
 
 export const serviceSupabase = (() => {
   if (serviceSupabaseInstance) return serviceSupabaseInstance;
-  const key = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_PUBLISHABLE_KEY;
-  if (SUPABASE_URL && key) {
-    serviceSupabaseInstance = createClient<any>(SUPABASE_URL, key, {
+  if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+    serviceSupabaseInstance = createClient<any>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -54,8 +53,8 @@ export const serviceSupabase = (() => {
       },
       global: {
         headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
+          apikey: SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         },
       },
     });

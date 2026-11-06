@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase as rawSupabase, serviceSupabase } from "@/integrations/supabase/client";
-const supabase = (serviceSupabase || rawSupabase) as any;
+import { supabase } from "@/integrations/supabase/client";
 
 interface Vendor {
   id: string;
