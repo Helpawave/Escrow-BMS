@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Edit, Trash2, Users, FileText, BookOpen, EyeOff, User, MapPin, ShieldCheck, Check, Info, CreditCard, Search, Loader2 } from "lucide-react";
-import { supabase as rawSupabase } from "@/integrations/supabase/client";
-const supabase = rawSupabase as any;
+import { supabase as rawSupabase, serviceSupabase } from "@/integrations/supabase/client";
+const supabase = (serviceSupabase || rawSupabase) as any;
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -287,7 +287,7 @@ const ClientsPage = () => {
         throw new Error("Please log in to save client details.");
       }
 
-      const { hide_contact_details, ...payloadData } = formData;
+      const { hide_contact_details, status, ...payloadData } = formData;
       const finalizedData = {
         ...payloadData,
         gstin: formData.gstin.trim(),
@@ -521,12 +521,10 @@ const ClientsPage = () => {
           <p className="text-muted-foreground mt-1 text-sm">Manage your client relationships</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button variant="default" size="lg" className="w-full sm:w-auto h-11" onClick={resetForm}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Client
-            </Button>
-          </DialogTrigger>
+          <Button variant="default" size="lg" className="w-full sm:w-auto h-11" onClick={() => { resetForm(); setDialogOpen(true); }}>
+            <Plus className="w-4 h-4 mr-2" />
+            Add Client
+          </Button>
           <DialogContent className="sm:max-w-[700px] p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background max-h-[90vh] flex flex-col">
             <DialogHeader className="p-4 md:p-8 pb-4 shrink-0">
               <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">

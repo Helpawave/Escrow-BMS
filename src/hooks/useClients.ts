@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as rawSupabase, serviceSupabase } from "@/integrations/supabase/client";
+const supabase = (serviceSupabase || rawSupabase) as any;
 import { syncClientsAndLedgerParties } from "@/utils/erpPosting";
 
 interface Client {

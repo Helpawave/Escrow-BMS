@@ -1,5 +1,5 @@
-import { supabase as baseSupabase } from "@/integrations/supabase/client";
-const supabase = baseSupabase as any;
+import { supabase as baseSupabase, serviceSupabase } from "@/integrations/supabase/client";
+const supabase = (serviceSupabase || baseSupabase) as any;
 
 /**
  * Central ERP Auto-Posting Service
@@ -682,7 +682,6 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
             company: payload.companyName || trimmedName,
             status: 'new',
             value: 0,
-            source: 'Universal Directory',
             created_date: new Date().toISOString().split('T')[0]
           }]);
         }
