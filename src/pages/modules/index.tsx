@@ -32,6 +32,8 @@ const LedgerBalanceSheet = React.lazy(() => import('../ledger/BalanceSheet'));
 const LedgerProfitLoss = React.lazy(() => import('../ledger/ProfitLossReport'));
 const LedgerPartyReport = React.lazy(() => import('../ledger/PartyReport'));
 const LedgerTransactionReport = React.lazy(() => import('../ledger/TransactionReport'));
+const LedgerBackupPage = React.lazy(() => import('../ledger/BackupPage'));
+const LedgerViewStatement = React.lazy(() => import('../ledger/ViewStatement'));
 const LedgerAdminLogin = React.lazy(() => import('../ledger/AdminLogin'));
 const LedgerAdminDashboard = React.lazy(() => import('../ledger/AdminDashboard'));
 
@@ -106,6 +108,11 @@ export function LedgerModule() {
         <Route path="/reports/profit-loss" element={<LedgerProfitLoss />} />
         <Route path="/reports/parties" element={<LedgerPartyReport />} />
         <Route path="/reports/transactions" element={<LedgerTransactionReport />} />
+        <Route path="/backup" element={<LedgerBackupPage />} />
+        <Route path="/online-backup" element={<LedgerBackupPage />} />
+        <Route path="/configure/backup" element={<LedgerBackupPage />} />
+        <Route path="/configure/online-backup" element={<LedgerBackupPage />} />
+        <Route path="/view-statement" element={<LedgerViewStatement />} />
         <Route path="/admin" element={<LedgerAdminLogin />} />
         <Route path="/admin/dashboard" element={<LedgerAdminDashboard />} />
         <Route path="*" element={<Navigate to="" replace />} />

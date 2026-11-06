@@ -14,6 +14,7 @@ import { ShieldAlert, Sparkles, Building2, User, Phone, DollarSign, Loader2, Cre
 import { SubscriptionModal } from '@/components/SubscriptionModal';
 import { CompulsoryBusinessCountryModal } from '@/components/common/CompulsoryBusinessCountryModal';
 import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
+import { AutoBackupManager } from '@/components/backup/AutoBackupManager';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DropdownMenu,
@@ -281,6 +282,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* Main content */}
       <div className={cn("flex-1 flex flex-col min-w-0 w-full overflow-hidden transition-all duration-300", shouldBlockWorkspace && "blur-[1.5px] pointer-events-none grayscale-[0.2]")}>
+        <AutoBackupManager />
         <Topbar onMenuToggle={() => setMobileOpen(!mobileOpen)} />
         <main ref={mainRef} className="flex-1 overflow-y-auto p-3 sm:p-6 w-full max-w-full overflow-x-hidden scroll-smooth">
           <div className="max-w-7xl mx-auto w-full">

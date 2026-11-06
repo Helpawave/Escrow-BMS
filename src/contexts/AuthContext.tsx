@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState, useMemo, useRef 
 import { supabase } from '@/integrations/supabase/client';
 import { syncUserAcrossAllModules, ensureDefaultLedgerParties } from '@/utils/erpPosting';
 import { generateAccountId } from '@/utils/accountId';
+import { checkIsRegularUser, type AccountType } from '@/utils/userType';
 
 // ── Types ──────────────────────────────────────────────────────
 export interface Profile {
@@ -118,6 +119,8 @@ export interface AuthContextValue {
   isBusinessSetup: boolean;
   isSupabaseConnected: boolean;
   hasRole: (...roles: string[]) => boolean;
+  isRegularUser: boolean;
+  accountType: AccountType;
   refreshUser?: () => Promise<void>;
   checkUserApprovalStatus?: () => Promise<void>;
 }
@@ -600,11 +603,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [profile]);
 
+  const isRegularUser = useMemo(() => checkIsRegularUser(user, profile), [user, profile]);
+  const accountType: AccountType = isRegularUser ? 'regular' : 'ca';
+
   return (
     <AuthContext.Provider value={{
       user,
       session,
       profile,
+      isRegularUser,
+      accountType,
       role: profile?.role || null,
       userRoles,
       loading,

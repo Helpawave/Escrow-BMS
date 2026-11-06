@@ -21,7 +21,9 @@ import {
   ChevronRight,
   Check,
   Menu,
-  X
+  X,
+  Building2,
+  Send
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,11 +37,20 @@ import { ConfirmDialog } from '@/components/ledger/ConfirmDialog';
 import { DcReportModal } from '@/components/ledger/DcReportModal';
 import { LedgerPrintLayout } from '@/components/ledger/LedgerPrintLayout';
 import { PrintConfigModal } from '@/components/ledger/PrintConfigModal';
+import { WhatsAppReportModal } from '@/components/ledger/WhatsAppReportModal';
 
 // Hook and Type Imports
 import { useLedgerTransactions, type Party } from '@/hooks/useLedgerTransactions';
 
 const ITEMS_PER_PAGE = 20;
+
+const getTodayDateStr = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const formatTime = (dateStr?: string) => {
   if (!dateStr) return '-';
@@ -58,8 +69,11 @@ const formatTime = (dateStr?: string) => {
 const LedgerView = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user: authUser, profile } = useAuth();
+  const { user: authUser, profile, isRegularUser } = useAuth();
   const { currencySymbol, currencyCode } = useCurrency();
+
+  // isRegularUser = LOFFERS DTF-style: quantity * rate entry, single-transfer mode
+  const isLofferUser = isRegularUser;
   
   // Parties state and caching logic
   const [parties, setParties] = useState<Party[]>(() => {
@@ -70,7 +84,6 @@ const LedgerView = () => {
       return [];
     }
   });
-  const [partyBalances, setPartyBalances] = useState<Map<string, number>>(new Map());
 
   const [loading, setLoading] = useState(() => {
     try {
@@ -93,11 +106,15 @@ const LedgerView = () => {
   const [printStartDate, setPrintStartDate] = useState('');
   const [printEndDate, setPrintEndDate] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
 
   
   // Entry Form inputs
+  const [entryDate, setEntryDate] = useState<string>(getTodayDateStr);
   const [amount, setAmount] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [rate, setRate] = useState('');
   const [linkedParty, setLinkedParty] = useState<Party | null>(null);
   const [linkedSearch, setLinkedSearch] = useState('');
   
@@ -110,6 +127,8 @@ const LedgerView = () => {
   // Focus and layout refs
   const searchInputRef = useRef<HTMLInputElement>(null);
   const amountInputRef = useRef<HTMLInputElement>(null);
+  const quantityInputRef = useRef<HTMLInputElement>(null);
+  const rateInputRef = useRef<HTMLInputElement>(null);
   const linkedSearchRef = useRef<HTMLInputElement>(null);
   const remarksInputRef = useRef<HTMLInputElement>(null);
   const headerSearchRef = useRef<HTMLInputElement>(null);
@@ -556,12 +575,30 @@ const LedgerView = () => {
 
   const handleSubmitEntry = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedParty || !amount || parseFloat(amount) === 0 || !linkedParty) return;
+    if (!selectedParty || !linkedParty) return;
+
+    let finalAmount = amount;
+    let finalRemarks = remarks;
+
+    // For LOFFERS DTF (isLofferUser): compute amount from quantity * rate if provided
+    if (isLofferUser && quantity && rate) {
+      const q = parseFloat(quantity);
+      const r = parseFloat(rate);
+      if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) {
+        finalAmount = (q * r).toFixed(2);
+        const calcText = `${quantity} * ${rate}`;
+        finalRemarks = remarks ? `${remarks} (${calcText})` : calcText;
+      }
+    }
+
+    if (!finalAmount || parseFloat(finalAmount) === 0) return;
     
-    const success = await createTransactionEntry(amount, remarks, linkedParty);
+    const success = await createTransactionEntry(finalAmount, finalRemarks, linkedParty);
     if (success) {
       setAmount('');
       setRemarks('');
+      setQuantity('');
+      setRate('');
       setLinkedParty(null);
       setLinkedSearch('');
       linkedSearchRef.current?.focus();
@@ -704,6 +741,12 @@ const LedgerView = () => {
       icon: <Printer className="w-4 h-4" />, 
       color: 'bg-slate-100 text-slate-600', 
       action: () => setIsPrintModalOpen(true) 
+    },
+    { 
+      name: 'WhatsApp', 
+      icon: <Send className="w-4 h-4" />, 
+      color: 'bg-green-600 text-white shadow-md shadow-green-200', 
+      action: () => setIsWhatsAppModalOpen(true) 
     },
     { 
       name: 'Check All', 
@@ -1242,6 +1285,44 @@ const LedgerView = () => {
                     </div>
                     <div className="space-y-1.5 md:col-span-1">
                       <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Amount ({currencySymbol || '₹'})</label>
+                      {isLofferUser ? (
+                        <div className="flex gap-2">
+                          <input
+                            ref={quantityInputRef}
+                            type="number"
+                            step="1"
+                            placeholder="Qty"
+                            className="w-1/2 px-3 py-2.5 md:py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold text-base transition-colors"
+                            value={quantity}
+                            onChange={(e) => {
+                              setQuantity(e.target.value);
+                              const q = parseFloat(e.target.value);
+                              const r = parseFloat(rate);
+                              if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) {
+                                setAmount((q * r).toFixed(2));
+                              }
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); rateInputRef.current?.focus(); } }}
+                          />
+                          <input
+                            ref={rateInputRef}
+                            type="number"
+                            step="0.01"
+                            placeholder="Rate"
+                            className="w-1/2 px-3 py-2.5 md:py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold text-base transition-colors"
+                            value={rate}
+                            onChange={(e) => {
+                              setRate(e.target.value);
+                              const q = parseFloat(quantity);
+                              const r = parseFloat(e.target.value);
+                              if (!isNaN(q) && !isNaN(r) && q > 0 && r > 0) {
+                                setAmount((q * r).toFixed(2));
+                              }
+                            }}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); amountInputRef.current?.focus(); } }}
+                          />
+                        </div>
+                      ) : null}
                       <input 
                         ref={amountInputRef} 
                         required 
@@ -1389,6 +1470,21 @@ const LedgerView = () => {
         onConfirm={handlePrintConfirm}
       />
       </div>
+
+      {/* WhatsApp Report Modal */}
+      {selectedParty && (
+        <WhatsAppReportModal
+          isOpen={isWhatsAppModalOpen}
+          onClose={() => setIsWhatsAppModalOpen(false)}
+          party={selectedParty}
+          transactions={transactions}
+          companyName={profile?.company_name || ''}
+          companyPhone={profile?.company_phone || profile?.phone || ''}
+          onPartyPhoneUpdated={(partyId, phone) => {
+            setParties(prev => prev.map(p => p.id === partyId ? { ...p, phone } : p));
+          }}
+        />
+      )}
 
       {/* Premium Printable PDF Layout */}
       {selectedParty && (

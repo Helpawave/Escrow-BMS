@@ -5,8 +5,10 @@ export interface Party {
   id: string;
   party_name: string;
   sr_no: string;
+  phone?: string | null;
   status: 'take' | 'give';
   commission_rate: number;
+  commission_type?: 'with' | 'without';
   monday_final: boolean;
   system_type: 'normal' | 'commission' | 'company';
   balance?: number;
@@ -68,6 +70,7 @@ export const useLedgerTransactions = ({
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [printTransactions, setPrintTransactions] = useState<Transaction[]>([]);
   const [closingBalance, setClosingBalance] = useState(0);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [selectedTnsIds, setSelectedTnsIds] = useState<Set<string>>(new Set());
   const [selectedPartyIds, setSelectedPartyIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
@@ -100,58 +103,55 @@ export const useLedgerTransactions = ({
 
   const getBalance = async (partyId: string) => {
     try {
-      const { data: pData } = await supabase
-        .from('parties')
-        .select('balance')
-        .eq('id', partyId)
-        .maybeSingle();
-
-      if (pData && pData.balance !== undefined && pData.balance !== null) {
-        return Number(pData.balance) || 0;
-      }
-
       const { data } = await supabase
         .from('transactions')
-        .select('credit, debit')
-        .eq('party_id', partyId);
-      
-      if (data && data.length > 0) {
-        return data.reduce((sum, t) => sum + (Number(t.credit) || 0) - (Number(t.debit) || 0), 0);
-      }
+        .select('balance')
+        .eq('party_id', partyId)
+        .order('transaction_date', { ascending: false })
+        .limit(1);
+      return data?.[0]?.balance || 0;
     } catch (e) {
       console.warn("getBalance error:", e);
     }
     return 0;
   };
 
-  const fetchTransactions = async (partyId: string, showArchived: boolean = false) => {
+  const fetchTransactions = async (partyId: string, showArchived: boolean = false, isSilent: boolean = false) => {
+    if (!isSilent) {
+      setLoadingTransactions(true);
+    }
     try {
-      let tnsData: any[] | null = null;
-      let tnsError: any = null;
+      let currentTns: Transaction[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      try {
-        const res = await supabase
+      while (hasMore) {
+        let query = supabase
           .from('transactions')
           .select('*')
-          .eq('party_id', partyId)
-          .filter('is_finalized', showArchived ? 'eq' : 'neq', true)
-          .order('created_at', { ascending: true });
-        tnsData = res.data;
-        tnsError = res.error;
-      } catch (e) {
-        tnsError = e;
-      }
+          .eq('party_id', partyId);
 
-      if (tnsError || !tnsData) {
-        const { data: fallbackData } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('party_id', partyId)
-          .order('created_at', { ascending: true });
-        tnsData = fallbackData || [];
+        if (showArchived) {
+          query = query.eq('is_finalized', true);
+        } else {
+          query = query.or('is_finalized.is.null,is_finalized.eq.false');
+        }
+
+        const { data: pageData, error: tnsError } = await query
+          .order('transaction_date', { ascending: true })
+          .order('created_at', { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (tnsError) throw tnsError;
+        if (!pageData || pageData.length === 0) {
+          hasMore = false;
+        } else {
+          currentTns = [...currentTns, ...pageData];
+          hasMore = pageData.length === pageSize;
+          page++;
+        }
       }
-      
-      const currentTns = (tnsData || []) as Transaction[];
       const linkedIds = currentTns.map(t => t.linked_transaction_id).filter(Boolean) as string[];
       if (linkedIds.length > 0) {
         const { data: partnerData } = await supabase
@@ -197,6 +197,8 @@ export const useLedgerTransactions = ({
       }
     } catch (err) {
       console.error('Error fetching transactions:', err);
+    } finally {
+      setLoadingTransactions(false);
     }
   };
 
@@ -942,6 +944,7 @@ export const useLedgerTransactions = ({
     setPrintTransactions,
     closingBalance,
     setClosingBalance,
+    loadingTransactions,
     selectedTnsIds,
     setSelectedTnsIds,
     selectedPartyIds,

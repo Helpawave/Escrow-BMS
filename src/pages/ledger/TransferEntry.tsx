@@ -30,7 +30,8 @@ import {
   Pencil,
   X,
   GripVertical,
-  AlertTriangle
+  AlertTriangle,
+  Percent
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -250,6 +251,30 @@ const TransferEntry = () => {
   const [resetStep, setResetStep] = useState<1 | 2>(1);
   const [resetConfirmText, setResetConfirmText] = useState('');
 
+  // Deduction Rate State (default 3.5%)
+  const [deductionRate, setDeductionRate] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('transfer_deduction_rate');
+      return saved ? parseFloat(saved) : 3.5;
+    } catch {
+      return 3.5;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('transfer_deduction_rate', deductionRate.toString());
+    } catch (e) {
+      console.error('Error saving deduction rate:', e);
+    }
+  }, [deductionRate]);
+
+  // Rate Modal & Double Verification State
+  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
+  const [rateStep, setRateStep] = useState<1 | 2>(1);
+  const [newRateInput, setNewRateInput] = useState('');
+  const [recalculateExisting, setRecalculateExisting] = useState(true);
+
   const [deductionInput, setDeductionInput] = useState(() => {
     try {
       return localStorage.getItem('transfer_deduction_input') || '';
@@ -337,54 +362,42 @@ const TransferEntry = () => {
       setLoading(true);
       setDbMissing(false);
 
-      // Step 1: Fetch parties for this user
+      // 1. Fetch parties of the current user
       const { data: partiesData, error: partiesError } = await supabase
         .from('parties')
-        .select('id, party_name, sr_no, status, system_type')
+        .select(`
+          id,
+          party_name,
+          sr_no,
+          status,
+          system_type,
+          transactions (
+            balance,
+            transaction_date,
+            created_at
+          )
+        `)
         .eq('user_id', user.id)
-        .order('party_name', { ascending: true });
+        .order('transaction_date', { foreignTable: 'transactions', ascending: false })
+        .order('created_at', { foreignTable: 'transactions', ascending: false })
+        .limit(1, { foreignTable: 'transactions' });
 
       if (partiesError) throw partiesError;
 
-      // Step 2: Fetch latest balance per party separately
-      const partyIds = (partiesData || []).map(p => p.id);
-      let balanceMap = new Map<string, number>();
-      (partiesData || []).forEach(p => {
-        balanceMap.set(p.id, Number((p as any).balance) || 0);
-      });
-
-      if (partyIds.length > 0) {
-        try {
-          const { data: allTxns } = await supabase
-            .from('transactions')
-            .select('party_id, credit, debit')
-            .in('party_id', partyIds);
-
-          if (allTxns && allTxns.length > 0) {
-            const sumMap = new Map<string, number>();
-            allTxns.forEach((txn: any) => {
-              const prev = sumMap.get(txn.party_id) || 0;
-              sumMap.set(txn.party_id, prev + (Number(txn.credit) || 0) - (Number(txn.debit) || 0));
-            });
-            sumMap.forEach((val, pId) => {
-              balanceMap.set(pId, val);
-            });
-          }
-        } catch (txnErr) {
-          console.warn("Could not aggregate party transactions in TransferEntry:", txnErr);
-        }
-      }
-
       const mappedParties: PartyBalance[] = (partiesData || [])
         .filter(p => p.system_type === 'normal')
-        .map(p => ({
-          id: p.id,
-          party_name: p.party_name,
-          sr_no: p.sr_no,
-          status: p.status as 'take' | 'give',
-          system_type: p.system_type as 'normal' | 'commission' | 'escrow',
-          balance: balanceMap.get(p.id) ?? 0
-        }));
+        .map(p => {
+          const tns = p.transactions as any[];
+          const bal = tns && tns.length > 0 ? Number(tns[0].balance) : 0;
+          return {
+            id: p.id,
+            party_name: p.party_name,
+            sr_no: p.sr_no,
+            status: p.status as 'take' | 'give',
+            system_type: p.system_type as 'normal' | 'commission' | 'escrow',
+            balance: bal
+          };
+        });
 
       // Sort consistently by sr_no/name
       mappedParties.sort((a, b) => {
@@ -403,7 +416,7 @@ const TransferEntry = () => {
       ] = await Promise.all([
         supabase
           .from('transfer_entries')
-          .select('id, party_id, amount, final_amount')
+          .select(`id, party_id, amount, final_amount, parties ( party_name )`)
           .eq('user_id', user.id)
           .order('created_at', { ascending: true }),
         supabase
@@ -429,7 +442,9 @@ const TransferEntry = () => {
           try {
             const raw = localStorage.getItem('transfer_edited_party_ids');
             cachedEdited = raw ? JSON.parse(raw) : [];
-          } catch {}
+          } catch {
+            // ignore localStorage parse error
+          }
 
           let updatedLeft: LeftEntry[] = [];
           setLeftEntries(prev => {
@@ -438,7 +453,7 @@ const TransferEntry = () => {
               const isEdited = cachedEdited.includes(entry.partyId);
               if (party && !isEdited) {
                 const currentDbAmount = -party.balance;
-                const currentDbFinalAmount = Number((currentDbAmount * 0.965).toFixed(2));
+                const currentDbFinalAmount = Number((currentDbAmount * (1 - deductionRate / 100)).toFixed(2));
                 return {
                   ...entry,
                   amount: currentDbAmount,
@@ -495,7 +510,9 @@ const TransferEntry = () => {
         try {
           const raw = localStorage.getItem('transfer_edited_party_ids');
           cachedEdited = raw ? JSON.parse(raw) : [];
-        } catch {}
+        } catch {
+          // ignore localStorage parse error
+        }
 
         for (const t of (transferData || [])) {
           const party = mappedParties.find(p => p.id === t.party_id);
@@ -507,7 +524,7 @@ const TransferEntry = () => {
           if (!isEdited && party) {
             // Live party balance (opposite sign: Debit/Take is positive, Credit/Give is negative)
             const liveAmount = -party.balance;
-            const liveFinalAmount = Number((liveAmount * 0.965).toFixed(2));
+            const liveFinalAmount = Number((liveAmount * (1 - deductionRate / 100)).toFixed(2));
 
             // If the saved value is different from the live database value, prepare to update it
             if (Number(t.amount) !== liveAmount) {
@@ -524,7 +541,7 @@ const TransferEntry = () => {
           mappedLeftEntries.push({
             id: t.id,
             partyId: t.party_id,
-            partyName: party?.party_name || (t as any)?.parties?.party_name || 'Unknown',
+            partyName: (t.parties as any)?.party_name || 'Unknown',
             amount: finalAmount,
             finalAmount: finalFinalAmount
           });
@@ -641,8 +658,7 @@ const TransferEntry = () => {
         setCustomRightEntries(sortRightEntries(finalRightEntries));
       }
     } catch (err) {
-      const e = err as any;
-      console.error('Error fetching parties for transfer:', e?.message, '| code:', e?.code, '| details:', e?.details, '| hint:', e?.hint);
+      console.error('Error fetching parties for transfer:', err);
     } finally {
       setLoading(false);
     }
@@ -717,8 +733,8 @@ const TransferEntry = () => {
     const amt = parseFloat(amountInput);
     if (isNaN(amt)) return;
 
-    // Calculate final amount: minus 3.5%
-    const finalAmt = Number((amt * 0.965).toFixed(2));
+    // Calculate final amount with active deduction rate
+    const finalAmt = Number((amt * (1 - deductionRate / 100)).toFixed(2));
 
     try {
       if (dbMissing) {
@@ -841,7 +857,7 @@ const TransferEntry = () => {
     if (editModalData.type === 'left') {
       const idx = editModalData.idx!;
       const entry = leftEntries[idx];
-      const finalAmt = Number((newValue * 0.965).toFixed(2));
+      const finalAmt = Number((newValue * (1 - deductionRate / 100)).toFixed(2));
 
       try {
         if (!dbMissing) {
@@ -1058,6 +1074,57 @@ const TransferEntry = () => {
   const handlePrint = useCallback(() => window.print(), []);
 
   // Memoized computed values — recalculated only when dependencies change
+  const handleOpenRateModal = () => {
+    setNewRateInput(deductionRate.toString());
+    setRateStep(1);
+    setRecalculateExisting(true);
+    setIsRateModalOpen(true);
+  };
+
+  const handleProceedToRateVerify = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(newRateInput);
+    if (isNaN(val) || val < 0 || val > 100) {
+      alert('Please enter a valid rate percentage between 0 and 100');
+      return;
+    }
+    setRateStep(2);
+  };
+
+  const handleConfirmRateChange = async () => {
+    const val = parseFloat(newRateInput);
+    if (isNaN(val) || val < 0 || val > 100) return;
+
+    setDeductionRate(val);
+    const multiplier = 1 - val / 100;
+
+    if (recalculateExisting && leftEntries.length > 0) {
+      const updatedLeft = leftEntries.map(e => {
+        const newFinal = Number((e.amount * multiplier).toFixed(2));
+        return { ...e, finalAmount: newFinal };
+      });
+      setLeftEntries(sortLeftEntries(updatedLeft));
+
+      if (!dbMissing) {
+        try {
+          await Promise.all(
+            updatedLeft.map(e =>
+              supabase
+                .from('transfer_entries')
+                .update({ final_amount: e.finalAmount })
+                .eq('id', e.id)
+            )
+          );
+        } catch (err) {
+          console.error('Error updating existing left entries with new rate:', err);
+        }
+      }
+    }
+
+    setIsRateModalOpen(false);
+    setRateStep(1);
+  };
+
   const leftTotalFinal = useMemo(
     () => leftEntries.reduce((sum, e) => sum + e.finalAmount, 0),
     [leftEntries]
@@ -1078,20 +1145,20 @@ const TransferEntry = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 transfer-entry-container">
       {/* Top Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-xl p-4 shadow-2xs print:hidden transition-colors duration-150">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm print:hidden transition-colors duration-200">
+        <div className="flex items-center gap-4">
           <button 
             onClick={() => navigate('/dashboard')} 
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 dark:text-slate-500 transition-all active:scale-95 cursor-pointer"
+            className="p-2.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl text-slate-400 dark:text-slate-500 transition-all active:scale-95"
             title="Go back to Dashboard"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
+          <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100 dark:shadow-none">
+            <ArrowRightLeft className="w-6 h-6" />
+          </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-              <ArrowRightLeft className="w-4 h-4 text-indigo-500" />
-              <span>Transfer Entry</span>
-            </h1>
+            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Transfer Entry</h1>
             <p className="text-slate-500 dark:text-slate-400 font-medium text-xs">Reconciliation and Transfer Ledger tool</p>
           </div>
         </div>
@@ -1100,31 +1167,39 @@ const TransferEntry = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button 
             onClick={() => fetchData(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-all active:scale-95"
           >
             <RefreshCcw className="w-3.5 h-3.5" />
-            Refresh
+            Refresh Data
           </button>
 
           <button 
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+            onClick={handleOpenRateModal}
+            className="flex items-center justify-center px-4 py-2.5 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-400 border border-blue-200/50 dark:border-blue-900/40 rounded-xl font-bold text-xs transition-all active:scale-95"
+            title="Configure Automatic Deduction Rate"
           >
-            <Printer className="w-3.5 h-3.5" />
-            Print
+            Rate
           </button>
 
           <button 
             onClick={handleResetClick}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/40 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-slate-200 dark:border-slate-800 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/20 dark:hover:bg-orange-900/30 text-orange-600 dark:text-orange-400 border border-orange-200/40 dark:border-orange-900/30 rounded-xl font-bold text-xs transition-all active:scale-95"
           >
             <RefreshCcw className="w-3.5 h-3.5" />
             Reset Sheet
           </button>
 
           <button 
+            onClick={handlePrint}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100 dark:shadow-none rounded-xl font-bold text-xs transition-all active:scale-95"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print
+          </button>
+
+          <button 
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-100 dark:shadow-none rounded-xl font-bold text-xs transition-all active:scale-95"
           >
             <XCircle className="w-3.5 h-3.5" />
             Exit
@@ -1685,6 +1760,117 @@ const TransferEntry = () => {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Configure Deduction Rate Modal (With Double Verification) */}
+      {isRateModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 print:hidden animate-in fade-in duration-200">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setIsRateModalOpen(false)} />
+          
+          <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 transition-colors">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Percent className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                Automatic Deduction Rate
+              </h3>
+              <button onClick={() => setIsRateModalOpen(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {rateStep === 1 ? (
+              <form onSubmit={handleProceedToRateVerify} className="space-y-4">
+                <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 p-4 rounded-2xl text-xs font-semibold text-blue-800 dark:text-blue-300 space-y-1">
+                  <p className="font-bold">Current Rate: <span className="text-blue-600 dark:text-blue-400 text-sm font-black">{deductionRate}%</span></p>
+                  <p>When entries are added to the left table, Final Balance = Balance × (1 - Rate%).</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">
+                    New Deduction Rate (%)
+                  </label>
+                  <div className="relative">
+                    <input
+                      required
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      placeholder="e.g. 3.5"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl outline-none font-bold text-sm text-slate-900 dark:text-white focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 transition-all pr-10"
+                      value={newRateInput}
+                      onChange={(e) => setNewRateInput(e.target.value)}
+                    />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 font-black text-slate-400 text-sm pointer-events-none">%</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="recalcCheck"
+                    checked={recalculateExisting}
+                    onChange={(e) => setRecalculateExisting(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="recalcCheck" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                    Recalculate current left entries with new rate
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsRateModalOpen(false)}
+                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow-md shadow-blue-100 dark:shadow-none transition-all"
+                  >
+                    Proceed to Verify
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 p-4 rounded-2xl text-amber-900 dark:text-amber-200 space-y-2">
+                  <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    Step 2: Double Verification Required
+                  </div>
+                  <p className="text-xs font-semibold leading-relaxed">
+                    Are you sure you want to change the automatic deduction rate from <span className="font-black text-amber-800 dark:text-amber-100">{deductionRate}%</span> to <span className="font-black text-emerald-600 dark:text-emerald-400">{newRateInput}%</span>?
+                  </p>
+                  {recalculateExisting && (
+                    <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                      ✓ This will automatically recalculate the Final Balance for all current items in the left table.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex justify-between gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setRateStep(1)}
+                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs uppercase tracking-wider transition-all"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmRateChange}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-100 dark:shadow-none transition-all active:scale-95"
+                  >
+                    Confirm &amp; Apply Rate
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -48,6 +48,8 @@ const MembersPage = React.lazy(() => import('@/pages/users/MembersPage'));
 const AddStaffPage = React.lazy(() => import('@/pages/users/AddStaffPage'));
 const MyProfilePage = React.lazy(() => import('@/pages/MyProfilePage'));
 const ReportsPage = React.lazy(() => import('@/pages/ReportsPage'));
+const ViewStatement = React.lazy(() => import('@/pages/ledger/ViewStatement'));
+const AutoBackupManager = React.lazy(() => import('@/components/backup/AutoBackupManager').then(m => ({ default: m.AutoBackupManager })));
 
 function AdminOrManagerGuard({ children }: { children: React.ReactNode }) {
   const { isStaff, staffRole, loading } = useAuth();
@@ -296,6 +298,9 @@ export default function App() {
                           <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
                           <Route path="/refund" element={<RefundPolicy />} />
                           <Route path="/refund-policy" element={<RefundPolicy />} />
+
+                          {/* Public View Statement */}
+                          <Route path="/view-statement" element={<ViewStatement />} />
 
                           {/* Auth */}
                           <Route

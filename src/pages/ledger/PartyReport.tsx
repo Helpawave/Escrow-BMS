@@ -11,31 +11,35 @@ import {
   Save,
   RefreshCcw,
   CheckCircle2,
-  XCircle,
-  FileText
+  XCircle
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
-import { ensureDefaultLedgerParties } from '@/utils/erpPosting';
 
 interface Party {
   id: string;
   party_name: string;
   sr_no: string;
+  phone?: string;
   status: 'take' | 'give';
   commission_type: 'with' | 'without';
   commission_rate: number;
   monday_final: boolean;
   system_type: 'normal' | 'commission' | 'company';
   created_at: string;
+  balance?: number;
 }
 
 const ITEMS_PER_PAGE = 10;
 
 const PartyReport = () => {
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
+  const { isRegularUser } = useAuth();
+  
+  // Check if current user is Regular account
+  const isLofferUser = isRegularUser;
+
   const [parties, setParties] = useState<Party[]>(() => {
     try {
       const cached = localStorage.getItem('cached_parties_report');
@@ -44,7 +48,15 @@ const PartyReport = () => {
       return [];
     }
   });
-  const [partyBalances, setPartyBalances] = useState<Map<string, number>>(new Map());
+
+  // Sync parties state to localStorage cache whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('cached_parties_report', JSON.stringify(parties));
+    } catch (e) {
+      console.error('Error caching parties report:', e);
+    }
+  }, [parties]);
 
   const [loading, setLoading] = useState(() => {
     try {
@@ -67,6 +79,10 @@ const PartyReport = () => {
   const [editingParty, setEditingParty] = useState<Party | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<Party>>({});
   const [saving, setSaving] = useState(false);
+
+  // Delete State
+  const [deleteConfirmParty, setDeleteConfirmParty] = useState<Party | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Checklist selection states
   const [selectedPartyIds, setSelectedPartyIds] = useState<Set<string>>(new Set());
@@ -140,7 +156,7 @@ const PartyReport = () => {
         // Update local state for all normal parties
         setParties(parties.map(p => {
           if (p.system_type !== 'normal') return p;
-          let updatedParty = { ...p };
+          const updatedParty = { ...p };
           if (p.status === 'take' && wantsTakeUpdate) {
             updatedParty.commission_rate = takeRate;
           }
@@ -195,73 +211,61 @@ const PartyReport = () => {
   };
 
   useEffect(() => {
-    if (!user) return;
     fetchParties();
 
-    const effectiveUserId = profile?.parent_user_id || user.id;
     const partiesChannel = supabase.channel('party-report-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'parties', filter: `user_id=eq.${effectiveUserId}` }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parties' }, () => {
+        fetchParties();
+      })
+      .subscribe();
+
+    const tnsChannel = supabase.channel('party-report-tns-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
         fetchParties();
       })
       .subscribe();
 
     return () => {
       supabase.removeChannel(partiesChannel);
+      supabase.removeChannel(tnsChannel);
     };
-  }, [user, profile]);
+  }, []);
 
   const fetchParties = async () => {
-    if (!user) { setLoading(false); return; }
-    const effectiveUserId = profile?.parent_user_id || user.id;
     try {
-      await ensureDefaultLedgerParties(effectiveUserId);
       const { data, error } = await supabase
         .from('parties')
-        .select('*')
-        .eq('user_id', effectiveUserId)
-        .order('party_name', { ascending: true });
+        .select(`
+          *,
+          transactions (
+            balance,
+            transaction_date,
+            created_at
+          )
+        `)
+        .order('party_name', { ascending: true })
+        .order('transaction_date', { foreignTable: 'transactions', ascending: false })
+        .order('created_at', { foreignTable: 'transactions', ascending: false })
+        .limit(1, { foreignTable: 'transactions' });
+
       if (error) throw error;
-      const cleanData = data || [];
+      const cleanData: Party[] = (data || []).map((p: any) => {
+        const tns = p.transactions as any[];
+        const bal = tns && tns.length > 0 ? tns[0].balance : 0;
+        return {
+          ...p,
+          balance: bal
+        };
+      });
       setParties(cleanData);
-
-      // Fetch latest balance per party
-      if (cleanData.length > 0) {
-        const balMap = new Map<string, number>();
-        cleanData.forEach(p => {
-          balMap.set(p.id, Number(p.balance) || 0);
-        });
-
-        try {
-          const partyIds = cleanData.map(p => p.id);
-          const { data: allTxns } = await supabase
-            .from('transactions')
-            .select('party_id, credit, debit')
-            .in('party_id', partyIds);
-
-          if (allTxns && allTxns.length > 0) {
-            const sumMap = new Map<string, number>();
-            allTxns.forEach((txn: any) => {
-              const prev = sumMap.get(txn.party_id) || 0;
-              sumMap.set(txn.party_id, prev + (Number(txn.credit) || 0) - (Number(txn.debit) || 0));
-            });
-            sumMap.forEach((val, pId) => {
-              balMap.set(pId, val);
-            });
-          }
-        } catch (txnErr) {
-          console.warn("Could not aggregate party transactions in PartyReport:", txnErr);
-        }
-
-        setPartyBalances(balMap);
-      }
-
       try {
         localStorage.setItem('cached_parties_report', JSON.stringify(cleanData));
       } catch (e) {
-        // localStorage quota exceeded — non-fatal
+        console.error('Error caching parties report:', e);
       }
     } catch (err) { 
-      console.warn('Error fetching parties (Report):', err);
+      console.error(err); 
+      alert("Error fetching parties (Report): " + JSON.stringify(err));
     } finally { 
       setLoading(false); 
     }
@@ -272,19 +276,34 @@ const PartyReport = () => {
     setEditFormData({ ...party });
   };
 
-  const handleDeleteParty = async (party: Party) => {
-    const confirmed = window.confirm(`Are you sure you want to delete "${party.party_name}"? This action cannot be undone.`);
-    if (!confirmed) return;
+  const handleDelete = (party: Party) => {
+    setDeleteConfirmParty(party);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmParty) return;
+    setDeleting(true);
     try {
       const { error } = await supabase
         .from('parties')
         .delete()
-        .eq('id', party.id);
+        .eq('id', deleteConfirmParty.id);
+
       if (error) throw error;
-      setParties(prev => prev.filter(p => p.id !== party.id));
-      setSelectedPartyIds(prev => { const n = new Set(prev); n.delete(party.id); return n; });
-    } catch (err: any) {
-      alert('Error deleting party: ' + err.message);
+
+      setParties(prev => prev.filter(p => p.id !== deleteConfirmParty.id));
+      setSelectedPartyIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(deleteConfirmParty.id);
+        return newSet;
+      });
+
+      setDeleteConfirmParty(null);
+    } catch (err) {
+      console.error('Delete error:', err);
+      alert('Error deleting party: ' + (err as any).message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -306,7 +325,7 @@ const PartyReport = () => {
           .select('*')
           .eq('party_id', editingParty.id)
           .neq('is_finalized', true)
-          .order('created_at', { ascending: true });
+          .order('transaction_date', { ascending: true });
 
         if (activeTns && activeTns.length > 0) {
           const closingBal = activeTns[activeTns.length - 1].balance;
@@ -316,7 +335,6 @@ const PartyReport = () => {
 
           // 2. Create settlement record
           const { data: settlement, error: sErr } = await supabase.from('transactions').insert([{
-            user_id: user?.id,
             party_id: editingParty.id,
             remarks: 'MONDAY FINAL SETTLEMENT (MANUAL)',
             tns_type: tnsType,
@@ -324,10 +342,7 @@ const PartyReport = () => {
             debit,
             balance: closingBal,
             is_settlement: true,
-            is_finalized: false,
-            date: new Date().toISOString(),
-            transaction_date: new Date().toISOString(),
-            created_at: new Date().toISOString()
+            is_finalized: false
           }]).select().single();
 
           if (sErr) throw sErr;
@@ -338,14 +353,23 @@ const PartyReport = () => {
         }
       }
 
+      const updatePayload: any = {
+        party_name: editFormData.party_name,
+      };
+
+      if (!isLofferUser) {
+        updatePayload.status = editFormData.status;
+        updatePayload.commission_rate = parseFloat(editFormData.commission_rate?.toString() || '0');
+        updatePayload.monday_final = editFormData.monday_final;
+      }
+
+      if (isLofferUser) {
+        updatePayload.phone = editFormData.phone || null;
+      }
+
       const { error } = await supabase
         .from('parties')
-        .update({
-          party_name: editFormData.party_name,
-          status: editFormData.status,
-          commission_rate: parseFloat(editFormData.commission_rate?.toString() || '0'),
-          monday_final: editFormData.monday_final
-        })
+        .update(updatePayload)
         .eq('id', editingParty.id);
 
       if (error) throw error;
@@ -360,7 +384,12 @@ const PartyReport = () => {
     }
   };
 
-  const filteredParties = parties.filter(p => 
+  // For LOFFERS DTF, completely hide system-generated parties
+  const displayParties = isLofferUser 
+    ? parties.filter(p => p.system_type === 'normal') 
+    : parties;
+
+  const filteredParties = displayParties.filter(p => 
     p.party_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
     p.sr_no.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -400,14 +429,16 @@ const PartyReport = () => {
         </div>
         
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <button
-            type="button"
-            onClick={() => setIsBulkCommModalOpen(true)}
-            className="flex items-center gap-1.5 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-200 dark:shadow-none rounded-2xl font-bold text-sm transition-all whitespace-nowrap"
-          >
-            <Edit3 className="w-4 h-4" />
-            Bulk Commission {selectedPartyIds.size > 0 ? `(${selectedPartyIds.size})` : ''}
-          </button>
+          {!isLofferUser && (
+            <button
+              type="button"
+              onClick={() => setIsBulkCommModalOpen(true)}
+              className="flex items-center gap-1.5 px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-200 dark:shadow-none rounded-2xl font-bold text-sm transition-all whitespace-nowrap"
+            >
+              <Edit3 className="w-4 h-4" />
+              Bulk Commission {selectedPartyIds.size > 0 ? `(${selectedPartyIds.size})` : ''}
+            </button>
+          )}
           <div className="relative w-full md:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus-within:ring-4 focus-within:ring-emerald-600/10 focus-within:border-emerald-600 rounded-2xl transition-all flex items-center">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500 z-10" />
             {firstReportMatch && (
@@ -449,56 +480,56 @@ const PartyReport = () => {
           <table className="w-full text-left">
             <thead className="bg-slate-50/50 dark:bg-slate-950/30 border-b border-slate-100 dark:border-slate-800">
               <tr className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                <th className="px-6 py-5 text-center w-12">
-                  <div 
-                    onClick={toggleSelectAllParties} 
-                    className={`w-4 h-4 rounded border-2 mx-auto cursor-pointer transition-all flex items-center justify-center ${
-                      isAllFilteredNormalSelected 
-                        ? 'bg-emerald-600 border-emerald-600' 
-                        : isSomeFilteredNormalSelected 
-                          ? 'border-emerald-600' 
-                          : 'border-slate-300 dark:border-slate-700'
-                    }`}
-                  >
-                    {isAllFilteredNormalSelected && (
-                      <div className="w-1.5 h-1.5 bg-white rounded-sm"></div>
-                    )}
-                    {isSomeFilteredNormalSelected && (
-                      <div className="w-1.5 h-1.5 bg-emerald-600 dark:bg-emerald-455 rounded-sm"></div>
-                    )}
-                  </div>
-                </th>
+                {!isLofferUser && (
+                  <th className="px-6 py-5 text-center w-12">
+                    <div 
+                      onClick={toggleSelectAllParties} 
+                      className={`w-4 h-4 rounded border-2 mx-auto cursor-pointer transition-all flex items-center justify-center ${
+                        isAllFilteredNormalSelected 
+                          ? 'bg-emerald-600 border-emerald-600' 
+                          : isSomeFilteredNormalSelected 
+                            ? 'border-emerald-600' 
+                            : 'border-slate-300 dark:border-slate-700'
+                      }`}
+                    >
+                      {isAllFilteredNormalSelected && (
+                        <div className="w-1.5 h-1.5 bg-white rounded-sm"></div>
+                      )}
+                      {isSomeFilteredNormalSelected && (
+                        <div className="w-1.5 h-1.5 bg-emerald-600 dark:bg-emerald-455 rounded-sm"></div>
+                      )}
+                    </div>
+                  </th>
+                )}
                 <th className="px-6 py-5">SR NO</th>
                 <th className="px-8 py-5">Party Name</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Remaining Balance</th>
                 <th className="px-8 py-5 text-center">Monday Final</th>
-                <th className="px-8 py-5 text-right">Commission Rate</th>
+                <th className="px-8 py-5 text-right">{isLofferUser ? 'Pending Amount' : 'Commission Rate'}</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800 font-medium">
-              {paginatedParties.map((p) => {
-                const bal = partyBalances.get(p.id) ?? 0;
-                const isCr = bal >= 0;
-                return (
+              {paginatedParties.map((p) => (
                 <tr key={p.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-950/20 transition-colors ${selectedPartyIds.has(p.id) ? 'bg-emerald-50/40 dark:bg-emerald-950/10' : ''}`}>
-                  <td className="px-6 py-5 text-center">
-                    {p.system_type === 'normal' ? (
-                      <div 
-                        onClick={() => toggleSelectParty(p.id)} 
-                        className={`w-5 h-5 rounded-lg border-2 mx-auto cursor-pointer transition-all flex items-center justify-center ${
-                          selectedPartyIds.has(p.id) 
-                            ? 'bg-emerald-600 border-emerald-600 shadow-md shadow-emerald-100 dark:shadow-none' 
-                            : 'border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        <div className={`w-2 h-2 bg-white rounded-sm transition-opacity ${selectedPartyIds.has(p.id) ? 'opacity-100' : 'opacity-0'}`}></div>
-                      </div>
-                    ) : (
-                      <div className="w-5 h-5 mx-auto" />
-                    )}
-                  </td>
+                  {!isLofferUser && (
+                    <td className="px-6 py-5 text-center">
+                      {p.system_type === 'normal' ? (
+                        <div 
+                          onClick={() => toggleSelectParty(p.id)} 
+                          className={`w-5 h-5 rounded-lg border-2 mx-auto cursor-pointer transition-all flex items-center justify-center ${
+                            selectedPartyIds.has(p.id) 
+                              ? 'bg-emerald-600 border-emerald-600 shadow-md shadow-emerald-100 dark:shadow-none' 
+                              : 'border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          <div className={`w-2 h-2 bg-white rounded-sm transition-opacity ${selectedPartyIds.has(p.id) ? 'opacity-100' : 'opacity-0'}`}></div>
+                        </div>
+                      ) : (
+                        <div className="w-5 h-5 mx-auto" />
+                      )}
+                    </td>
+                  )}
                   <td className="px-6 py-5 font-bold text-slate-400 dark:text-slate-500">{p.sr_no}</td>
                   <td className="px-8 py-5">
                     <div className="font-bold text-slate-900 dark:text-white text-lg">{p.party_name}</div>
@@ -513,45 +544,36 @@ const PartyReport = () => {
                       <span className="text-slate-300 dark:text-slate-600 font-bold">-</span>
                     )}
                   </td>
-                  <td className="px-8 py-5 text-right">
-                    <div className="flex flex-col items-end">
-                      <span className={`font-mono font-bold text-base ${isCr ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                        ₹ {Math.abs(Math.round(bal)).toLocaleString('en-IN')}
-                      </span>
-                      <span className={`text-[9px] font-black uppercase tracking-wider ${isCr ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
-                        {isCr ? 'Credit (जमा)' : 'Debit (बाकी)'}
-                      </span>
-                    </div>
-                  </td>
                   <td className="px-8 py-5 text-center">
                     <div className={`mx-auto w-24 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center justify-center gap-2 ${((p.monday_final as any) === true || (p.monday_final as any) === 'true') ? 'bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-450' : 'bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-450'}`}>
                       {((p.monday_final as any) === true || (p.monday_final as any) === 'true') ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
                       {((p.monday_final as any) === true || (p.monday_final as any) === 'true') ? 'Yes' : 'No'}
                     </div>
                   </td>
-                  <td className="px-8 py-5 text-right font-black text-slate-600 dark:text-slate-300 text-lg">
-                    {p.system_type === 'normal' ? `${p.commission_rate}%` : '-'}
+                  <td className="px-8 py-5 text-right font-black text-lg">
+                    {isLofferUser ? (
+                      p.system_type === 'normal' ? (
+                        <span className={(p.balance || 0) >= 0 ? 'text-emerald-600 dark:text-emerald-455' : 'text-rose-600 dark:text-rose-455'}>
+                          ₹ {Math.round(Math.abs(p.balance || 0)).toLocaleString('en-IN')} {(p.balance || 0) >= 0 ? 'Cr' : 'Dr'}
+                        </span>
+                      ) : '-'
+                    ) : (
+                      p.system_type === 'normal' ? `${p.commission_rate}%` : '-'
+                    )}
                   </td>
                   <td className="px-8 py-5 text-right">
                     <div className="flex justify-end gap-2">
                       {p.system_type === 'normal' && (
                         <>
                           <button 
-                            title="Create Ledger Bill from Remaining Balance"
-                            onClick={() => navigate(`/billing/create-invoice?type=ledger&partyId=${p.id}`)}
-                            className="p-2.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-xl transition-all cursor-pointer"
-                          >
-                            <FileText className="w-5 h-5" />
-                          </button>
-                          <button 
                             onClick={() => handleEdit(p)}
-                            className="p-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-xl transition-all cursor-pointer"
+                            className="p-2.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-xl transition-all"
                           >
                             <Edit3 className="w-5 h-5" />
                           </button>
-                          <button 
-                            onClick={() => handleDeleteParty(p)}
-                            className="p-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all cursor-pointer"
+                          <button
+                            onClick={() => handleDelete(p)}
+                            className="p-2.5 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
                           >
                             <Trash2 className="w-5 h-5" />
                           </button>
@@ -560,11 +582,10 @@ const PartyReport = () => {
                     </div>
                   </td>
                 </tr>
-              );
-            })}
+              ))}
               {paginatedParties.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic">No parties found.</td>
+                  <td colSpan={isLofferUser ? 6 : 7} className="px-8 py-20 text-center text-slate-400 dark:text-slate-500 italic">No parties found.</td>
                 </tr>
               )}
             </tbody>
@@ -597,56 +618,80 @@ const PartyReport = () => {
               </button>
             </div>
             <div className="p-8 space-y-6">
+              {/* Party Name - always visible */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Party Name</label>
                 <input 
                   className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold"
-                  value={editFormData.party_name}
+                  value={editFormData.party_name || ''}
                   onChange={(e) => setEditFormData({ ...editFormData, party_name: e.target.value })}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-6">
+
+              {/* Phone - only for LOFFERS DTF user */}
+              {isLofferUser && (
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Status</label>
-                  <select 
-                    className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold"
-                    value={editFormData.status}
-                    onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as any })}
-                  >
-                    <option value="take">Take</option>
-                    <option value="give">Give</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Comm. Rate (%)</label>
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Client Mobile Number</label>
                   <input 
-                    type="number"
+                    type="tel"
                     className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold"
-                    value={editFormData.commission_rate}
-                    onChange={(e) => setEditFormData({ ...editFormData, commission_rate: parseFloat(e.target.value) })}
+                    value={editFormData.phone || ''}
+                    placeholder="Enter client mobile number"
+                    onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Monday Final Status</label>
-                <div className="flex gap-4">
-                  <button 
-                    type="button"
-                    onClick={() => setEditFormData({ ...editFormData, monday_final: true })}
-                    className={`flex-grow py-3 rounded-xl font-bold transition-all ${editFormData.monday_final ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400'}`}
-                  >
-                    Yes (Finalised)
-                  </button>
-                  <button 
-                    type="button"
-                    disabled={editingParty?.monday_final === true}
-                    onClick={() => setEditFormData({ ...editFormData, monday_final: false })}
-                    className={`flex-grow py-3 rounded-xl font-bold transition-all ${editingParty?.monday_final === true ? 'bg-slate-100 dark:bg-slate-950 text-slate-300 dark:text-slate-600 cursor-not-allowed' : (!editFormData.monday_final ? 'bg-orange-500 text-white' : 'bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400')}`}
-                  >
-                    No (Pending)
-                  </button>
+              )}
+
+              {/* Status & Commission Rate - hidden for LOFFERS DTF user */}
+              {!isLofferUser && (
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Status</label>
+                    <select 
+                      className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold"
+                      value={editFormData.status}
+                      onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value as any })}
+                    >
+                      <option value="take">Take</option>
+                      <option value="give">Give</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Comm. Rate (%)</label>
+                    <input 
+                      type="number"
+                      className="w-full px-5 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl focus:ring-4 focus:ring-blue-600/10 focus:border-blue-600 outline-none font-bold"
+                      value={editFormData.commission_rate}
+                      onChange={(e) => setEditFormData({ ...editFormData, commission_rate: parseFloat(e.target.value) })}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Monday Final - hidden for LOFFERS DTF user */}
+              {!isLofferUser && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Monday Final Status</label>
+                  <div className="flex gap-4">
+                    <button 
+                      type="button"
+                      onClick={() => setEditFormData({ ...editFormData, monday_final: true })}
+                      className={`flex-grow py-3 rounded-xl font-bold transition-all ${editFormData.monday_final ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400'}`}
+                    >
+                      Yes (Finalised)
+                    </button>
+                    <button 
+                      type="button"
+                      disabled={editingParty?.monday_final === true}
+                      onClick={() => setEditFormData({ ...editFormData, monday_final: false })}
+                      className={`flex-grow py-3 rounded-xl font-bold transition-all ${editingParty?.monday_final === true ? 'bg-slate-100 dark:bg-slate-950 text-slate-300 dark:text-slate-600 cursor-not-allowed' : (!editFormData.monday_final ? 'bg-orange-500 text-white' : 'bg-slate-100 dark:bg-slate-950 text-slate-500 dark:text-slate-400')}`}
+                    >
+                      No (Pending)
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-4 pt-4">
                 <button 
                   onClick={() => setEditingParty(null)}
@@ -739,6 +784,57 @@ const PartyReport = () => {
                 >
                   {bulkSaving ? <RefreshCcw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
                   Apply Rate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmParty && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => { if (!deleting) setDeleteConfirmParty(null); }} />
+          <div className="relative bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-rose-50/50 dark:bg-rose-950/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-rose-100 dark:bg-rose-950/40 rounded-2xl flex items-center justify-center">
+                  <Trash2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                </div>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">Delete Party</h3>
+              </div>
+              <button
+                onClick={() => { if (!deleting) setDeleteConfirmParty(null); }}
+                disabled={deleting}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 transition-all disabled:opacity-30"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 rounded-2xl p-5 text-center">
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">You are about to permanently delete:</p>
+                <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-2">{deleteConfirmParty.party_name}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">SR No: {deleteConfirmParty.sr_no}</p>
+              </div>
+              <p className="text-sm font-bold text-slate-500 dark:text-slate-400 text-center">
+                ⚠️ Yeh action undo nahi hoga. Party aur uske saare transactions delete ho jayenge.
+              </p>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setDeleteConfirmParty(null)}
+                  disabled={deleting}
+                  className="flex-grow py-4 bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 rounded-2xl font-bold hover:bg-slate-200 dark:hover:bg-slate-800 transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="flex-grow py-4 bg-rose-600 text-white rounded-2xl font-black hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 dark:shadow-none flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {deleting ? <RefreshCcw className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5" />}
+                  {deleting ? 'Deleting...' : 'Haan, Delete Karo'}
                 </button>
               </div>
             </div>
