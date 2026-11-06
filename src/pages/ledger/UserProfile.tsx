@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 
 const UserProfile = () => {
   const navigate = useNavigate();
@@ -266,17 +267,12 @@ const UserProfile = () => {
 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1">Phone Number</label>
-                <div className="relative group">
-                  <Phone className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 transition-colors ${isEditing ? 'text-slate-400 dark:text-slate-500 group-focus-within:text-blue-600' : 'text-slate-300 dark:text-slate-600'}`} />
-                  <input
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    readOnly={!isEditing}
-                    className={`w-full pl-12 pr-4 py-3.5 border rounded-2xl outline-none transition-all font-medium ${isEditing ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600' : 'bg-slate-50 dark:bg-slate-950 border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 cursor-not-allowed'}`}
-                    placeholder="+91 00000 00000"
-                  />
-                </div>
+                <CountryPhoneInput
+                  name="phone"
+                  value={formData.phone}
+                  onChange={(val) => setFormData(prev => ({ ...prev, phone: val }))}
+                  disabled={!isEditing}
+                />
               </div>
 
               <div className="md:col-span-2 space-y-2">

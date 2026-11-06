@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Settings, PlusCircle, Database, BarChart3, TrendingUp, Users, Activity, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/lib/supabase';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
 const Dashboard = () => {
   const { user } = useAuth();
+  const { currencySymbol, currencyCode } = useCurrency();
   const navigate = useNavigate();
   const [companyName, setCompanyName] = useState<string>(() => {
     return localStorage.getItem('cached_dashboard_company') || '';
@@ -178,12 +180,12 @@ const Dashboard = () => {
     { name: 'Today Entries', value: (statsData?.todayEntries ?? 0).toString(), icon: <Activity className="w-5 h-5" />, color: 'green' },
     { 
       name: 'Overall Balance', 
-      value: `₹ ${Math.abs(Math.round(statsData?.overallBalance ?? 0)).toLocaleString()} ${(statsData?.overallBalance ?? 0) >= 0 ? 'Cr' : 'Dr'}`, 
+      value: `${currencySymbol || '₹'} ${Math.abs(Math.round(statsData?.overallBalance ?? 0)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')} ${(statsData?.overallBalance ?? 0) >= 0 ? 'Cr' : 'Dr'}`, 
       icon: <TrendingUp className="w-5 h-5" />, 
       color: (statsData?.overallBalance ?? 0) >= 0 ? 'emerald' : 'rose' 
     },
-    { name: "Today's Volume", value: `₹ ${Math.round(statsData?.todayVolume ?? 0).toLocaleString()}`, icon: <Database className="w-5 h-5" />, color: 'orange' },
-    { name: 'Total Commission', value: `₹ ${Math.abs(Math.round(statsData?.totalCommission ?? 0)).toLocaleString()}`, icon: <BarChart3 className="w-5 h-5" />, color: 'indigo' },
+    { name: "Today's Volume", value: `${currencySymbol || '₹'} ${Math.round(statsData?.todayVolume ?? 0).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`, icon: <Database className="w-5 h-5" />, color: 'orange' },
+    { name: 'Total Commission', value: `${currencySymbol || '₹'} ${Math.abs(Math.round(statsData?.totalCommission ?? 0)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`, icon: <BarChart3 className="w-5 h-5" />, color: 'indigo' },
     { name: 'Pending Finals', value: (statsData?.pendingFinals ?? 0).toString(), icon: <AlertCircle className="w-5 h-5" />, color: 'amber' },
   ];
 
@@ -280,7 +282,7 @@ const Dashboard = () => {
                   </div>
                   <div className="text-right">
                     <span className={`font-mono font-bold text-sm ${t.credit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                      {t.credit > 0 ? `+₹${t.credit.toLocaleString('en-IN')}` : `-₹${t.debit.toLocaleString('en-IN')}`}
+                      {t.credit > 0 ? `+${currencySymbol || '₹'}${t.credit.toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}` : `-${currencySymbol || '₹'}${t.debit.toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`}
                     </span>
                   </div>
                 </div>

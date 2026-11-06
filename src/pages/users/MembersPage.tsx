@@ -5,6 +5,7 @@ import { MODULES, type ModuleKey } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { generateAccountId, generateStaffCode } from '@/utils/accountId';
+import { createStaffAccount, formatStaffWhatsAppInvite, STANDARD_ROLES } from '@/utils/staffAuth';
 import {
   ShieldCheck,
   UserPlus,
@@ -27,6 +28,7 @@ import {
   RefreshCw,
   Power,
   Layers,
+  Key,
   Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -66,6 +68,11 @@ export const ESCROW_BMS_MODULES: { id: ModuleKey; label: string; description: st
 ];
 
 export const ROLE_PRESETS: Record<string, { name: string; modules: ModuleKey[]; description: string }> = {
+  Manager: {
+    name: 'Manager',
+    modules: ['billing', 'ledger', 'inventory', 'crm', 'hisab'],
+    description: 'Operations Manager: Invoices, Ledgers, Inventory, CRM, and Daily Hisab'
+  },
   Accountant: {
     name: 'Accountant',
     modules: ['ledger', 'billing', 'inventory', 'hisab'],
@@ -139,6 +146,13 @@ export default function MembersPage() {
     modules: ModuleKey[];
   } | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Password Configuration Modal States
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordStaff, setPasswordStaff] = useState<StaffMember | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isActivatingPassword, setIsActivatingPassword] = useState(false);
 
   // Delete & Success confirmation states
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -216,35 +230,97 @@ export default function MembersPage() {
   const shareCredentialsWhatsApp = () => {
     if (!createdCredentials) return;
     const company = profile?.company_name || 'Escrow BMS';
-    const isGoogle = !createdCredentials.password || createdCredentials.password === '(Google Sign-In / Existing)';
-    const modulesText = createdCredentials.modules.map(m => `• ${m.toUpperCase()}`).join('\n');
-    
-    let message = '';
-    if (isGoogle) {
-      message = `*${company} - Staff Login Access*\n\n` +
-        `Your staff account is ready on Escrow BMS!\n\n` +
-        `🏢 *Company ID:* \`${createdCredentials.companyId}\`\n` +
-        `🆔 *Staff ID:* \`${createdCredentials.staffId}\`\n` +
-        `👤 *Name:* ${createdCredentials.name}\n` +
-        `📧 *Email:* ${createdCredentials.email}\n` +
-        `💼 *Role:* ${createdCredentials.role}\n\n` +
-        `🔐 *Module Access:*\n${modulesText}\n\n` +
-        `👉 *Login Instructions:* Open Escrow BMS and sign in using Google Sign-In with this email address. Your permissions and company data are pre-configured!`;
-    } else {
-      message = `*${company} - Staff Login Access*\n\n` +
-        `Your staff account has been configured on Escrow BMS:\n\n` +
-        `🏢 *Company ID:* \`${createdCredentials.companyId}\`\n` +
-        `🆔 *Staff ID:* \`${createdCredentials.staffId}\`\n` +
-        `👤 *Name:* ${createdCredentials.name}\n` +
-        `📧 *Email:* ${createdCredentials.email}\n` +
-        `🔑 *Password:* \`${createdCredentials.password || '[As Configured]'}\`\n` +
-        `💼 *Role:* ${createdCredentials.role}\n\n` +
-        `🔐 *Module Access:*\n${modulesText}\n\n` +
-        `👉 *Login Instructions:* Sign in using your email and password.`;
-    }
-    
+    const message = formatStaffWhatsAppInvite({
+      companyName: company,
+      staffName: createdCredentials.name,
+      companyId: createdCredentials.companyId,
+      staffCode: createdCredentials.staffId,
+      email: createdCredentials.email,
+      password: createdCredentials.password,
+      role: createdCredentials.role,
+      modules: createdCredentials.modules
+    });
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
+  };
+
+  const handleOpenPasswordModal = (staff: StaffMember) => {
+    setPasswordStaff(staff);
+    const existing = staff.temp_password && !staff.temp_password.includes('Google') ? staff.temp_password : '';
+    setNewPassword(existing);
+    setShowNewPassword(true);
+    setShowPasswordModal(true);
+  };
+
+  const generateStaffPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%';
+    let generated = '';
+    for (let i = 0; i < 10; i++) {
+      generated += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNewPassword(generated);
+    setShowNewPassword(true);
+  };
+
+  const handleSaveStaffPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordStaff || !ownerId) return;
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters.');
+      return;
+    }
+
+    setIsActivatingPassword(true);
+    try {
+      const authRes = await createStaffAccount({
+        email: passwordStaff.email,
+        password: newPassword,
+        fullName: passwordStaff.name,
+        phone: passwordStaff.phone || '',
+        role: passwordStaff.role,
+        modules: passwordStaff.allowed_modules,
+        ownerId: ownerId,
+        companyId: displayCompanyId,
+        companyName: profile?.company_name || 'Escrow BMS'
+      });
+
+      const updatedMember: StaffMember = {
+        ...passwordStaff,
+        temp_password: newPassword,
+        updated_at: new Date().toISOString()
+      };
+
+      const updatedList = staffList.map(s => s.id === passwordStaff.id ? updatedMember : s);
+      setStaffList(updatedList);
+      localStorage.setItem(getStaffBackupKey(ownerId), JSON.stringify(updatedList));
+
+      try {
+        await supabase.from('employees').update({
+          permissions: passwordStaff.allowed_modules,
+          updated_at: new Date().toISOString()
+        }).eq('id', passwordStaff.id);
+      } catch {}
+
+      setShowPasswordModal(false);
+
+      setCreatedCredentials({
+        name: updatedMember.name,
+        staffId: updatedMember.staff_id,
+        companyId: displayCompanyId,
+        email: updatedMember.email,
+        password: updatedMember.temp_password,
+        role: updatedMember.role,
+        modules: updatedMember.allowed_modules
+      });
+      setShowCredentialsModal(true);
+
+      toast.success(`Login access activated for ${passwordStaff.name}!`);
+    } catch (err: any) {
+      console.error('Password activation error:', err);
+      toast.error(err?.message || 'Failed to activate login password.');
+    } finally {
+      setIsActivatingPassword(false);
+    }
   };
 
   const handleEditClick = (staff: StaffMember) => {
@@ -667,6 +743,86 @@ export default function MembersPage() {
             ))}
           </div>
         )}
+
+        {/* ── Set / Reset Staff Password Modal ───────────────────────── */}
+        <Dialog open={showPasswordModal} onOpenChange={setShowPasswordModal}>
+          <DialogContent className="sm:max-w-[480px] p-0 overflow-hidden rounded-3xl border-none shadow-2xl bg-background">
+            <DialogHeader className="p-6 pb-4 bg-muted/10 border-b border-border/50">
+              <DialogTitle className="text-xl font-black text-foreground flex items-center gap-2">
+                <Key className="w-5 h-5 text-indigo-600" />
+                <span>Configure Staff Login Access</span>
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Set or reset login password for <strong>{passwordStaff?.name}</strong> ({passwordStaff?.email})
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleSaveStaffPassword}>
+              <div className="p-6 space-y-5">
+                <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/60 dark:border-indigo-800 space-y-1">
+                  <p className="text-xs font-black uppercase text-indigo-700 dark:text-indigo-300">Staff Account</p>
+                  <p className="text-sm font-bold text-foreground">{passwordStaff?.name} • {passwordStaff?.role}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{passwordStaff?.email}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Login Password <span className="text-rose-500">*</span>
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={generateStaffPassword}
+                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Generate Random</span>
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <Input
+                      type={showNewPassword ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimum 6 characters"
+                      className="h-11 font-mono text-sm pr-10 rounded-xl"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    This password will be immediately activated for email login at <strong>/auth</strong>.
+                  </p>
+                </div>
+              </div>
+
+              <DialogFooter className="p-4 bg-muted/20 border-t border-border/50 gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="rounded-xl font-bold cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isActivatingPassword}
+                  className="rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer ml-2"
+                >
+                  {isActivatingPassword ? "Activating Login..." : "Activate & Share Credentials"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* ── Edit Staff Modal ───────────────────────────────────────── */}
         <Dialog open={showEditModal} onOpenChange={setShowEditModal}>

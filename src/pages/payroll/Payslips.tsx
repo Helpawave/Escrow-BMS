@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrency } from "@/contexts/CurrencyContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Payslip {
@@ -33,7 +34,7 @@ const statusStyles: Record<string, string> = {
   Sent: "bg-success/10 text-success",
 };
 
-function generatePayslipFromEmployee(emp: any, period: string): Payslip {
+function generatePayslipFromEmployee(emp: any, period: string, currencySymbol: string = '₹'): Payslip {
   const salary = Number(emp.salary || 0);
   const basic = Math.round(salary * 0.5);
   const hra = Math.round(salary * 0.2);
@@ -44,7 +45,7 @@ function generatePayslipFromEmployee(emp: any, period: string): Payslip {
   const tax = Math.round(Math.max(0, (salary * 12 - 250000) / 12 * 0.05));
   const deductions = pf + esi + tax;
   const net = gross - deductions;
-  const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+  const fmt = (n: number) => `${currencySymbol}${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   return {
     id: `PS-${period.replace(' ', '-')}-${emp.employee_id || emp.id}`,
     employee: emp.name || emp.full_name || 'Unknown',
@@ -65,6 +66,7 @@ function generatePayslipFromEmployee(emp: any, period: string): Payslip {
 
 const Payslips = () => {
   const { user } = useAuth();
+  const { currencySymbol } = useCurrency();
   const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [payslips, setPayslips] = useState<Payslip[]>([]);
@@ -89,8 +91,8 @@ const Payslips = () => {
         const prevPeriod = `${months[prevDate.getMonth()]} ${prevDate.getFullYear()}`;
         const generated: Payslip[] = [];
         for (const emp of (employees || [])) {
-          generated.push(generatePayslipFromEmployee(emp, currentPeriod));
-          generated.push({ ...generatePayslipFromEmployee(emp, prevPeriod), status: 'Sent' });
+          generated.push(generatePayslipFromEmployee(emp, currentPeriod, currencySymbol));
+          generated.push({ ...generatePayslipFromEmployee(emp, prevPeriod, currencySymbol), status: 'Sent' });
         }
         setPayslips(generated);
       } catch (err: any) {

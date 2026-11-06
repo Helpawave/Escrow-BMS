@@ -1,6 +1,7 @@
 import React from 'react';
 import { safelyFormatDate } from '@/utils/dateUtils';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { useTaxConfig } from '@/contexts/TaxContext';
 import { Car, Shield, CheckCircle2, Phone, Mail, MapPin, Building, QrCode, CreditCard, Sparkles, AlertCircle } from 'lucide-react';
 import QRCode from 'react-qr-code';
 
@@ -133,6 +134,13 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
     contextCurrencySymbol = context.currencySymbol;
   } catch {}
   const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
+  let taxName = 'GST';
+  let taxIdLabel = 'GSTIN';
+  try {
+    const taxCtx = useTaxConfig();
+    taxName = taxCtx.taxName;
+    taxIdLabel = taxCtx.taxIdLabel;
+  } catch (e) {}
 
   const vehicle = extractVehicleDetails(invoice);
   const paymentDetails = extractPaymentDetails(invoice);
@@ -194,7 +202,7 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
             <div className="flex flex-wrap gap-x-4 text-[11px] font-semibold text-slate-700 pt-0.5">
               {company.phone && <span>Tel: {company.phone}</span>}
               {company.email && <span>Email: {company.email}</span>}
-              {company.gstin && <span className="font-mono font-bold text-red-700">GSTIN: {company.gstin}</span>}
+              {company.gstin && <span className="font-mono font-bold text-red-700">{taxIdLabel}: {company.gstin}</span>}
             </div>
           </div>
 
@@ -219,7 +227,7 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
           <div className="sm:text-right sm:border-l sm:border-slate-200 sm:pl-4">
             <span className="text-[10px] uppercase font-black text-slate-500 tracking-wider block">Financing / Hypothecation</span>
             <p className="font-bold text-slate-800">{vehicle.financer || 'Cash / Self Finance'}</p>
-            {client.gstin && <p className="font-mono text-slate-600 text-[11px]">Customer GSTIN: {client.gstin}</p>}
+            {client.gstin && <p className="font-mono text-slate-600 text-[11px]">Customer {taxIdLabel}: {client.gstin}</p>}
           </div>
         </div>
 
@@ -577,7 +585,7 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
                 <Sparkles className="w-4 h-4 text-amber-500" /> Executive Vehicle Confirmation
               </span>
               <h1 className="text-2xl font-black text-slate-900 mt-1">{company.company_name || 'PREMIUM AUTOMOBILES'}</h1>
-              <p className="text-xs text-slate-600">{company.business_address} • GSTIN: {company.gstin || '07AAAAA0000A1Z5'}</p>
+              <p className="text-xs text-slate-600">{company.business_address} • {taxIdLabel}: {company.gstin || '07AAAAA0000A1Z5'}</p>
             </div>
           </div>
           <div className="text-right">

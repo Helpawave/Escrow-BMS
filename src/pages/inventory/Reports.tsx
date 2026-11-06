@@ -26,12 +26,14 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { useCurrency } from "@/contexts/CurrencyContext";
 import { useProducts } from "@/contexts/ProductsContext";
 
 export const Reports = () => {
     const { user } = useAuth();
     const { profile, loading } = useProfile(user?.id);
     const { products } = useProducts();
+    const { currencySymbol } = useCurrency();
     const [dateFrom, setDateFrom] = useState<Date>();
     const [dateTo, setDateTo] = useState<Date>();
     const [warehouse, setWarehouse] = useState<string>("");
@@ -120,8 +122,8 @@ export const Reports = () => {
                         p.category,
                         bracket,
                         p.quantity.toString(),
-                        `₹${p.price.toFixed(2)}`,
-                        `₹${(p.price * p.quantity).toFixed(2)}`
+                        `${currencySymbol}${p.price.toFixed(2)}`,
+                        `${currencySymbol}${(p.price * p.quantity).toFixed(2)}`
                     ];
                 })
             },
@@ -135,7 +137,7 @@ export const Reports = () => {
                         p.sku,
                         p.category,
                         p.quantity.toString(),
-                        `₹${(p.price * p.quantity).toFixed(2)}`,
+                        `${currencySymbol}${(p.price * p.quantity).toFixed(2)}`,
                         p.quantity > 100 ? 'Run Clearance / Discount Promotion' : 'Liquidate / Bundle Offer'
                     ])
             },
@@ -159,7 +161,7 @@ export const Reports = () => {
                     p.category,
                     p.supplier,
                     p.quantity.toString(),
-                    `₹${(p.price * p.quantity).toFixed(2)}`
+                    `${currencySymbol}${(p.price * p.quantity).toFixed(2)}`
                 ])
             }
         };
@@ -342,7 +344,7 @@ export const Reports = () => {
                                 0 - 30 Days (Fresh Stock)
                             </span>
                             <div className="text-xl font-black text-emerald-950 dark:text-emerald-100 mt-0.5">
-                                ₹{agingStats.freshVal.toFixed(2)}
+                                {currencySymbol}{agingStats.freshVal.toFixed(2)}
                             </div>
                             <p className="text-xs text-emerald-700/80 dark:text-emerald-400 font-medium">
                                 {agingStats.freshCount} Active Products
@@ -361,7 +363,7 @@ export const Reports = () => {
                                 31 - 60 Days (Normal)
                             </span>
                             <div className="text-xl font-black text-blue-950 dark:text-blue-100 mt-0.5">
-                                ₹{agingStats.normalVal.toFixed(2)}
+                                {currencySymbol}{agingStats.normalVal.toFixed(2)}
                             </div>
                             <p className="text-xs text-blue-700/80 dark:text-blue-400 font-medium">
                                 {agingStats.normalCount} Products
@@ -380,7 +382,7 @@ export const Reports = () => {
                                 61 - 90 Days (Slow Moving)
                             </span>
                             <div className="text-xl font-black text-amber-950 dark:text-amber-100 mt-0.5">
-                                ₹{agingStats.slowVal.toFixed(2)}
+                                {currencySymbol}{agingStats.slowVal.toFixed(2)}
                             </div>
                             <p className="text-xs text-amber-700/80 dark:text-amber-400 font-medium">
                                 {agingStats.slowCount} Products at Risk
@@ -399,7 +401,7 @@ export const Reports = () => {
                                 90+ Days (Dead Stock Risk)
                             </span>
                             <div className="text-xl font-black text-rose-950 dark:text-rose-100 mt-0.5">
-                                ₹{agingStats.deadVal.toFixed(2)}
+                                {currencySymbol}{agingStats.deadVal.toFixed(2)}
                             </div>
                             <p className="text-xs text-rose-700/80 dark:text-rose-400 font-medium">
                                 {agingStats.deadCount} Locked Capital Items

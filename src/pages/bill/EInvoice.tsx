@@ -924,7 +924,7 @@ const EInvoicePage = () => {
             postal_code: selectedClient.postal_code || "",
             hide_contact_details: selectedClient.hide_contact_details
           },
-          activeProfile!
+          activeProfile as any
         );
       } else {
         const ewb = item as EWayBillHistoryItem;
@@ -954,7 +954,7 @@ const EInvoicePage = () => {
             postal_code: selectedClient.postal_code || "",
             hide_contact_details: selectedClient.hide_contact_details
           },
-          activeProfile!
+          activeProfile as any
         );
       }
       toast({ title: "Success", description: "PDF generated successfully" });

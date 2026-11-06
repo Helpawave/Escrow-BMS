@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { Shield } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import BrandLogo from '@/components/BrandLogo';
 
 const ADMIN_REMEMBER_ME_KEY = 'escrow_admin_remember_me';
 
@@ -79,17 +80,11 @@ const AdminLogin = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background dark:bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background dark:bg-slate-950 flex items-center justify-center p-4 font-sans">
       <Card className="w-full max-w-md border shadow-sm z-10">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-6">
-            <div className="p-3 bg-background rounded-2xl border border-border">
-              <img 
-                src="/assets/images/e9085822-5bea-4642-b19e-dcfcde6248f7.png" 
-                alt="ESCROWBILL Logo" 
-                className="w-12 h-12 object-contain"
-              />
-            </div>
+            <BrandLogo size="lg" asLink to="/" className="justify-center" />
           </div>
           <CardTitle className="text-2xl font-bold text-foreground tracking-tight">Admin Access</CardTitle>
           <CardDescription className="text-muted-foreground mt-2">Secure gateway for platform administrators</CardDescription>
@@ -103,7 +98,7 @@ const AdminLogin = () => {
                 name="email"
                 type="email"
                 autoComplete="username"
-                placeholder="admin@escrowbill.com"
+                placeholder="admin@escrowbms.com"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-background"

@@ -1,3 +1,4 @@
+import BrandLogo from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import {
@@ -52,12 +53,7 @@ const Intro = () => {
       {/* Navigation */}
       <nav className="border-b bg-background/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-bold text-xl">
-              <img src="/public/icon.png" alt="icon" />
-            </div>
-            <span className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/70">Escoroll</span>
-          </div>
+          <BrandLogo size="md" asLink to="/" subtitle="Payroll & Escrow" />
           <div className="flex items-center gap-4">
             <Button variant="ghost" onClick={() => navigate("/login")}>Login</Button>
             <Button onClick={() => navigate("/register")} className="shadow-lg shadow-primary/20">Get Started</Button>
@@ -442,12 +438,7 @@ const Intro = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-10 md:gap-12 mb-10">
             <div className="col-span-1 md:col-span-1">
-              <div className="flex items-center gap-2 mb-6">
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-primary-foreground font-bold text-xl">
-                  <img src="/public/icon.png" alt="icon" />
-                </div>
-                <span className="font-bold text-xl">Escoroll</span>
-              </div>
+              <div className="mb-6"><BrandLogo size="md" asLink to="/" subtitle="Payroll & Escrow" /></div>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Secure escrow-based payroll management for the modern global workforce.
               </p>
@@ -481,7 +472,7 @@ const Intro = () => {
             </div>
           </div>
           <div className="pt-8 border-t flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-muted-foreground">
-            <p>© 2026 Escoroll Technologies Inc. All rights reserved.</p>
+            <p>© 2026 Escrow BMS. All rights reserved.</p>
             <div className="flex gap-6">
               <a href="#" className="hover:text-foreground">Twitter</a>
               <a href="#" className="hover:text-foreground">LinkedIn</a>

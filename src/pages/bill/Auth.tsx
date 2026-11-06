@@ -1,16 +1,19 @@
+import Auth3DShowcase from "@/components/auth/Auth3DShowcase";
+import BrandLogo from "@/components/BrandLogo";
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { Building2, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { Building2, Eye, EyeOff, CheckCircle, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 
 const REMEMBER_ME_EMAIL_KEY = 'escrow_remember_me_email';
 
@@ -398,97 +401,32 @@ const AuthPage = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col lg:flex-row">
-      {/* Visual Side (Desktop Slider) */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-slate-950">
-        <AnimatePresence>
-          <motion.div
-            key={currentSlide}
-            initial={{ opacity: 0, rotateY: 45, scale: 1.1, z: -100 }}
-            animate={{ opacity: 1, rotateY: 0, scale: 1, z: 0 }}
-            exit={{ opacity: 0, rotateY: -45, scale: 0.9, z: -100 }}
-            transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
-            className="absolute inset-0"
-            style={{ transformStyle: "preserve-3d" }}
-          >
-            <AnimatedBackground type={SLIDES[currentSlide].animation} />
-          </motion.div>
-        </AnimatePresence>
-
-        <div className="relative z-10 w-full h-full flex flex-col items-center lg:items-start justify-start p-16 pt-24 lg:pt-40">
-          <div className="max-w-lg space-y-8">
-            <div className="space-y-4">
-              <motion.h2 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-5xl font-extrabold text-white leading-tight tracking-tight drop-shadow-lg"
-              >
-                {STATIC_DETAILS.title}
-              </motion.h2>
-              <motion.p 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="text-xl text-slate-300 font-medium"
-              >
-                {STATIC_DETAILS.description}
-              </motion.p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-              {STATIC_DETAILS.features.map((feature, i) => (
-                <motion.div 
-                  key={i} 
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.2 + (i * 0.1) }}
-                  className="flex items-start gap-3 bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 group hover:bg-white/10 transition-colors"
-                >
-                  <div className="bg-blue-500/20 p-2 rounded-xl group-hover:scale-110 transition-transform shrink-0">
-                    <CheckCircle className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="font-bold text-slate-100">{feature.title}</h3>
-                    <p className="text-xs text-slate-400 leading-relaxed">{feature.desc}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          {/* Slide Indicators */}
-          <div className="absolute bottom-12 left-16 flex gap-3">
-            {SLIDES.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setCurrentSlide(i)}
-                className={`h-2 transition-all duration-300 rounded-full ${
-                  currentSlide === i ? 'w-12 bg-blue-500' : 'w-2 bg-white/20 hover:bg-white/40'
-                }`}
-              />
-            ))}
-        </div>
+      {/* Visual Side (Desktop 3D Showcase) */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
+        <Auth3DShowcase currentSlide={currentSlide} onSelectSlide={setCurrentSlide} />
       </div>
-    </div>
 
       {/* Form Side */}
       <div className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12 bg-background relative">
         <div className="absolute top-0 right-0 w-full h-full lg:hidden bg-gradient-to-br from-primary/5 via-transparent to-transparent -z-10" />
 
-        <div className="w-full max-w-md space-y-8">
+        <div className="w-full max-w-md space-y-6">
+          <div className="flex items-center justify-start">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors group"
+            >
+              <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
+              <span>Back to Home</span>
+            </Link>
+          </div>
           <div className="text-center space-y-3">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               className="flex items-center justify-center space-x-3 mb-2"
             >
-              <div className="p-3 rounded-2xl bg-background border border-border">
-                <img
-                  src="/assets/images/e9085822-5bea-4642-b19e-dcfcde6248f7.png"
-                  alt="ESCROWBILL Logo"
-                  className="w-12 h-12 object-contain"
-                />
-              </div>
-              <h1 className="text-3xl font-black text-foreground tracking-tighter">ESCROWBILL</h1>
+              <BrandLogo size="xl" asLink to="/" className="justify-center" />
             </motion.div>
             <p className="text-muted-foreground text-sm font-medium">
               {view === 'login' && 'Welcome back! Please enter your details.'}
@@ -541,17 +479,11 @@ const AuthPage = () => {
 
                     <div className="space-y-2">
                       <Label htmlFor="mobile">Mobile Number</Label>
-                      <Input
+                      <CountryPhoneInput
                         id="mobile"
-                        type="tel"
-                        placeholder="10-digit mobile number"
                         value={mobile}
-                        onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        onChange={(val) => setMobile(val)}
                         required
-                        className="h-11"
-                        pattern="[0-9]{10}"
-                        minLength={10}
-                        maxLength={10}
                       />
                     </div>
                   </>

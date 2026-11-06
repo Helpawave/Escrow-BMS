@@ -1,3 +1,4 @@
+import BrandLogo from '@/components/BrandLogo';
 import { Button } from "@/components/ui/button";
 import { Search, User, Settings, LogOut, Building2 } from "lucide-react";
 import {
@@ -35,14 +36,7 @@ export function Header() {
     <header className="bg-background border-b border-border px-4 md:px-6 py-2 md:py-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2 md:space-x-4">
-          <div className="flex items-center space-x-2">
-            <img 
-              src="/assets/images/e9085822-5bea-4642-b19e-dcfcde6248f7.png" 
-              alt="ESCROWBILL Logo" 
-              className="w-6 h-6 md:w-8 md:h-8 object-contain"
-            />
-            <h1 className="text-lg md:text-xl font-bold text-foreground">ESCROWBILL</h1>
-          </div>
+          <BrandLogo size="md" asLink to="/" />
         </div>
 
         <div className="flex items-center space-x-2 md:space-x-4">

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useSubscription } from '@/contexts/SubscriptionContext';
+import { useAuth } from '@/contexts/AuthContext';
 import type { ModuleKey } from '@/lib/constants';
 import { MODULE_MAP } from '@/lib/constants';
-import { Lock, Loader2, Sparkles, ArrowLeft, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Lock, Loader2, Sparkles, ArrowLeft, ShieldAlert, CheckCircle2, UserCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface ModuleGuardProps {
@@ -12,6 +13,7 @@ interface ModuleGuardProps {
 
 export function ModuleGuard({ moduleKey, children }: ModuleGuardProps) {
   const { hasModule, loading } = useSubscription();
+  const { isStaff, staffRole } = useAuth();
   const moduleInfo = MODULE_MAP[moduleKey];
   const ModuleIcon = moduleInfo?.icon || Lock;
 
@@ -35,7 +37,7 @@ export function ModuleGuard({ moduleKey, children }: ModuleGuardProps) {
             {/* Top Status Pill */}
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-black uppercase tracking-wider mb-6">
               <ShieldAlert className="w-3.5 h-3.5" />
-              <span>Access Permission Required</span>
+              <span>{isStaff ? "Module Access Restricted" : "Access Permission Required"}</span>
             </div>
 
             {/* Lock Icon + Module Icon Display */}
@@ -54,7 +56,11 @@ export function ModuleGuard({ moduleKey, children }: ModuleGuardProps) {
               {moduleInfo?.name || 'Module'} Access Locked
             </h2>
             <p className="text-slate-600 dark:text-slate-300 text-sm font-medium leading-relaxed max-w-md mx-auto mb-6">
-              Your subscription plan or account permissions do not grant access to the <span className="font-bold text-slate-900 dark:text-white">{moduleInfo?.name || moduleKey}</span> workspace module.
+              {isStaff ? (
+                <>Your staff role (<strong className="text-slate-900 dark:text-white">{staffRole || 'Staff'}</strong>) does not have permission to access the <span className="font-bold text-slate-900 dark:text-white">{moduleInfo?.name || moduleKey}</span> module. Please contact your company administrator to request access.</>
+              ) : (
+                <>Your subscription plan or account permissions do not grant access to the <span className="font-bold text-slate-900 dark:text-white">{moduleInfo?.name || moduleKey}</span> workspace module.</>
+              )}
             </p>
 
             {/* Feature Unlock Highlights */}
@@ -78,16 +84,23 @@ export function ModuleGuard({ moduleKey, children }: ModuleGuardProps) {
 
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link
-                to="/pricing"
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Upgrade Plan Access</span>
-              </Link>
+              {!isStaff ? (
+                <Link
+                  to="/pricing"
+                  className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-300" />
+                  <span>Upgrade Plan Access</span>
+                </Link>
+              ) : (
+                <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300">
+                  <UserCheck className="w-4 h-4 text-indigo-500" />
+                  <span>Staff Member ({staffRole || 'Staff'})</span>
+                </div>
+              )}
               <Link
                 to="/dashboard"
-                className="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Return to Dashboard</span>

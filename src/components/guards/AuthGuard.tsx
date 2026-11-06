@@ -48,7 +48,7 @@ export function SuperAdminGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Redirect logged-in users away from public pages
+// Redirect logged-in users away from public pages UNLESS they are in password recovery flow or explicitly viewing auth
 export function PublicOnlyGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
@@ -60,7 +60,20 @@ export function PublicOnlyGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (user) {
+  // Check if current URL is part of password recovery flow or explicit auth view/switch
+  const isBypassFlow = 
+    typeof window !== 'undefined' && (
+      window.location.hash.includes('type=recovery') || 
+      window.location.search.includes('mode=reset-password') ||
+      window.location.pathname.includes('reset-password') ||
+      window.location.search.includes('switch') ||
+      window.location.search.includes('action=login') ||
+      window.location.search.includes('action=signup') ||
+      window.location.search.includes('force')
+    );
+
+  // If user is authenticated via recovery token or deliberately switching account, allow auth view
+  if (user && !isBypassFlow) {
     return <Navigate to="/dashboard" replace />;
   }
 

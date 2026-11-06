@@ -102,7 +102,7 @@ export function Dashboard() {
     totalPurchaseCost = 0,
     chartData = [],
     trends = { sales: 0, purchase: 0, revenue: 0, expense: 0 }
-  } = stats || {};
+  } = (stats as any) || {};
 
   const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
   const [logoImageError, setLogoImageError] = useState(false);

@@ -52,7 +52,7 @@ export function WhatsAppChatWidget() {
         setMessages([{
           id: 1,
           from: "bot",
-          text: "Hello! 👋 Welcome to *EscrowBill* support.\n\nSelect your topic below and we'll connect you instantly on WhatsApp!",
+          text: "Hello! 👋 Welcome to *Escrow BMS* support.\n\nSelect your topic below and we'll connect you instantly on WhatsApp!",
           time: nowTime(),
         }]);
         setStep("topic");
@@ -85,7 +85,7 @@ export function WhatsAppChatWidget() {
       /* Open WhatsApp after 800 ms */
       setTimeout(() => {
         const waText = encodeURIComponent(
-          `Hello EscrowBill Support! 👋\n\n*Topic:* ${topic.emoji} ${topic.label}\n\nPlease assist me.`
+          `Hello Escrow BMS Support! 👋\n\n*Topic:* ${topic.emoji} ${topic.label}\n\nPlease assist me.`
         );
         window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${waText}`, "_blank");
       }, 800);
@@ -116,7 +116,7 @@ export function WhatsAppChatWidget() {
               onClick={() => { setIsOpen(true); setShowBubble(false); }}
               className="bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-100 rounded-2xl rounded-br-sm shadow-xl px-4 py-3 max-w-[200px] text-sm font-medium cursor-pointer border border-zinc-100 dark:border-zinc-700 relative"
             >
-              <p className="text-xs text-zinc-400 mb-0.5">EscrowBill Support</p>
+              <p className="text-xs text-zinc-400 mb-0.5">Escrow BMS Support</p>
               Hi there! 👋 Need help?
               <div className="absolute bottom-[-6px] right-4 w-3 h-3 bg-white dark:bg-zinc-800 border-r border-b border-zinc-100 dark:border-zinc-700 rotate-45" />
             </motion.div>
@@ -166,7 +166,7 @@ export function WhatsAppChatWidget() {
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-400 rounded-full border-2 border-white" />
               </div>
               <div className="flex-1">
-                <p className="text-white font-semibold text-sm leading-none">EscrowBill Support</p>
+                <p className="text-white font-semibold text-sm leading-none">Escrow BMS Support</p>
                 <p className="text-green-200 text-xs mt-0.5">Typically replies instantly · WhatsApp</p>
               </div>
               <button onClick={() => setIsOpen(false)} className="text-white/70 hover:text-white">
@@ -258,7 +258,7 @@ export function WhatsAppChatWidget() {
             {/* Footer */}
             <div className="bg-zinc-50 dark:bg-zinc-900 text-center py-1.5 border-t border-zinc-200 dark:border-zinc-700">
               <p className="text-[10px] text-zinc-400">
-                Powered by <strong>EscrowBill</strong> · WhatsApp +91 93280 28207
+                Powered by <strong>Escrow BMS</strong> · WhatsApp +91 93280 28207
               </p>
             </div>
           </motion.div>

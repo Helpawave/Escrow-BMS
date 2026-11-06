@@ -1,18 +1,30 @@
 import { StatCard } from "@/components/StatCard";
 import { BarChart3, TrendingUp, FileText, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
-const departmentCosts = [
-  { dept: "Engineering", headcount: 520, cost: "₹2,10,00,000", percentage: 43.5 },
-  { dept: "Product", headcount: 180, cost: "₹72,00,000", percentage: 14.9 },
-  { dept: "Design", headcount: 85, cost: "₹30,00,000", percentage: 6.2 },
-  { dept: "Marketing", headcount: 150, cost: "₹55,00,000", percentage: 11.4 },
-  { dept: "Finance", headcount: 95, cost: "₹38,00,000", percentage: 7.9 },
-  { dept: "HR", headcount: 65, cost: "₹25,50,000", percentage: 5.3 },
-  { dept: "Operations", headcount: 145, cost: "₹52,00,000", percentage: 10.8 },
+const departmentCostsData = [
+  { dept: "Engineering", headcount: 520, costINR: 21000000, percentage: 43.5 },
+  { dept: "Product", headcount: 180, costINR: 7200000, percentage: 14.9 },
+  { dept: "Design", headcount: 85, costINR: 3000000, percentage: 6.2 },
+  { dept: "Marketing", headcount: 150, costINR: 5500000, percentage: 11.4 },
+  { dept: "Finance", headcount: 95, costINR: 3800000, percentage: 7.9 },
+  { dept: "HR", headcount: 65, costINR: 2550000, percentage: 5.3 },
+  { dept: "Operations", headcount: 145, costINR: 5200000, percentage: 10.8 },
 ];
 
 const Reports = () => {
+  const { currencySymbol, currencyCode, convertFromINR } = useCurrency();
+  const isINR = currencyCode === 'INR';
+
+  const annualCostDisplay = isINR 
+    ? "₹57.6 Cr" 
+    : `${currencySymbol}${Math.round(convertFromINR(576000000)).toLocaleString()}`;
+
+  const avgCtcDisplay = isINR 
+    ? "₹4,64,516" 
+    : `${currencySymbol}${Math.round(convertFromINR(464516)).toLocaleString()}`;
+
   return (
     <div className="space-y-8">
         <div className="flex items-center justify-between">
@@ -21,8 +33,8 @@ const Reports = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <StatCard title="Annual Payroll Cost" value="₹57.6 Cr" subtitle="FY 2025-26" icon={BarChart3} trend={{ value: "8.2% YoY", positive: true }} />
-          <StatCard title="Avg. CTC" value="₹4,64,516" subtitle="Per employee / month" icon={TrendingUp} />
+          <StatCard title="Annual Payroll Cost" value={annualCostDisplay} subtitle="FY 2025-26" icon={BarChart3} trend={{ value: "8.2% YoY", positive: true }} />
+          <StatCard title="Avg. CTC" value={avgCtcDisplay} subtitle="Per employee / month" icon={TrendingUp} />
           <StatCard title="Tax Compliance" value="100%" subtitle="All filings up to date" icon={FileText} />
         </div>
 
@@ -42,19 +54,24 @@ const Reports = () => {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {departmentCosts.map((d) => (
-                <tr key={d.dept} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-6 py-3 text-sm font-medium">{d.dept}</td>
-                  <td className="px-6 py-3 text-sm text-center font-mono" data-mono>{d.headcount}</td>
-                  <td className="px-6 py-3 text-sm text-right font-mono font-medium" data-mono>{d.cost}</td>
-                  <td className="px-6 py-3 text-sm text-right font-mono text-muted-foreground" data-mono>{d.percentage}%</td>
-                  <td className="px-6 py-3">
-                    <div className="w-full bg-muted rounded-full h-1.5">
-                      <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${d.percentage}%` }} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {departmentCostsData.map((d) => {
+                const costDisplay = isINR 
+                  ? `₹${d.costINR.toLocaleString('en-IN')}` 
+                  : `${currencySymbol}${Math.round(convertFromINR(d.costINR)).toLocaleString()}`;
+                return (
+                  <tr key={d.dept} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-6 py-3 text-sm font-medium">{d.dept}</td>
+                    <td className="px-6 py-3 text-sm text-center font-mono" data-mono>{d.headcount}</td>
+                    <td className="px-6 py-3 text-sm text-right font-mono font-medium" data-mono>{costDisplay}</td>
+                    <td className="px-6 py-3 text-sm text-right font-mono text-muted-foreground" data-mono>{d.percentage}%</td>
+                    <td className="px-6 py-3">
+                      <div className="w-full bg-muted rounded-full h-1.5">
+                        <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${d.percentage}%` }} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

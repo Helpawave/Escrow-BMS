@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -85,18 +86,11 @@ export function MobileNumberRequiredModal() {
         <form onSubmit={handleSave} className="space-y-5 pt-2">
           <div className="space-y-2">
             <Label htmlFor="required-mobile">Mobile Number *</Label>
-            <Input
+            <CountryPhoneInput
               id="required-mobile"
-              type="tel"
-              inputMode="numeric"
-              placeholder="10-digit mobile number"
               value={mobile}
-              onChange={(event) => setMobile(event.target.value.replace(/\D/g, "").slice(0, 10))}
-              pattern="[0-9]{10}"
-              minLength={10}
-              maxLength={10}
+              onChange={(val) => setMobile(val)}
               required
-              className="h-12 text-base font-bold"
               autoFocus
             />
           </div>

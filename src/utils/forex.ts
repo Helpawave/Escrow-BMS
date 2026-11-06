@@ -20,7 +20,31 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
   INR: '₹',
   USD: '$',
   EUR: '€',
-  GBP: '£'
+  GBP: '£',
+  AED: 'AED',
+  SAR: 'SAR',
+  CAD: 'CA$',
+  AUD: 'A$',
+  SGD: 'S$',
+  QAR: 'QAR',
+  KWD: 'KD',
+  OMR: 'OMR',
+  BHD: 'BD',
+  NPR: 'NPR',
+  BDT: '৳',
+  PKR: '₨',
+  MYR: 'RM',
+  ZAR: 'R',
+  NZD: 'NZ$',
+  JPY: '¥',
+  CHF: 'CHF',
+  EGP: 'E£',
+  PHP: '₱',
+  IDR: 'Rp',
+  TRY: '₺',
+  NGN: '₦',
+  KES: 'KSh',
+  LKR: 'Rs'
 };
 
 const CACHE_KEY = 'escrow_forex_rates_v1';

@@ -147,7 +147,8 @@ function rowToTeamMember(row: any): TeamMember {
 }
 
 export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, effectiveUserId, isStaff, staffRole } = useAuth();
+  const targetUserId = effectiveUserId || user?.id;
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -215,7 +216,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) return;
     const { data } = await supabase
       .from('activities')
-      .insert({ id: `act-${Date.now()}`, user_id: user.id, text, time: 'Just now', type })
+      .insert({ id: `act-${Date.now()}`, user_id: targetUserId, text, time: 'Just now', type })
       .select()
       .single();
     if (data) {
@@ -228,7 +229,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) return;
     const { data: row, error } = await supabase
       .from('leads')
-      .insert({ ...data, id: `lead-${Date.now()}`, user_id: user.id, created_date: new Date().toISOString().split('T')[0] })
+      .insert({ ...data, id: `lead-${Date.now()}`, user_id: targetUserId, created_date: new Date().toISOString().split('T')[0] })
       .select().single();
     if (error) { triggerToast('Error creating lead.', 'error'); return; }
     setLeads((prev) => [rowToLead(row), ...prev]);
@@ -241,7 +242,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dbUpdates: any = { ...updates };
     if (updates.createdDate) { dbUpdates.created_date = updates.createdDate; delete dbUpdates.createdDate; }
     const { data: row, error } = await supabase
-      .from('leads').update(dbUpdates).eq('id', id).eq('user_id', user.id).select().single();
+      .from('leads').update(dbUpdates).eq('id', id).eq('user_id', targetUserId).select().single();
     if (error) { triggerToast('Error updating lead.', 'error'); return; }
     setLeads((prev) => prev.map((l) => l.id === id ? rowToLead(row) : l));
     triggerToast('Lead updated.', 'success');
@@ -250,7 +251,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteLead = async (id: string) => {
     if (!user) return;
     const target = leads.find((l) => l.id === id);
-    await supabase.from('leads').delete().eq('id', id).eq('user_id', user.id);
+    await supabase.from('leads').delete().eq('id', id).eq('user_id', targetUserId);
     setLeads((prev) => prev.filter((l) => l.id !== id));
     if (target) await logActivity(`Deleted Lead: ${target.name}`, 'lead');
     triggerToast('Lead deleted.', 'info');
@@ -261,7 +262,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) return;
     const { data: row, error } = await supabase
       .from('tasks')
-      .insert({ ...data, id: `task-${Date.now()}`, user_id: user.id, desc_text: data.desc, lead_id: data.leadId, due_date: data.dueDate })
+      .insert({ ...data, id: `task-${Date.now()}`, user_id: targetUserId, desc_text: data.desc, lead_id: data.leadId, due_date: data.dueDate })
       .select().single();
     if (error) { triggerToast('Error creating task.', 'error'); return; }
     setTasks((prev) => [rowToTask(row), ...prev]);
@@ -276,7 +277,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updates.leadId !== undefined) { dbUpdates.lead_id = updates.leadId; delete dbUpdates.leadId; }
     if (updates.dueDate !== undefined) { dbUpdates.due_date = updates.dueDate; delete dbUpdates.dueDate; }
     const { data: row, error } = await supabase
-      .from('tasks').update(dbUpdates).eq('id', id).eq('user_id', user.id).select().single();
+      .from('tasks').update(dbUpdates).eq('id', id).eq('user_id', targetUserId).select().single();
     if (error) { triggerToast('Error updating task.', 'error'); return; }
     setTasks((prev) => prev.map((t) => t.id === id ? rowToTask(row) : t));
     triggerToast('Task updated.', 'success');
@@ -285,7 +286,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTask = async (id: string) => {
     if (!user) return;
     const target = tasks.find((t) => t.id === id);
-    await supabase.from('tasks').delete().eq('id', id).eq('user_id', user.id);
+    await supabase.from('tasks').delete().eq('id', id).eq('user_id', targetUserId);
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (target) await logActivity(`Deleted Task: "${target.title}"`, 'task');
     triggerToast('Task deleted.', 'info');
@@ -296,7 +297,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user) return;
     const { data: row, error } = await supabase
       .from('team')
-      .insert({ ...data, id: `member-${Date.now()}`, owner_id: user.id })
+      .insert({ ...data, id: `member-${Date.now()}`, owner_id: targetUserId })
       .select().single();
     if (error) { triggerToast('Error adding team member.', 'error'); return; }
     setTeamMembers((prev) => [...prev, rowToTeamMember(row)]);
@@ -305,7 +306,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteTeamMember = async (id: string) => {
     if (!user) return;
-    await supabase.from('team').delete().eq('id', id).eq('owner_id', user.id);
+    await supabase.from('team').delete().eq('id', id).eq('owner_id', targetUserId);
     setTeamMembers((prev) => prev.filter((m) => m.id !== id));
     triggerToast('Team member removed.', 'info');
   };
@@ -313,9 +314,9 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const resetDatabase = async () => {
     if (!user) return;
     await Promise.all([
-      supabase.from('leads').delete().eq('user_id', user.id),
-      supabase.from('tasks').delete().eq('user_id', user.id),
-      supabase.from('activities').delete().eq('user_id', user.id),
+      supabase.from('leads').delete().eq('user_id', targetUserId),
+      supabase.from('tasks').delete().eq('user_id', targetUserId),
+      supabase.from('activities').delete().eq('user_id', targetUserId),
     ]);
     setLeads([]); setTasks([]); setActivities([]);
     triggerToast('Database reset.', 'success');
@@ -323,7 +324,7 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const clearActivities = async () => {
     if (!user) return;
-    await supabase.from('activities').delete().eq('user_id', user.id);
+    await supabase.from('activities').delete().eq('user_id', targetUserId);
     setActivities([]);
     triggerToast('Activity feed cleared.', 'info');
   };

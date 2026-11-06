@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 type PayrollStatus = 'DRAFT' | 'VALIDATING' | 'CALCULATED' | 'LOCKED' | 'PAID';
 
@@ -41,6 +42,7 @@ const statusActionLabel: Record<PayrollStatus, string> = {
 
 const Payroll = () => {
   const { user } = useAuth();
+  const { currencySymbol } = useCurrency();
   const { t } = useLanguage();
   const [runs, setRuns] = useState<PayrollRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,7 +66,7 @@ const Payroll = () => {
       setEmpCount(String(activeCount));
 
       // Standard active run fallback when database runs table is absent
-      const fmt = (n: number) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+      const fmt = (n: number) => `${currencySymbol}${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       if (activeCount > 0) {
         setRuns([{
           id: 'current-run',

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTaxConfig } from "@/contexts/TaxContext";
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useSubscription } from '@/contexts/SubscriptionContext';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -34,10 +36,12 @@ import {
   KanbanSquare,
   ShieldCheck,
   CreditCard,
-  Calendar
+  Calendar,
+  Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { PageTransition } from '@/components/PageTransition';
+import { MODULES } from '@/lib/constants';
 
 type PeriodFilter = 'all' | 'month' | '3m' | '6m' | 'fy' | 'ytd' | 'custom';
 
@@ -76,10 +80,27 @@ interface RecentTask {
 }
 
 export default function Dashboard() {
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, effectiveUserId, isStaff, staffRole } = useAuth();
+  const { currencyCode, currencySymbol } = useCurrency();
+  const { taxName } = useTaxConfig();
+  const targetUserId = effectiveUserId || user?.id;
   const { activeModules, hasModule, loading: subscriptionLoading } = useSubscription();
   const { t } = useLanguage();
   const navigate = useNavigate();
+
+  // If user is a restricted staff member without dashboard access, redirect to their permitted module or profile
+  useEffect(() => {
+    if (!authLoading && !subscriptionLoading && isStaff && staffRole !== 'Admin' && staffRole !== 'Manager') {
+      const modulePriority = ['crm', 'billing', 'ledger', 'inventory', 'hisab', 'payroll'];
+      const targetMod = modulePriority.find(m => activeModules.includes(m as any)) || activeModules[0];
+      if (targetMod) {
+        const mod = MODULES.find(m => m.key === targetMod);
+        navigate(mod ? mod.route : '/my-profile', { replace: true });
+      } else {
+        navigate('/my-profile', { replace: true });
+      }
+    }
+  }, [authLoading, subscriptionLoading, isStaff, staffRole, activeModules, navigate]);
 
   // Active module checks
   const showBilling = hasModule('billing');
@@ -248,16 +269,16 @@ export default function Dashboard() {
           productsRes,
           hisabRes
         ] = await Promise.all([
-          showBilling ? safeQuery(async () => await supabase.from('invoices').select('id, invoice_number, total_amount, status, issue_date, created_at, client_id').eq('user_id', user.id).order('created_at', { ascending: false }), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showBilling ? safeQuery(async () => await supabase.from('clients').select('id, name').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showPayroll ? safeQuery(async () => await supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'active'), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showPayroll ? safeQuery(async () => await supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', user.id).eq('status', 'pending'), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showCRM ? safeQuery(async () => await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('user_id', user.id), { count: 0 }) : Promise.resolve({ count: 0 }),
-          showCRM ? safeQuery(async () => await supabase.from('tasks').select('id, title, status, priority, due_date', { count: 'exact' }).eq('user_id', user.id).neq('status', 'done').order('created_at', { ascending: false }).limit(5), { data: [] as any[], count: 0 }) : Promise.resolve({ data: [] as any[], count: 0 }),
-          showLedger ? safeQuery(async () => await supabase.from('accounts').select('id, balance').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          safeQuery(async () => await supabase.from('expenses').select('amount, created_at').eq('user_id', user.id), { data: [] as any[] }),
-          showInventory ? safeQuery(async () => await supabase.from('products').select('id, opening_stock').eq('user_id', user.id), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
-          showHisab ? safeQuery(async () => await supabase.from('calculations').select('*', { count: 'exact', head: true }).eq('user_id', user.id), { count: 0 }) : Promise.resolve({ count: 0 })
+          showBilling ? safeQuery(async () => await supabase.from('invoices').select('id, invoice_number, total_amount, status, issue_date, created_at, client_id').eq('user_id', targetUserId).order('created_at', { ascending: false }), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          showBilling ? safeQuery(async () => await supabase.from('clients').select('id, name').eq('user_id', targetUserId), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          showPayroll ? safeQuery(async () => await supabase.from('employees').select('*', { count: 'exact', head: true }).eq('user_id', targetUserId).eq('status', 'active'), { count: 0 }) : Promise.resolve({ count: 0 }),
+          showPayroll ? safeQuery(async () => await supabase.from('leaves').select('*', { count: 'exact', head: true }).eq('user_id', targetUserId).eq('status', 'pending'), { count: 0 }) : Promise.resolve({ count: 0 }),
+          showCRM ? safeQuery(async () => await supabase.from('leads').select('*', { count: 'exact', head: true }).eq('user_id', targetUserId), { count: 0 }) : Promise.resolve({ count: 0 }),
+          showCRM ? safeQuery(async () => await supabase.from('tasks').select('id, title, status, priority, due_date', { count: 'exact' }).eq('user_id', targetUserId).neq('status', 'done').order('created_at', { ascending: false }).limit(5), { data: [] as any[], count: 0 }) : Promise.resolve({ data: [] as any[], count: 0 }),
+          showLedger ? safeQuery(async () => await supabase.from('accounts').select('id, balance').eq('user_id', targetUserId), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          safeQuery(async () => await supabase.from('expenses').select('amount, created_at').eq('user_id', targetUserId), { data: [] as any[] }),
+          showInventory ? safeQuery(async () => await supabase.from('products').select('id, opening_stock').eq('user_id', targetUserId), { data: [] as any[] }) : Promise.resolve({ data: [] as any[] }),
+          showHisab ? safeQuery(async () => await supabase.from('calculations').select('*', { count: 'exact', head: true }).eq('user_id', targetUserId), { count: 0 }) : Promise.resolve({ count: 0 })
         ]);
 
         if (!isMounted) return;
@@ -389,17 +410,33 @@ export default function Dashboard() {
   }, [user, authLoading, subscriptionLoading, activeModules, selectedPeriod, customStartDate, customEndDate]);
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(val);
+    try {
+      const locale = currencyCode === 'INR' ? 'en-IN' : currencyCode === 'GBP' ? 'en-GB' : currencyCode === 'EUR' ? 'de-DE' : 'en-US';
+      return new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency: currencyCode || 'INR',
+        maximumFractionDigits: 0
+      }).format(val || 0);
+    } catch {
+      return `${currencySymbol || '₹'} ${(val || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    }
   };
 
 
 
 
 
+
+  if (!authLoading && isStaff && staffRole !== 'Admin' && staffRole !== 'Manager') {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">
+          Opening {staffRole || 'Staff'} Workspace...
+        </p>
+      </div>
+    );
+  }
 
   return (
     <PageTransition className="space-y-6 pb-16">
@@ -537,7 +574,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-medium text-slate-600 dark:text-slate-300">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              <span className="line-through text-slate-400">Configure business GST & profile</span>
+              <span className="line-through text-slate-400">Configure business {taxName} & profile</span>
             </div>
             <div className="flex items-center gap-2 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors" onClick={() => navigate('/billing/products')}>
               <Circle className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0" />

@@ -38,6 +38,10 @@ export interface Profile {
   approved_at?: string | null;
   isTrialActive?: boolean;
   trialDaysRemaining?: number;
+  allowed_modules?: string[];
+  business_country?: string | null;
+  country?: string | null;
+  [key: string]: any;
 }
 
 export type User = {
@@ -46,10 +50,15 @@ export type User = {
   created_at?: string;
   user_metadata: {
     full_name?: string;
+    name?: string;
     company_name?: string;
+    phone?: string;
+    mobile?: string;
     is_staff?: boolean;
     company_id?: string;
+    allowed_modules?: string[];
     dismissed_broadcasts?: string[];
+    [key: string]: any;
   };
   companyName?: string;
   is_allowed?: boolean;
@@ -58,6 +67,7 @@ export type User = {
   approval_expires_at?: string;
   approved_at?: string;
   role?: string;
+  [key: string]: any;
 };
 
 export type Session = {
@@ -137,13 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
   });
-  const [isStaff, setIsStaff] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('escrow_is_staff') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isStaff, setIsStaff] = useState<boolean>(false);
   const [companyOwnerId, setCompanyOwnerId] = useState<string | null>(() => {
     try {
       return localStorage.getItem('escrow_cached_effective_user_id') || null;
@@ -154,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [staffRole, setStaffRole] = useState<string | null>(null);
   const [staffPermissions, setStaffPermissions] = useState<string[]>([]);
   const [staffName, setStaffName] = useState<string | null>(null);
+  const [companyProfile, setCompanyProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
@@ -206,37 +211,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Check if user is a staff member from profile or employees
+      // Check if user is a staff member (from profiles.parent_user_id, auth user metadata, employees table, or local backup)
       let staffData: any = null;
-      if (data?.parent_user_id || data?.role === 'member') {
-        staffData = {
-          role: data?.role || 'member',
-          name: data?.full_name || '',
-          company_owner_id: data?.parent_user_id || '',
-          permissions: ['billing', 'ledger', 'inventory', 'payroll', 'crm', 'hisab']
-        };
+      let effectiveOwnerId: string | null = (data as any)?.parent_user_id || null;
+
+      // Check current session auth user metadata
+      let authUserMetadata: any = null;
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        authUserMetadata = userData?.user?.user_metadata || null;
+      } catch {}
+
+      if (authUserMetadata?.is_staff || authUserMetadata?.parent_user_id) {
+        effectiveOwnerId = effectiveOwnerId || authUserMetadata.parent_user_id;
       }
 
-      if (!staffData && email) {
+      // Check employees table if not already identified
+      if (!effectiveOwnerId && email) {
         try {
           const { data: empMatch } = await supabase
             .from('employees')
             .select('*')
-            .or(`user_id.eq.${userId},email.eq.${email}`)
+            .eq('email', email)
             .maybeSingle();
           if (empMatch) {
-            staffData = {
-              ...empMatch,
-              company_owner_id: empMatch.user_id
-            };
+            effectiveOwnerId = empMatch.user_id;
+            staffData = empMatch;
           }
-        } catch {
-          // Ignore
-        }
+        } catch {}
       }
 
-      // Check localStorage backup for staff records
-      if (!staffData && email) {
+      // Check localStorage backup
+      if (!effectiveOwnerId && email) {
         try {
           for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
@@ -244,6 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               const stored = JSON.parse(localStorage.getItem(key) || '[]');
               const found = stored.find((s: any) => s.email?.toLowerCase() === email.toLowerCase());
               if (found) {
+                effectiveOwnerId = found.company_owner_id || found.user_id || null;
                 staffData = found;
                 break;
               }
@@ -252,22 +259,106 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
-      if (staffData) {
+      // Never consider an owner or admin as a staff of themselves
+      if (effectiveOwnerId && effectiveOwnerId === userId) {
+        effectiveOwnerId = null;
+        staffData = null;
+      }
+      if ((data as any)?.role === 'admin' || (data as any)?.role === 'super_admin' || (data as any)?.role === 'owner') {
+        effectiveOwnerId = null;
+        staffData = null;
+      }
+
+      const isStaffUser = (!!effectiveOwnerId && effectiveOwnerId !== userId) || 
+        ((data as any)?.role === 'member' && !!effectiveOwnerId && effectiveOwnerId !== userId) || 
+        (authUserMetadata?.is_staff === true && !!effectiveOwnerId && effectiveOwnerId !== userId);
+
+      if (isStaffUser && effectiveOwnerId && effectiveOwnerId !== userId) {
         setIsStaff(true);
         try { localStorage.setItem('escrow_is_staff', 'true'); } catch {}
-        setStaffRole(staffData.role || 'Staff');
-        setStaffName(staffData.name || null);
-        const perms = Array.isArray(staffData.permissions)
-          ? staffData.permissions
-          : (typeof staffData.permissions === 'string' ? JSON.parse(staffData.permissions || '[]') : []);
-        setStaffPermissions(perms);
-        if (staffData.company_owner_id) {
-          setCompanyOwnerId(staffData.company_owner_id);
-          try { localStorage.setItem('escrow_cached_effective_user_id', staffData.company_owner_id); } catch {}
+        setCompanyOwnerId(effectiveOwnerId);
+        try { localStorage.setItem('escrow_cached_effective_user_id', effectiveOwnerId); } catch {}
+
+        // Resolve staff role (e.g. Sales, Accountant, Manager)
+        const roleStr = authUserMetadata?.staff_role || authUserMetadata?.role || staffData?.role || ((data as any)?.role !== 'member' && (data as any)?.role !== 'user' ? (data as any)?.role : 'Staff');
+        setStaffRole(roleStr);
+
+        // Resolve staff name
+        const resolvedName = staffData?.name || staffData?.full_name || authUserMetadata?.full_name || data?.full_name || 'Staff Member';
+        setStaffName(resolvedName);
+
+        // Resolve allowed module permissions:
+        // Priority 1: authUserMetadata.allowed_modules or authUserMetadata.permissions (set explicitly when owner added this staff)
+        // Priority 2: staffData.allowed_modules or staffData.permissions (from employees table or backup)
+        // Priority 3: data.allowed_modules (only if customized from the default 6 modules)
+        let resolvedPerms: string[] = [];
+        if (Array.isArray(authUserMetadata?.allowed_modules) && authUserMetadata.allowed_modules.length > 0) {
+          resolvedPerms = authUserMetadata.allowed_modules;
+        } else if (Array.isArray(authUserMetadata?.permissions) && authUserMetadata.permissions.length > 0) {
+          resolvedPerms = authUserMetadata.permissions;
+        } else if (Array.isArray(staffData?.allowed_modules) && staffData.allowed_modules.length > 0) {
+          resolvedPerms = staffData.allowed_modules;
+        } else if (Array.isArray(staffData?.permissions) && staffData.permissions.length > 0) {
+          resolvedPerms = staffData.permissions;
+        } else if (Array.isArray((data as any)?.allowed_modules) && (data as any).allowed_modules.length > 0 && (data as any).allowed_modules.length < 6) {
+          resolvedPerms = (data as any).allowed_modules;
+        } else if (Array.isArray((data as any)?.allowed_modules) && (data as any).allowed_modules.length > 0) {
+          resolvedPerms = (data as any).allowed_modules;
+        } else {
+          resolvedPerms = ['billing'];
+        }
+        setStaffPermissions(resolvedPerms);
+
+        // Fetch company owner profile so staff inherits company name, address, logo, GSTIN
+        let ownerCompanyName = '';
+        try {
+          const { data: ownerProf } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', effectiveOwnerId)
+            .maybeSingle();
+          if (ownerProf) {
+            setCompanyProfile(ownerProf as Profile);
+            ownerCompanyName = ownerProf.company_name || '';
+            if (ownerProf.logo_url) {
+              try { localStorage.setItem('escrow_company_logo_url', ownerProf.logo_url); } catch {}
+            }
+          }
+        } catch {}
+
+        // Ensure profile in state has parent_user_id & company_name so effectiveUserId and companyId resolve to the owner
+        const effectiveProfile: Profile = {
+          ...(data as Profile),
+          parent_user_id: effectiveOwnerId,
+          role: 'member',
+          allowed_modules: resolvedPerms,
+          company_name: ownerCompanyName || (data as any)?.company_name || 'Escrow Company',
+        };
+        setProfile(effectiveProfile);
+        try { localStorage.setItem('escrow_cached_profile', JSON.stringify(effectiveProfile)); } catch {}
+
+        // Auto-heal profile in DB if parent_user_id wasn't persisted yet
+        if ((data as any)?.parent_user_id !== effectiveOwnerId || (data as any)?.allowed_modules?.length !== resolvedPerms.length) {
+          supabase
+            .from('profiles')
+            .update({
+              parent_user_id: effectiveOwnerId,
+              role: 'member',
+              allowed_modules: resolvedPerms
+            })
+            .eq('id', userId)
+            .then(() => {});
         }
       } else {
         setIsStaff(false);
-        try { localStorage.removeItem('escrow_is_staff'); } catch {}
+        setCompanyOwnerId(null);
+        setStaffRole(null);
+        setStaffPermissions([]);
+        setCompanyProfile(data as Profile);
+        try {
+          localStorage.removeItem('escrow_is_staff');
+          localStorage.removeItem('escrow_cached_effective_user_id');
+        } catch {}
       }
 
       // Check if user is superadmin
@@ -319,9 +410,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (currentSession) {
         setSession(currentSession as any);
         setUser(currentSession.user as any);
-        if (event !== 'SIGNED_IN') {
-          fetchProfile(currentSession.user.id, currentSession.user.email);
-        }
+        fetchProfile(currentSession.user.id, currentSession.user.email, true);
       } else {
         lastFetchedUserIdRef.current = null;
         setSession(null);
@@ -331,11 +420,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsSuperAdmin(false);
         setIsStaff(false);
         setCompanyOwnerId(null);
+        setStaffRole(null);
+        setStaffPermissions([]);
+        setCompanyProfile(null);
         try {
           localStorage.removeItem('escrow_cached_profile');
           localStorage.removeItem('escrow_is_superadmin');
           localStorage.removeItem('escrow_is_staff');
           localStorage.removeItem('escrow_cached_effective_user_id');
+          localStorage.removeItem('escrow_company_logo_url');
+          localStorage.removeItem('escrow_company_signature_url');
         } catch { }
       }
       setLoading(false);
@@ -394,6 +488,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    try {
+      localStorage.removeItem('escrow_cached_profile');
+      localStorage.removeItem('escrow_is_superadmin');
+      localStorage.removeItem('escrow_is_staff');
+      localStorage.removeItem('escrow_cached_effective_user_id');
+      localStorage.removeItem('escrow_company_logo_url');
+      localStorage.removeItem('escrow_company_signature_url');
+    } catch {}
+    lastFetchedUserIdRef.current = null;
+    setUser(null);
+    setSession(null);
+    setProfile(null);
+    setIsStaff(false);
+    setCompanyOwnerId(null);
+    setStaffRole(null);
+    setStaffPermissions([]);
+    setCompanyProfile(null);
     await supabase.auth.signOut();
   };
 
@@ -406,7 +517,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const targetEmail = email || user?.email;
     if (!targetEmail) return { error: new Error('Email is required') };
     const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${window.location.origin}/auth?mode=reset-password`,
     });
     return { error };
   };
@@ -441,8 +552,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const isAdmin = useMemo(() => {
+    if (isStaff) return false;
     return isSuperAdmin || profile?.role === 'admin' || userRoles.includes('admin') || userRoles.includes('super_admin');
-  }, [isSuperAdmin, profile?.role, userRoles]);
+  }, [isSuperAdmin, profile?.role, userRoles, isStaff]);
 
   const companyId = useMemo(() => {
     const effectiveOwnerId = profile?.parent_user_id || companyOwnerId || user?.id;
@@ -505,8 +617,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       staffName,
       companyOwnerId,
       effectiveUserId,
-      companyProfile: profile || null,
-      ownerName: profile?.company_name || profile?.full_name || null,
+      companyProfile: companyProfile || profile || null,
+      ownerName: companyProfile?.company_name || companyProfile?.full_name || profile?.company_name || profile?.full_name || null,
       currentUserName: user?.user_metadata?.full_name || profile?.full_name || user?.email || '',
       hasPermission: (permissionKey: string) => staffPermissions.includes(permissionKey),
       signUp,

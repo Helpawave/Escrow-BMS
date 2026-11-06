@@ -25,7 +25,7 @@ interface TopbarProps {
 export function Topbar({ onMenuToggle }: TopbarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, user, signOut } = useAuth();
+  const { profile, user, signOut, isStaff, staffRole, companyProfile } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const [langOpen, setLangOpen] = React.useState(false);
   const [dark, setDark] = React.useState(() =>
@@ -65,7 +65,7 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
   return (
     <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
       {/* Top Banner (Trial Alert) with Close Button */}
-      {showTrialBanner && (
+      {!isStaff && showTrialBanner && (
         <div className="bg-indigo-50/80 dark:bg-indigo-950/50 border-b border-indigo-100/80 dark:border-indigo-900/40 px-4 py-1.5 flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 font-medium animate-fade-in">
           <div className="flex-1 text-center flex items-center justify-center gap-2">
             <span>⚡ Trial: 14 days left of full access</span>
@@ -104,17 +104,14 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
           {/* Company Pill */}
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200">
             <span className="font-bold truncate max-w-[140px]">
-              {profile?.company_name || 'GenZ Collection'}
+              {companyProfile?.company_name || profile?.company_name || 'Escrow Company'}
             </span>
             <span className={cn(
               "px-2 py-0.5 rounded text-[9.5px] font-black tracking-wider uppercase border",
-              profile?.role === 'view' ? "bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800" :
-              profile?.role === 'accountant' ? "bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800" :
-              profile?.role === 'sales' ? "bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800" :
-              profile?.role === 'hr' ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800" :
+              isStaff ? "bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800" :
               "bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800"
             )}>
-              {profile?.role ? (profile.role === 'view' ? 'READ-ONLY (VIEW)' : profile.role.toUpperCase()) : 'ADMIN'}
+              {isStaff ? (staffRole || 'STAFF').toUpperCase() : 'OWNER (ADMIN)'}
             </span>
           </div>
 
@@ -173,7 +170,7 @@ export function Topbar({ onMenuToggle }: TopbarProps) {
           </button>
 
           {/* Avatar + Name */}
-          <div className="flex items-center gap-1.5 px-1 rounded-xl">
+          <div onClick={() => navigate('/my-profile')} className="flex items-center gap-1.5 px-1 rounded-xl cursor-pointer hover:opacity-85 transition-opacity" title="View & Edit My Profile">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white text-xs font-bold flex items-center justify-center select-none flex-shrink-0">
               {initials}
             </div>

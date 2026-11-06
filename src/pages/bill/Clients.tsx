@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Edit, Trash2, Users, EyeOff, User, MapPin, ShieldCheck, Check, Info, CreditCard, Search, Loader2 } from "lucide-react";
+import { Plus, Edit, Trash2, Users, FileText, BookOpen, EyeOff, User, MapPin, ShieldCheck, Check, Info, CreditCard, Search, Loader2 } from "lucide-react";
 import { supabase as rawSupabase } from "@/integrations/supabase/client";
 const supabase = rawSupabase as any;
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,9 +24,15 @@ import { useVendors } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 import { DataTablePagination } from "@/components/DataTablePagination";
+import { StateCitySelect } from "@/components/common/StateCitySelect";
+import { getStateFromGSTIN } from "@/data/indianStatesCities";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
+import { useTaxConfig } from "@/contexts/TaxContext";
 
 const ClientsPage = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { taxIdLabel, taxIdPlaceholder, taxName, isGst } = useTaxConfig();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const initialClientId = searchParams.get('id') || "";
@@ -93,7 +99,8 @@ const ClientsPage = () => {
   const [successInfo, setSuccessInfo] = useState({ title: '', message: '' });
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
   const [deletingBulk, setDeletingBulk] = useState(false);
-  const { user } = useAuth();
+  const { user, effectiveUserId } = useAuth();
+  const activeUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
 
   const toggleSelectClient = (id: string) => {
@@ -148,7 +155,7 @@ const ClientsPage = () => {
   // Auto-cleanup duplicate client records and stale converted vendors in database
   useEffect(() => {
     if (rawClients.length > 0 && user?.id) {
-      const activeUserId = user.id;
+      const activeUserId = effectiveUserId || user.id;
       const staleClientIds: string[] = [];
       const seenNames = new Set<string>();
 
@@ -192,7 +199,7 @@ const ClientsPage = () => {
           const { data } = await supabase
             .from('clients')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('user_id', activeUserId)
             .order('created_at', { ascending: false });
 
           if (data) {
@@ -564,13 +571,10 @@ const ClientsPage = () => {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="phone">Phone Number *</Label>
-                      <Input
+                      <CountryPhoneInput
                         id="phone"
-                        type="tel"
-                        placeholder="10-digit mobile number"
                         value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                        pattern="[0-9]{10}"
+                        onChange={(val) => setFormData({ ...formData, phone: val })}
                         required
                       />
                     </div>
@@ -629,44 +633,27 @@ const ClientsPage = () => {
                       onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="city">
-                        City <span className="text-destructive font-bold">*</span>
-                      </Label>
-                      <Input
-                        id="city"
-                        required
-                        placeholder="City"
-                        value={formData.city}
-                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="state">
-                        State <span className="text-destructive font-bold">*</span>
-                      </Label>
-                      <Input
-                        id="state"
-                        required
-                        placeholder="State"
-                        value={formData.state}
-                        onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="postal_code">
-                        PIN Code <span className="text-destructive font-bold">*</span>
-                      </Label>
-                      <Input
-                        id="postal_code"
-                        required
-                        maxLength={6}
-                        placeholder="6-digit PIN"
-                        value={formData.postal_code}
-                        onChange={(e) => setFormData({ ...formData, postal_code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
-                      />
-                    </div>
+                  {/* Dropdown State & Dynamic City Selector */}
+                  <StateCitySelect
+                    selectedState={formData.state}
+                    selectedCity={formData.city}
+                    onStateChange={(state) => setFormData(prev => ({ ...prev, state }))}
+                    onCityChange={(city) => setFormData(prev => ({ ...prev, city }))}
+                    required={true}
+                  />
+
+                  <div className="space-y-2">
+                    <Label htmlFor="postal_code">
+                      PIN Code <span className="text-destructive font-bold">*</span>
+                    </Label>
+                    <Input
+                      id="postal_code"
+                      required
+                      maxLength={6}
+                      placeholder="6-digit PIN"
+                      value={formData.postal_code}
+                      onChange={(e) => setFormData({ ...formData, postal_code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                    />
                   </div>
                 </div>
 
@@ -677,13 +664,21 @@ const ClientsPage = () => {
                     <h3 className="font-semibold text-sm uppercase tracking-wider">Tax & Compliance</h3>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gstin">GSTIN Number (Optional)</Label>
+                    <Label htmlFor="gstin">{taxIdLabel} (Optional)</Label>
                     <Input
                       id="gstin"
-                      placeholder="22AAAAA0000A1Z5"
+                      placeholder={taxIdPlaceholder || "e.g. Tax Registration No"}
                       className="uppercase"
                       value={formData.gstin}
-                      onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase();
+                        const detected = isGst ? getStateFromGSTIN(val) : null;
+                        setFormData(prev => ({
+                          ...prev,
+                          gstin: val,
+                          ...(detected ? { state: detected } : {})
+                        }));
+                      }}
                       onBlur={() => setFormData({ ...formData, gstin: formData.gstin.trim() })}
                     />
                   </div>
@@ -720,7 +715,7 @@ const ClientsPage = () => {
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by name, email, phone or GSTIN..."
+          placeholder={`Search by name, email, phone or ${taxIdLabel}...`}
           className="pl-10 h-11 bg-background border-border/50 rounded-xl"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -973,7 +968,7 @@ const ClientsPage = () => {
             <div className="flex items-center gap-2 mt-2">
               {selectedClient?.gstin ? (
                 <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest">
-                  GST Registered
+                  {taxName} Registered
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-bold uppercase tracking-widest">
@@ -1041,9 +1036,9 @@ const ClientsPage = () => {
  
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div>
-                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">GSTIN Registered</p>
+                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{taxIdLabel} Registered</p>
                    <p className="text-sm font-semibold text-primary uppercase">
-                     {selectedClient?.gstin || 'No GST Details Provided'}
+                     {selectedClient?.gstin || `No ${taxName} Details Provided`}
                    </p>
                  </div>
                  <div>

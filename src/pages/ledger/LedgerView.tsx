@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
 import { ensureDefaultLedgerParties } from '@/utils/erpPosting';
 
@@ -58,6 +59,7 @@ const LedgerView = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user: authUser, profile } = useAuth();
+  const { currencySymbol, currencyCode } = useCurrency();
   
   // Parties state and caching logic
   const [parties, setParties] = useState<Party[]>(() => {
@@ -140,6 +142,42 @@ const LedgerView = () => {
       if (error) throw error;
       const cleanData = (data || []) as Party[];
       setParties(cleanData);
+
+      // Two-way sync: automatically import any billing client into account ledger parties
+      try {
+        const { data: clientsData } = await supabase
+          .from('clients')
+          .select('id, name, phone')
+          .eq('user_id', effectiveUserId);
+
+        if (clientsData && clientsData.length > 0) {
+          const partyNames = new Set(cleanData.map(p => (p.party_name || '').trim().toLowerCase()));
+          const missing = clientsData.filter((c: any) => {
+            const k = (c.name || '').trim().toLowerCase();
+            return k && !partyNames.has(k);
+          });
+
+          if (missing.length > 0) {
+            const toInsert = missing.map((c: any) => ({
+              id: c.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${Date.now()}`),
+              user_id: effectiveUserId,
+              sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+              party_name: c.name.trim(),
+              phone: c.phone || '',
+              status: 'take',
+              balance: 0,
+              commission_type: 'without',
+              commission_rate: 0
+            }));
+            await supabase.from('parties').insert(toInsert);
+            toInsert.forEach((item: any) => cleanData.push(item as Party));
+            setParties([...cleanData]);
+          }
+        }
+      } catch (cErr) {
+        console.warn("Client to party sync notice:", cErr);
+      }
+
 
       // Fetch latest balance per party
       if (cleanData.length > 0) {
@@ -603,6 +641,17 @@ const LedgerView = () => {
 
   const sidebarButtons = [
     { 
+      name: 'Direct Bill', 
+      icon: <FileText className="w-4 h-4" />, 
+      color: 'bg-indigo-600 text-white shadow-md shadow-indigo-200', 
+      action: () => {
+        if (selectedParty) {
+          navigate(`/billing/create-invoice?partyId=${selectedParty.id}&partyName=${encodeURIComponent(selectedParty.party_name)}&amount=${Math.abs(closingBalance)}&balanceType=${closingBalance >= 0 ? 'Cr' : 'Dr'}`);
+        }
+      } 
+    },
+
+    { 
       name: 'Refresh All', 
       icon: <RefreshCcw className="w-4 h-4" />, 
       color: 'bg-slate-100 text-slate-600', 
@@ -839,26 +888,24 @@ const LedgerView = () => {
                           <div className="flex items-center justify-end gap-3">
                             <div className="flex flex-col items-end">
                               <span className={`font-mono font-bold text-sm ${isCr ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                ₹ {Math.abs(Math.round(bal)).toLocaleString('en-IN')}
+                                {currencySymbol || '₹'} {Math.abs(Math.round(bal)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}
                               </span>
                               <span className={`text-[9px] font-black uppercase tracking-wider ${isCr ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
                                 {isCr ? 'Credit (जमा)' : 'Debit (बाकी)'}
                               </span>
                             </div>
-                            {bal !== 0 && (
-                              <button
+                            <button
                                 type="button"
-                                title="Create Ledger Bill from Remaining Balance"
+                                title="Generate Invoice / Bill for this Party"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  navigate(`/billing/create-invoice?type=ledger&partyId=${party.id}`);
+                                  navigate(`/billing/create-invoice?partyId=${party.id}&partyName=${encodeURIComponent(party.party_name)}&amount=${Math.abs(bal)}&balanceType=${isCr ? 'Cr' : 'Dr'}`);
                                 }}
-                                className="opacity-0 group-hover:opacity-100 p-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white rounded-lg transition-all text-xs font-bold flex items-center gap-1 border border-indigo-200 dark:border-indigo-800 shrink-0 cursor-pointer shadow-xs"
+                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-600 hover:text-white dark:bg-indigo-950/40 dark:text-indigo-400 dark:hover:bg-indigo-600 dark:hover:text-white rounded-lg transition-all text-xs font-bold flex items-center gap-1 border border-indigo-200 dark:border-indigo-800 shrink-0 cursor-pointer shadow-xs active:scale-95"
                               >
                                 <FileText className="w-3.5 h-3.5" />
-                                <span className="text-[10px]">Bill</span>
+                                <span className="text-[10px]">Create Bill</span>
                               </button>
-                            )}
                           </div>
                         </td>
                         <td className="px-8 py-3.5"><div className={`mx-auto w-24 py-1 rounded-lg text-[9px] font-black uppercase text-center flex items-center justify-center gap-1.5 ${((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-455' : 'bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-455'}`}>{ ((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}{((party.monday_final as any) === true || (party.monday_final as any) === 'true') ? 'Yes' : 'No'}</div></td>
@@ -964,13 +1011,24 @@ const LedgerView = () => {
               </div>
 
               {/* Closing Balance aligned right on desktop, spaced on mobile */}
-              <div className="flex items-center justify-between lg:justify-end gap-4 w-full lg:w-auto shrink-0">
+              <div className="flex items-center justify-between lg:justify-end gap-3 w-full lg:w-auto shrink-0">
                 <div className="flex items-center gap-2 text-left lg:text-right whitespace-nowrap">
                   <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-none">Closing Balance:</span>
                   <span className={`text-xl lg:text-2xl font-black leading-none ${closingBalance >= 0 ? 'text-emerald-600 dark:text-emerald-455' : 'text-rose-600 dark:text-rose-455'}`}>
-                    {closingBalance < 0 ? '- ' : ''}₹ {Math.round(Math.abs(closingBalance)).toLocaleString()}<span className="text-xs ml-1 uppercase font-bold">{closingBalance >= 0 ? 'Cr' : 'Dr'}</span>
+                    {closingBalance < 0 ? '- ' : ''}{currencySymbol || '₹'} {Math.round(Math.abs(closingBalance)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}<span className="text-xs ml-1 uppercase font-bold">{closingBalance >= 0 ? 'Cr' : 'Dr'}</span>
                   </span>
                 </div>
+
+                {/* Direct Bill Button from Ledger Balance */}
+                <button
+                  type="button"
+                  onClick={() => navigate(`/billing/create-invoice?partyId=${selectedParty.id}&partyName=${encodeURIComponent(selectedParty.party_name)}&amount=${Math.abs(closingBalance)}&balanceType=${closingBalance >= 0 ? 'Cr' : 'Dr'}`)}
+                  className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5 active:scale-95 shrink-0 cursor-pointer"
+                  title="Generate Direct Bill / Invoice from this Ledger Balance"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Direct Bill {closingBalance !== 0 ? `(${currencySymbol || '₹'}${Math.round(Math.abs(closingBalance)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')})` : ''}</span>
+                </button>
                 
                 {/* Mobile Menu Action button */}
                 <button 
@@ -1071,14 +1129,14 @@ const LedgerView = () => {
                               : t.is_modified
                                 ? 'text-sky-600 dark:text-sky-400 font-bold'
                                 : 'text-emerald-600 dark:text-emerald-455 font-bold'
-                          }`}>{t.credit > 0 ? `₹ ${Math.round(t.credit).toLocaleString()}` : '-'}</td>
+                          }`}>{t.credit > 0 ? `${currencySymbol || '₹'} ${Math.round(t.credit).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}` : '-'}</td>
                           <td className={`px-1.5 md:px-3 py-1.5 md:py-2 text-right whitespace-nowrap ${
                             selectedTnsIds.has(t.id) 
                               ? 'text-white' 
                               : t.is_modified
                                 ? 'text-sky-600 dark:text-sky-400 font-bold'
                                 : 'text-rose-600 dark:text-rose-455 font-bold'
-                          }`}>{t.debit > 0 ? `₹ ${Math.round(t.debit).toLocaleString()}` : '-'}</td>
+                          }`}>{t.debit > 0 ? `${currencySymbol || '₹'} ${Math.round(t.debit).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}` : '-'}</td>
                           <td className="px-1.5 md:px-3 py-1.5 md:py-2 text-center w-12">
                             <div onClick={(e) => toggleCheckedTns(t.id, e)} className={`w-5 h-5 rounded-full border-2 mx-auto cursor-pointer transition-all flex items-center justify-center ${checkedTnsIds.has(t.id) ? (selectedTnsIds.has(t.id) ? 'bg-white border-white text-blue-600' : 'bg-emerald-500 border-emerald-500 text-white') : (selectedTnsIds.has(t.id) ? 'border-blue-200 text-blue-200' : 'border-slate-200 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 bg-white dark:bg-slate-900')}`}>
                               {checkedTnsIds.has(t.id) && <Check className="w-3 h-3 stroke-[3]" />}
@@ -1090,7 +1148,7 @@ const LedgerView = () => {
                               : t.is_modified
                                 ? 'text-sky-700 dark:text-sky-300'
                                 : (t.balance >= 0 ? 'text-emerald-600 dark:text-emerald-455' : 'text-rose-600 dark:text-rose-455')
-                          }`}>₹ {Math.round(Math.abs(t.balance)).toLocaleString()} {t.balance >= 0 ? 'Cr' : 'Dr'}</td>
+                          }`}>{currencySymbol || '₹'} {Math.round(Math.abs(t.balance)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')} {t.balance >= 0 ? 'Cr' : 'Dr'}</td>
                           <td className={`px-1.5 md:px-3 py-1.5 md:py-2 text-right whitespace-nowrap ${
                             selectedTnsIds.has(t.id) ? 'text-white' : 'text-slate-500 dark:text-slate-400'
                           }`}>
@@ -1183,7 +1241,7 @@ const LedgerView = () => {
                       </div>
                     </div>
                     <div className="space-y-1.5 md:col-span-1">
-                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Amount (₹)</label>
+                      <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Amount ({currencySymbol || '₹'})</label>
                       <input 
                         ref={amountInputRef} 
                         required 

@@ -6,6 +6,7 @@ import { useSubscription } from '@/contexts/SubscriptionContext';
 import { MODULES, type ModuleKey } from '@/lib/constants';
 import { hasRoleModuleAccess } from '@/lib/permissions';
 import { cn } from '@/lib/utils';
+import BrandLogo from '@/components/BrandLogo';
 import { preloadPage } from '@/lib/preloader';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -58,7 +59,7 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, isStaff, staffRole, staffPermissions } = useAuth();
   const { hasModule } = useSubscription();
   const { t, language } = useLanguage();
 
@@ -137,14 +138,24 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
     if (key) setOpenModuleKey(key);
   }, [location.pathname]);
 
+  const normalizedRole = (staffRole || '').toLowerCase();
+  const isAdmin = !isStaff || normalizedRole === 'admin';
+  const isAdminOrManager = !isStaff || normalizedRole === 'admin' || normalizedRole === 'manager';
+
+  const canAccessDashboard = isAdminOrManager;
+  const canAccessUsers = isAdminOrManager;
+  const canAccessTeams = isAdminOrManager;
+  const canAccessReports = true;
+  const canAccessSettings = isAdminOrManager;
+
   const navItems = [
-    {
+    ...(canAccessDashboard ? [{
       label: t('dashboard'),
       route: '/dashboard',
       icon: <LayoutDashboard className="w-4 h-4" />,
       hasChevron: false,
       key: 'dashboard'
-    },
+    }] : []),
     ...MODULES.filter((m) => hasModule(m.key)).map((m) => ({
       label: t(m.key),
       route: m.route,
@@ -152,34 +163,41 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
       hasChevron: ['ledger', 'billing', 'inventory'].includes(m.key),
       key: m.key
     })),
-    {
+    ...(canAccessUsers ? [{
       label: 'Users & Members',
       route: '/users',
       icon: <UserCog className="w-4 h-4" />,
       hasChevron: true,
       key: 'users-members'
-    },
-    {
+    }] : []),
+    ...(canAccessTeams ? [{
       label: 'Teams',
       route: '/teams',
       icon: <ShieldCheck className="w-4 h-4" />,
       hasChevron: false,
       key: 'teams'
-    },
-    {
+    }] : []),
+    ...(canAccessReports ? [{
       label: 'Reports',
       route: '/reports',
       icon: <BarChart3 className="w-4 h-4" />,
       hasChevron: false,
       key: 'reports'
-    },
-    {
+    }] : []),
+    ...(canAccessSettings ? [{
       label: 'Settings',
       route: '/settings',
       icon: <Settings className="w-4 h-4" />,
       hasChevron: false,
       key: 'settings'
-    },
+    }] : []),
+    ...(isStaff ? [{
+      label: 'My Profile',
+      route: '/my-profile',
+      icon: <User className="w-4 h-4" />,
+      hasChevron: false,
+      key: 'my-profile'
+    }] : []),
   ];
 
   const isActive = (route: string) => {
@@ -250,27 +268,25 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
         {/* Branding Header */}
         <div className={cn(
           'h-16 flex items-center border-b border-slate-100 dark:border-slate-800/80 overflow-hidden bg-white dark:bg-[#090D16]',
-          collapsed ? 'px-4 justify-center' : 'px-5 gap-3'
+          collapsed ? 'px-4 justify-center' : 'px-5'
         )}>
-          <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
-            <img src="/logo.png" alt="Escrow BMS" className="w-8 h-8 object-contain" />
-          </div>
-          {!collapsed && (
-            <div>
-              <span className="font-heading font-black text-slate-900 dark:text-white text-lg leading-none tracking-tight">
-                Escrow
-              </span>
-              <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-400 tracking-wider uppercase mt-0.5">
-                {activeModule ? t(activeModule.key) : 'BMS Suite'}
-              </span>
-            </div>
+          {collapsed ? (
+            <img src="/logo.png" alt="ESCROW BMS Logo" className="w-8 h-8 object-contain" />
+          ) : (
+            <BrandLogo
+              size="md"
+              subtitle={activeModule ? t(activeModule.key) : 'BMS Suite'}
+              asLink
+              to="/dashboard"
+            />
           )}
         </div>
 
         {/* Nav Items Scroll Area */}
         <nav className="flex-1 py-4 px-3 space-y-1.5 overflow-y-auto scrollbar-hide bg-white dark:bg-[#090D16]">
           {navItems.map((item) => {
-            if (!hasRoleModuleAccess(profile?.role, item.key)) return null;
+            const isModuleItem = MODULES.some(m => m.key === item.key);
+            if (isModuleItem && !hasRoleModuleAccess(profile?.role, item.key)) return null;
             const active = isActive(item.route);
 
             // 1. ACCOUNT LEDGER EXPANDABLE ACCORDION
@@ -603,19 +619,31 @@ export function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
 
-          <div className={cn('flex items-center gap-3 rounded-2xl p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800/80 shadow-2xs', collapsed ? 'justify-center' : '')}>
+          <div
+            onClick={() => navigate('/my-profile')}
+            className={cn(
+              'flex items-center gap-3 rounded-2xl p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800/80 shadow-2xs cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors',
+              collapsed ? 'justify-center' : ''
+            )}
+            title="View & Edit My Profile"
+          >
             <div className="w-8 h-8 rounded-full bg-[#5644E6] text-white text-xs font-bold flex items-center justify-center flex-shrink-0 shadow-xs">
               {initials}
             </div>
             {!collapsed && (
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{profile?.full_name || 'User'}</p>
-                <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">{profile?.company_name || ''}</p>
+                <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">
+                  {isStaff ? (staffRole ? `${staffRole} Staff` : 'Staff Member') : (profile?.company_name || 'Business Owner')}
+                </p>
               </div>
             )}
             {!collapsed && (
               <button
-                onClick={signOut}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  signOut();
+                }}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                 title="Logout"
               >

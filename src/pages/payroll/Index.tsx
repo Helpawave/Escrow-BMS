@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 // No hardcoded data — fetched from Supabase
 
@@ -20,6 +21,7 @@ import { useAuth } from "@/hooks/useAuth";
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { currencySymbol, currencyCode } = useCurrency();
 
   // Real stats from Supabase
   const [employeeCount, setEmployeeCount] = useState(0);
@@ -84,8 +86,8 @@ const Dashboard = () => {
 
       const formattedAdded = (addedAmount / 10000000).toFixed(2);
       const formattedNew = (newBalance / 10000000).toFixed(2);
-      toast.success(`₹${formattedAdded} Cr deposited into Escrow Vault!`, {
-        description: `Current Vault Balance is now ₹${formattedNew} Cr (${Math.min(100, Math.round((newBalance / TARGET_AMOUNT) * 100))}% Funded).`
+      toast.success(`${currencySymbol}${formattedAdded} Cr deposited into Escrow Vault!`, {
+        description: `Current Vault Balance is now ${currencySymbol}${formattedNew} Cr (${Math.min(100, Math.round((newBalance / TARGET_AMOUNT) * 100))}% Funded).`
       });
     }, 600);
   };
@@ -98,7 +100,7 @@ const Dashboard = () => {
           <div className="relative z-10">
             <h1 className="text-3xl font-bold tracking-tight mb-2">Escrow Payroll Dashboard</h1>
             <p className="text-primary-foreground/90 max-w-lg mb-6 leading-relaxed">
-              Your payroll target for active employees is <span className="font-semibold">₹{totalPayroll.toLocaleString('en-IN')}</span>.
+              Your payroll target for active employees is <span className="font-semibold">{currencySymbol}{totalPayroll.toLocaleString('en-IN')}</span>.
               Please ensure your Escrow Vault is funded for seamless compliance and execution.
             </p>
             <div className="flex flex-wrap gap-4">
@@ -117,7 +119,7 @@ const Dashboard = () => {
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Total Employees" value={employeeCount.toLocaleString('en-IN')} subtitle="Active in directory" icon={Users} />
-          <StatCard title="Payroll This Month" value={`₹${totalPayroll.toLocaleString('en-IN')}`} subtitle="Active salary total" icon={DollarSign} />
+          <StatCard title="Payroll This Month" value={`${currencySymbol}${totalPayroll.toLocaleString('en-IN')}`} subtitle="Active salary total" icon={DollarSign} />
           <StatCard title="Pending Leaves" value={pendingLeaves.toString()} subtitle="Awaiting approval" icon={Calendar} className="hover:border-primary/50" />
           <StatCard title="Tax Variances" value="0" subtitle="No compliance variances" icon={AlertTriangle} className="border-emerald-500/30 hover:border-emerald-500/60" />
         </div>
@@ -152,12 +154,12 @@ const Dashboard = () => {
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">Current Vault Balance</p>
                     <h3 className="text-3xl font-bold font-mono tracking-tight text-foreground">
-                      ₹{vaultBalance.toLocaleString('en-IN')}
+                      {currencySymbol}{vaultBalance.toLocaleString('en-IN')}
                     </h3>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium text-muted-foreground mb-1">Target</p>
-                    <h3 className="text-xl font-bold font-mono tracking-tight text-foreground">₹{totalPayroll.toLocaleString('en-IN')}</h3>
+                    <h3 className="text-xl font-bold font-mono tracking-tight text-foreground">{currencySymbol}{totalPayroll.toLocaleString('en-IN')}</h3>
                   </div>
                 </div>
 
@@ -172,7 +174,7 @@ const Dashboard = () => {
                   <span className="text-emerald-500 font-bold">{fundingPercentage}% Funded</span>
                   <span className="text-muted-foreground tracking-tight">
                     {remainingNeeded > 0 
-                      ? `Requires ₹${remainingNeeded.toLocaleString('en-IN')} more to fully fund`
+                      ? `Requires ${currencySymbol}${remainingNeeded.toLocaleString()} more to fully fund`
                       : "Vault Fully Funded — Ready for Disbursement!"}
                   </span>
                 </div>
@@ -295,7 +297,7 @@ const Dashboard = () => {
             <div className="p-4 bg-muted/30 rounded-xl border space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Required Payout Target:</span>
-                <span className="font-mono font-bold text-foreground">₹{totalPayroll.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold text-foreground">{currencySymbol}{totalPayroll.toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Current Vault Balance:</span>
@@ -323,9 +325,9 @@ const Dashboard = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="amount">Deposit Amount (in ₹ Crores)</Label>
+              <Label htmlFor="amount">Deposit Amount ({currencySymbol})</Label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-muted-foreground text-sm">₹</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-muted-foreground text-sm">{currencySymbol}</span>
                 <Input
                   id="amount"
                   type="number"

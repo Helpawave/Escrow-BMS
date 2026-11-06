@@ -1,10 +1,11 @@
 import React, { Suspense, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { SubscriptionProvider } from '@/contexts/SubscriptionContext';
 import { CurrencyProvider } from '@/contexts/CurrencyContext';
+import { TaxProvider } from '@/contexts/TaxContext';
 import { AdminProvider } from '@/contexts/AdminContext';
 import { AdminAuthProvider } from '@/contexts/AdminAuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -16,6 +17,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import BrandLogo from '@/components/BrandLogo';
+import { MODULES } from '@/lib/constants';
 
 // Lazy-loaded core pages
 const Auth = React.lazy(() => import('@/pages/Auth'));
@@ -45,6 +48,34 @@ const MembersPage = React.lazy(() => import('@/pages/users/MembersPage'));
 const AddStaffPage = React.lazy(() => import('@/pages/users/AddStaffPage'));
 const MyProfilePage = React.lazy(() => import('@/pages/MyProfilePage'));
 const ReportsPage = React.lazy(() => import('@/pages/ReportsPage'));
+
+function AdminOrManagerGuard({ children }: { children: React.ReactNode }) {
+  const { isStaff, staffRole, loading } = useAuth();
+
+  if (loading) return <PageFallback />;
+
+  const normalized = (staffRole || '').toLowerCase();
+  // Owners (!isStaff) always have access. Staff with admin or manager role have access.
+  if (isStaff && normalized !== 'admin' && normalized !== 'manager') {
+    return <Navigate to="/my-profile" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
+  const { isStaff, staffRole, loading } = useAuth();
+
+  if (loading) return <PageFallback />;
+
+  const normalized = (staffRole || '').toLowerCase();
+  // Owners (!isStaff) always have access. Staff with admin or manager role have access to settings.
+  if (isStaff && normalized !== 'admin' && normalized !== 'manager') {
+    return <Navigate to="/my-profile" replace />;
+  }
+
+  return <>{children}</>;
+}
 
 function PageFallback() {
   return (
@@ -167,7 +198,8 @@ function SuperadminLogin() {
           <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-955/20 border border-indigo-100 dark:border-indigo-900/30 rounded-2xl flex items-center justify-center mx-auto text-indigo-500">
             <Lock className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-black text-slate-900 dark:text-slate-50 font-heading">Platform Superadmin</h2>
+          <BrandLogo size="lg" className="justify-center mx-auto mb-2" />
+          <h2 className="text-lg font-black text-slate-900 dark:text-slate-50 font-sans tracking-tight">Platform Superadmin</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Access the main company platform management dashboard.
           </p>
@@ -246,7 +278,8 @@ export default function App() {
           <UserSettingsProvider>
             <ThemeProvider>
               <CurrencyProvider>
-              <AdminProvider>
+                <TaxProvider>
+                  <AdminProvider>
                 <AdminAuthProvider>
                   <LanguageProvider>
                     <SubscriptionProvider>
@@ -259,7 +292,10 @@ export default function App() {
                           <Route path="/contact" element={<ContactUs />} />
                           <Route path="/privacy" element={<PrivacyPolicy />} />
                           <Route path="/terms" element={<TermsAndConditions />} />
+                          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+                          <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
                           <Route path="/refund" element={<RefundPolicy />} />
+                          <Route path="/refund-policy" element={<RefundPolicy />} />
 
                           {/* Auth */}
                           <Route
@@ -267,6 +303,14 @@ export default function App() {
                             element={
                               <PublicOnlyGuard>
                                 <Auth />
+                              </PublicOnlyGuard>
+                            }
+                          />
+                          <Route
+                            path="/reset-password"
+                            element={
+                              <PublicOnlyGuard>
+                                <Auth defaultTab="update-password" />
                               </PublicOnlyGuard>
                             }
                           />
@@ -280,13 +324,17 @@ export default function App() {
                             }
                           >
                             <Route path="/dashboard" element={<Dashboard />} />
-                            <Route path="/settings" element={<Settings />} />
-                            <Route path="/users" element={<UsersPage />} />
-                            <Route path="/members" element={<MembersPage />} />
-                            <Route path="/members/add-staff" element={<AddStaffPage />} />
+                            <Route path="/settings" element={<AdminOnlyGuard><Settings /></AdminOnlyGuard>} />
+                            <Route path="/setting" element={<Navigate to="/settings" replace />} />
+                            <Route path="/users" element={<AdminOrManagerGuard><UsersPage /></AdminOrManagerGuard>} />
+                            <Route path="/members" element={<AdminOrManagerGuard><MembersPage /></AdminOrManagerGuard>} />
+                            <Route path="/members/add-staff" element={<AdminOrManagerGuard><AddStaffPage /></AdminOrManagerGuard>} />
                             <Route path="/reports" element={<ReportsPage />} />
-                            <Route path="/teams" element={<MembersPage />} />
-                            <Route path="/teams/add-staff" element={<AddStaffPage />} />
+                            <Route path="/report" element={<Navigate to="/reports" replace />} />
+                            <Route path="/teams" element={<AdminOrManagerGuard><MembersPage /></AdminOrManagerGuard>} />
+                            <Route path="/teams/add-staff" element={<AdminOrManagerGuard><AddStaffPage /></AdminOrManagerGuard>} />
+                            <Route path="/team" element={<Navigate to="/teams" replace />} />
+                            <Route path="/team/add-staff" element={<Navigate to="/teams/add-staff" replace />} />
                             <Route path="/my-profile" element={<MyProfilePage />} />
 
                             {/* Protected Module Routes */}
@@ -355,7 +403,7 @@ export default function App() {
                             path="/employees"
                             element={<Navigate to="/payroll/employees" replace />}
                           />
-                          <Route path="/reports" element={<DynamicReportsRedirect />} />
+                          {/* duplicate /reports removed */}
                           <Route path="/history" element={<DynamicHistoryRedirect />} />
                           <Route path="/admin" element={<SuperadminLogin />} />
                           <Route path="/admin/dashboard" element={<SuperadminLogin />} />
@@ -402,7 +450,7 @@ export default function App() {
                           <Route path="/contacts" element={<Navigate to="/crm/contacts" replace />} />
                           <Route path="/tasks" element={<Navigate to="/crm/tasks" replace />} />
                           <Route path="/analytics" element={<Navigate to="/crm/analytics" replace />} />
-                          <Route path="/team" element={<Navigate to="/crm/team" replace />} />
+                          {/* /team redirected to /teams */}
 
                           <Route path="/hisab" element={<Navigate to="/calculation" replace />} />
                           <Route path="/hisab/*" element={<Navigate to="/calculation" replace />} />
@@ -420,7 +468,8 @@ export default function App() {
                     </SubscriptionProvider>
                   </LanguageProvider>
                 </AdminAuthProvider>
-              </AdminProvider>
+                </AdminProvider>
+                </TaxProvider>
             </CurrencyProvider>
           </ThemeProvider>
         </UserSettingsProvider>

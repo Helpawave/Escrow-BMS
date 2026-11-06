@@ -11,6 +11,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { useTaxConfig } from "@/contexts/TaxContext";
+import { TAX_COUNTRIES, getCountryTaxConfig } from "@/data/taxCountries";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
 
 const STATES = [
   "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", 
@@ -25,6 +28,19 @@ const BusinessSetup = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const {
+    businessCountry,
+    countryCode,
+    taxSystem,
+    taxName,
+    taxIdLabel,
+    taxIdPlaceholder,
+    standardTaxRate,
+    currencySymbol,
+    updateBusinessCountry
+  } = useTaxConfig();
+
+  const [selectedCountry, setSelectedCountry] = useState<string>(countryCode || 'IN');
 
   const [formData, setFormData] = useState({
     company_name: '',
@@ -67,19 +83,25 @@ const BusinessSetup = () => {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
-          user_id: user.id,
-          ...formData,
-          mobile: formData.phone,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
-
-      if (error) throw error;
+      const client = supabase as any;
+      try {
+        await client
+          .from('profiles')
+          .update({
+            company_name: formData.company_name,
+            phone: formData.phone,
+            business_address: formData.business_address,
+            country: getCountryTaxConfig(selectedCountry).countryName,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
+      } catch (profErr) {
+        console.warn('Profile basic update note:', profErr);
+      }
 
       await refreshProfile();
       
+      await updateBusinessCountry(selectedCountry);
       toast({
         title: "Setup Complete!",
         description: "Your business profile has been created. Redirecting to your dashboard...",
@@ -138,6 +160,47 @@ const BusinessSetup = () => {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Compulsory Country & Tax Selection */}
+                <div className="md:col-span-2 p-4 rounded-2xl bg-gradient-to-r from-indigo-50/70 via-blue-50/40 to-slate-50 dark:from-indigo-950/20 dark:via-blue-950/10 dark:to-slate-900/30 border-2 border-indigo-100 dark:border-indigo-900/50 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">{getCountryTaxConfig(selectedCountry).flag}</span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Label className="font-bold text-sm text-foreground">
+                            Business Country & Legal Tax System *
+                          </Label>
+                          <span className="bg-indigo-600 text-white font-bold text-[10px] px-2 py-0.5 rounded-full">
+                            {getCountryTaxConfig(selectedCountry).taxSystem} • {getCountryTaxConfig(selectedCountry).standardTaxRate}%
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Currency: <strong className="text-foreground">{getCountryTaxConfig(selectedCountry).currencyCode} ({getCountryTaxConfig(selectedCountry).currencySymbol})</strong> • Tax ID: <strong className="text-foreground">{getCountryTaxConfig(selectedCountry).taxIdLabel}</strong>
+                        </p>
+                      </div>
+                    </div>
+                    <Select
+                      value={selectedCountry}
+                      onValueChange={(val) => {
+                        setSelectedCountry(val);
+                        updateBusinessCountry(val);
+                      }}
+                    >
+                      <SelectTrigger className="w-full sm:w-64 h-11 rounded-xl bg-background border-indigo-200 font-bold text-xs">
+                        <SelectValue placeholder="Select Country" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {TAX_COUNTRIES.map((c) => (
+                          <SelectItem key={c.countryCode} value={c.countryCode} className="text-xs font-medium">
+                            <span className="mr-2 text-base">{c.flag}</span>
+                            {c.countryName} ({c.taxSystem})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="company_name" className="text-sm font-semibold flex items-center gap-2">
                     <Store className="w-4 h-4 text-blue-500" />
@@ -226,11 +289,11 @@ const BusinessSetup = () => {
                 <div className="md:col-span-2 space-y-2">
                   <Label htmlFor="gstin" className="text-sm font-semibold flex items-center gap-2">
                     <BadgeCheck className="w-4 h-4 text-blue-500" />
-                    GSTIN (Optional)
+                    {taxIdLabel} (Optional)
                   </Label>
                   <Input
                     id="gstin"
-                    placeholder="e.g. 29ABCDE1234F1Z5"
+                    placeholder={taxIdPlaceholder}
                     value={formData.gstin}
                     onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
                     className="h-11 border-slate-200 rounded-xl transition-all font-mono"

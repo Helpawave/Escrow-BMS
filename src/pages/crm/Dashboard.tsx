@@ -1,5 +1,6 @@
 import React from 'react';
 import { useCrm } from '@/contexts/CrmContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { IndianRupee, UserPlus, Briefcase, TrendingUp, ArrowUpRight, CheckCircle2, Calendar, Trash2, User, Shield } from 'lucide-react';
 import { Line, Doughnut } from 'react-chartjs-2';
 import {
@@ -34,6 +35,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, globalSearch = '' }) => {
   const { leads, tasks, activities, theme, clearActivities, userPermissions } = useCrm();
+  const { currencySymbol } = useCurrency();
   const canViewLeads = userPermissions ? userPermissions.viewLeads : true;
 
   // Compute stats
@@ -96,7 +98,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, globalSearch =
         grid: { color: gridColor },
         ticks: {
           color: textColor,
-          callback: (value: any) => '₹' + (value >= 100000 ? (value / 100000).toFixed(1) + 'L' : value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value)
+          callback: (value: any) => (currencySymbol || '₹') + (value >= 100000 ? (value / 100000).toFixed(1) + 'L' : value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value)
         }
       }
     }
@@ -168,7 +170,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, globalSearch =
           </div>
           <div className="mt-2 flex items-baseline justify-between">
             <span className={`text-2xl font-extrabold font-heading text-slate-800 dark:text-slate-100 ${!canViewLeads ? 'blur-xs select-none' : ''}`}>
-              {canViewLeads ? `₹${totalRevenue.toLocaleString('en-IN')}` : '₹9,99,99,999'}
+              {canViewLeads ? `${currencySymbol || '₹'}${totalRevenue.toLocaleString()}` : `${currencySymbol || '₹'}9,99,99,999`}
             </span>
             {canViewLeads ? (
               <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">

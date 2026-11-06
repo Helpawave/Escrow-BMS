@@ -24,6 +24,7 @@ import QRCode from 'react-qr-code';
 import Barcode from 'react-barcode';
 import { cn } from "@/lib/utils";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTaxConfig } from "@/contexts/TaxContext";
 import { type HSNCode } from '@/types/hsn';
 import { DataTablePagination } from "@/components/DataTablePagination";
 import { formatCategory } from "@/utils/inventory";
@@ -66,6 +67,7 @@ import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 
 const ProductsPage = () => {
   const { user, effectiveUserId, profile, companyProfile } = useAuth();
+  const { taxName, standardTaxRate, taxRates, isVat } = useTaxConfig();
   const targetUserId = effectiveUserId || user?.id;
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -211,7 +213,7 @@ function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: st
     category: 'general',
     price: '',
     price_with_tax: true,
-    tax_rate: '18',
+    tax_rate: String(standardTaxRate ?? 18),
     unit: 'pcs',
     opening_stock: '',
     description: '',
@@ -225,7 +227,18 @@ function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: st
     low_stock_warning: false,
     vendor_id: ''
   });
+
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Sync tax rate default with active tax regime
+  useEffect(() => {
+    if (standardTaxRate !== undefined && !editingId) {
+      setFormData(prev => ({
+        ...prev,
+        tax_rate: String(standardTaxRate)
+      }));
+    }
+  }, [standardTaxRate, editingId]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [idToDelete, setIdToDelete] = useState<string | null>(null);
@@ -899,7 +912,7 @@ function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: st
                         </div>
 
                         <div className="space-y-2">
-                          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">GST Tax Rate</Label>
+                          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{taxName} Tax Rate</Label>
                           <Select
                             value={String(formData.tax_rate)}
                             onValueChange={(val) => setFormData({ ...formData, tax_rate: val })}
@@ -909,14 +922,16 @@ function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: st
                               "h-10 border-border bg-background text-sm font-medium",
                               !formData.price_with_tax && "opacity-50 cursor-not-allowed bg-muted"
                             )}>
-                              <SelectValue />
+                              <SelectValue placeholder={`Select ${taxName} Rate`} />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="0">None (0%)</SelectItem>
-                              <SelectItem value="5">GST 5%</SelectItem>
-                              <SelectItem value="12">GST 12%</SelectItem>
-                              <SelectItem value="18">GST 18%</SelectItem>
-                              <SelectItem value="28">GST 28%</SelectItem>
+                              {taxRates.map((rate) => (
+                                <SelectItem key={rate} value={String(rate)}>
+                                  {rate === 0
+                                    ? `None (0% Zero ${taxName})`
+                                    : `${taxName} ${rate}%${rate === standardTaxRate ? ' (Standard)' : ''}`}
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                           {!formData.price_with_tax && (
@@ -1159,7 +1174,7 @@ function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: st
               HSN Code Lookup
             </DialogTitle>
             <DialogDescription className="text-muted-foreground font-medium">
-              Search and select the appropriate GST HSN code for your product.
+              Search and select the appropriate {taxName} {isVat ? 'Tariff / HSN' : 'HSN'} code for your product.
             </DialogDescription>
           </DialogHeader>
 
@@ -1519,7 +1534,7 @@ function getDateBounds(dateFilter?: string, customStart?: string, customEnd?: st
               <div className="bg-background border border-border rounded-md p-4 shadow-sm">
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-2">Selling Price</p>
                 <p className="text-xl font-bold text-foreground">{currencySymbol}{Number(selectedProduct?.price || 0).toLocaleString()}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">{selectedProduct?.tax_rate}% GST Applicable</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{selectedProduct?.tax_rate}% {taxName} Applicable</p>
               </div>
               <div className="bg-background border border-border rounded-md p-4 shadow-sm">
                 <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mb-2">Current Stock</p>

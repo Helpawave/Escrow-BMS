@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +19,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
+import { createStaffAccount } from "@/utils/staffAuth";
 import { generateAccountId } from '@/utils/accountId';
 import { formatStaffCredentialsWhatsAppMessage, openWhatsAppChat } from '@/utils/whatsappTemplates';
 import { 
@@ -166,49 +168,22 @@ export default function AddStaff() {
 
       if (addMode === 'create') {
         try {
-          const { data: authUser, error: authErr } = await (serviceSupabase as any).auth.admin.createUser({
+          const authRes = await createStaffAccount({
             email: cleanEmail,
             password: password,
-            email_confirm: true,
-            user_metadata: {
-              full_name: fullName.trim(),
-              mobile: phone.trim(),
-              company_id: user.id,
-              company_name: profile?.company_name || 'Escrow Company',
-              is_staff: true,
-              staff_role: selectedRole,
-              initial_password: password,
-              temp_password: password
-            }
+            fullName: fullName.trim(),
+            phone: phone.trim(),
+            role: selectedRole,
+            modules: ['billing', 'ledger'],
+            ownerId: user.id,
+            companyId: user.id,
+            companyName: profile?.company_name || 'Escrow BMS'
           });
-
-          if (authErr) {
-            // If user already exists in Auth, fetch their ID and update their metadata/password
-            const { data: listData } = await (serviceSupabase as any).auth.admin.listUsers();
-            const existingUser = listData?.users?.find((u: any) => u.email?.toLowerCase() === cleanEmail);
-            if (existingUser) {
-              newUserId = existingUser.id;
-              await (serviceSupabase as any).auth.admin.updateUserById(newUserId, {
-                password: password,
-                email_confirm: true,
-                user_metadata: {
-                  ...(existingUser.user_metadata || {}),
-                  full_name: fullName.trim(),
-                  mobile: phone.trim(),
-                  company_id: user.id,
-                  company_name: profile?.company_name || 'Escrow Company',
-                  is_staff: true,
-                  staff_role: selectedRole,
-                  initial_password: password,
-                  temp_password: password
-                }
-              });
-            }
-          } else if (authUser?.user) {
-            newUserId = authUser.user.id;
+          if (authRes.userId) {
+            newUserId = authRes.userId;
           }
         } catch (authError: any) {
-          console.warn("User creation fallback:", authError);
+          console.warn("Staff user creation fallback:", authError);
         }
       }
 
@@ -418,18 +393,12 @@ export default function AddStaff() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <div className="h-5 flex items-center justify-between">
-                    <Label className="text-xs font-semibold">Mobile Number *</Label>
-                    <span className="text-[10px] text-muted-foreground">10 Digits</span>
-                  </div>
-                  <Input 
-                    type="tel"
-                    placeholder="e.g. 9876543210" 
+                  <Label className="text-xs font-semibold">Mobile Number *</Label>
+                  <CountryPhoneInput 
+                    placeholder="e.g. 98765 43210" 
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(val) => setPhone(val)}
                     required
-                    maxLength={10}
-                    className="h-10 text-sm"
                   />
                 </div>
 

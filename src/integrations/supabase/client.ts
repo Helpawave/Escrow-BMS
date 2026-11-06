@@ -6,8 +6,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 // Singleton pattern to prevent "Multiple GoTrueClient instances detected" warning
-let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
-let serviceSupabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+let supabaseInstance: ReturnType<typeof createClient<any>> | null = null;
+let serviceSupabaseInstance: ReturnType<typeof createClient<any>> | null = null;
 
 const SUPABASE_SERVICE_ROLE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
@@ -24,7 +24,7 @@ export const supabase = (() => {
     if (!SUPABASE_PUBLISHABLE_KEY) throw new Error("Supabase Anon Key is missing. Check your VITE_SUPABASE_PUBLISHABLE_KEY environment variable.");
   }
 
-  supabaseInstance = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  supabaseInstance = createClient<any>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
       storage: localStorage,
       storageKey: 'escrow-auth-token',
@@ -41,7 +41,7 @@ export const serviceSupabase = (() => {
   if (serviceSupabaseInstance) return serviceSupabaseInstance;
   const key = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_PUBLISHABLE_KEY;
   if (SUPABASE_URL && key) {
-    serviceSupabaseInstance = createClient<Database>(SUPABASE_URL, key, {
+    serviceSupabaseInstance = createClient<any>(SUPABASE_URL, key, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,

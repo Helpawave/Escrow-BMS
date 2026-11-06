@@ -96,7 +96,7 @@ export const Login = () => {
     e.preventDefault();
     
     const result = await login(email, password);
-    if (result.success) {
+    if (!result?.error) {
       toast({
         title: "Login successful!",
         description: "Welcome back to FinTrack"
@@ -106,7 +106,7 @@ export const Login = () => {
     } else {
       toast({
         title: "Login failed",
-        description: result.error || "Please try again",
+        description: result.error?.message || "Please try again",
         variant: "destructive"
       });
     }

@@ -41,12 +41,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Search, Plus, Edit, MoreHorizontal, Package, Eye, Trash2, Filter, X, Download, Tag, Calendar, AlertTriangle, Printer, RefreshCw, Loader2, ShoppingCart } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTaxConfig } from "@/contexts/TaxContext";
 import { useProducts, Product } from "@/contexts/ProductsContext";
 import { BarcodeStickerModal, BarcodeProductInfo } from "@/components/inventory/BarcodeStickerModal";
 
 export const Products = () => {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+  const { currencySymbol } = useCurrency();
+  const { taxName } = useTaxConfig();
   const { products, addProduct, deleteProduct, refreshProducts, isLoading } = useProducts();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -590,7 +594,7 @@ export const Products = () => {
                       <TableCell className="hidden sm:table-cell">{product.category}</TableCell>
                       <TableCell className="hidden md:table-cell">{product.supplier}</TableCell>
                       <TableCell className="font-medium">
-                        ₹{product.price}
+                        {currencySymbol}{product.price}
                       </TableCell>
                       <TableCell>
                         <div className="space-y-0.5">
@@ -702,11 +706,11 @@ export const Products = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground">Cost</h3>
-                  <p className="text-lg">₹{viewProduct.cost}</p>
+                  <p className="text-lg">{currencySymbol}{viewProduct.cost}</p>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground">Price</h3>
-                  <p className="text-lg">₹{viewProduct.price}</p>
+                  <p className="text-lg">{currencySymbol}{viewProduct.price}</p>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-muted-foreground">Stock Quantity</h3>
@@ -822,7 +826,7 @@ export const Products = () => {
               {/* Purchase Cost & Supplier */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-bold text-foreground">Purchase Cost per Unit (₹)</Label>
+                  <Label className="text-xs font-bold text-foreground">Purchase Cost per Unit ({currencySymbol})</Label>
                   <Input
                     type="number"
                     value={reorderCost}
@@ -846,10 +850,10 @@ export const Products = () => {
               <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900 flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold text-indigo-900 dark:text-indigo-300">Total Estimated Purchase Value</p>
-                  <p className="text-[11px] text-muted-foreground">{reorderQuantity} {reorderProduct.unit || 'pcs'} × ₹{Number(reorderCost) || 0}</p>
+                  <p className="text-[11px] text-muted-foreground">{reorderQuantity} {reorderProduct.unit || 'pcs'} × {currencySymbol}{Number(reorderCost) || 0}</p>
                 </div>
                 <div className="text-right font-black text-lg text-indigo-600 dark:text-indigo-400 font-mono">
-                  ₹{(reorderQuantity * (Number(reorderCost) || 0)).toLocaleString()}
+                  {currencySymbol}{(reorderQuantity * (Number(reorderCost) || 0)).toLocaleString()}
                 </div>
               </div>
             </div>
