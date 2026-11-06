@@ -531,7 +531,7 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
 
     // Check if this payload represents an invited team member or staff
     const isTeamMember = payload.isTeamMember || ['member', 'employee', 'staff', 'sub_user'].includes(payload.role?.toLowerCase() || '');
-    const isVendor = payload.status === 'give' || payload.role?.toLowerCase() === 'vendor';
+    const isVendor = payload.role?.toLowerCase() === 'vendor';
 
     if (userId) {
       if (isVendor) {
@@ -560,69 +560,51 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
               gstin: payload.gstin || ''
             }]);
           }
-
-          // Ensure removed from clients table if converted
-          await supabase
-            .from('clients')
-            .delete()
-            .eq('user_id', userId)
-            .ilike('name', trimmedName);
         } catch (vErr) {
           console.warn("Universal Sync to Vendors warning:", vErr);
         }
       } else {
-        // 1b. Sync to Escrow Billing (clients table) - ONLY for clients, never vendors
+        // 1b. Sync to Escrow Billing (clients table)
         try {
-          // Check if party is already a vendor; if so, do not add as client
-          const { data: isAlreadyVendorList } = await supabase
-            .from('vendors')
+          const { data: existingClientList } = await supabase
+            .from('clients')
             .select('id')
             .eq('user_id', userId)
             .ilike('name', trimmedName)
             .limit(1);
 
-          if (!isAlreadyVendorList || isAlreadyVendorList.length === 0) {
-            const { data: existingClientList } = await supabase
-              .from('clients')
-              .select('id')
-              .eq('user_id', userId)
-              .ilike('name', trimmedName)
-              .limit(1);
+          if (!existingClientList || existingClientList.length === 0) {
+            const { error: cliErr } = await supabase.from('clients').insert([{
+              id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cli-${Date.now()}`,
+              user_id: userId,
+              name: trimmedName,
+              email: trimmedEmail,
+              phone: payload.phone || '',
+              company_name: payload.companyName || '',
+              gstin: payload.gstin || '',
+              address: payload.address || '',
+              city: payload.city || '',
+              state: payload.state || '',
+              postal_code: payload.postalCode || '',
+              country: payload.country || 'India'
+            }]);
 
-            if (!existingClientList || existingClientList.length === 0) {
-              const { error: cliErr } = await supabase.from('clients').insert([{
-                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cli-${Date.now()}`,
-                user_id: userId,
-                name: trimmedName,
-                email: trimmedEmail,
-                phone: payload.phone || '',
-                company_name: payload.companyName || '',
-                gstin: payload.gstin || '',
-                address: payload.address || '',
-                city: payload.city || '',
-                state: payload.state || '',
-                postal_code: payload.postalCode || '',
-                country: payload.country || 'India'
-              }]);
+            if (cliErr) {
+              const { data: checkAgain } = await supabase
+                .from('clients')
+                .select('id')
+                .eq('user_id', userId)
+                .ilike('name', trimmedName)
+                .limit(1);
 
-              if (cliErr) {
-                // Secondary check before fallback to avoid duplicate insertion
-                const { data: checkAgain } = await supabase
-                  .from('clients')
-                  .select('id')
-                  .eq('user_id', userId)
-                  .ilike('name', trimmedName)
-                  .limit(1);
-
-                if (!checkAgain || checkAgain.length === 0) {
-                  await supabase.from('clients').insert([{
-                    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cli-${Date.now()}`,
-                    user_id: userId,
-                    name: trimmedName,
-                    email: trimmedEmail,
-                    phone: payload.phone || ''
-                  }]);
-                }
+              if (!checkAgain || checkAgain.length === 0) {
+                await supabase.from('clients').insert([{
+                  id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `cli-${Date.now()}`,
+                  user_id: userId,
+                  name: trimmedName,
+                  email: trimmedEmail,
+                  phone: payload.phone || ''
+                }]);
               }
             }
           }
@@ -633,6 +615,35 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
 
       // 2. Sync to Account Ledger (parties table - ALL parties stay in ledger, whether vendor or client!)
       if (!isTeamMember) {
+        const partyStatus = payload.status || (isVendor ? 'give' : 'take');
+        try {
+          const pCached = localStorage.getItem('cached_parties');
+          const pList = pCached ? JSON.parse(pCached) : [];
+          const cleanPName = trimmedName.toLowerCase();
+          const pIdx = pList.findIndex((p: any) => (p.party_name || '').trim().toLowerCase() === cleanPName);
+          if (pIdx >= 0) {
+            pList[pIdx] = {
+              ...pList[pIdx],
+              phone: payload.phone || pList[pIdx].phone,
+              status: partyStatus
+            };
+          } else {
+            pList.unshift({
+              id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${partyStatus}-${Date.now()}`,
+              user_id: userId,
+              sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+              party_name: trimmedName,
+              status: partyStatus,
+              commission_type: 'without',
+              commission_rate: 0,
+              balance: 0,
+              phone: payload.phone || ''
+            });
+          }
+          localStorage.setItem('cached_parties', JSON.stringify(pList));
+          localStorage.setItem('cached_parties_report', JSON.stringify(pList));
+        } catch {}
+
         try {
           const { data: existingPartyList } = await supabase
             .from('parties')
@@ -642,7 +653,6 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
             .limit(1);
 
           if (!existingPartyList || existingPartyList.length === 0) {
-            const partyStatus = payload.status || (isVendor ? 'give' : 'take');
             await supabase.from('parties').insert([
               {
                 id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${partyStatus}-${Date.now()}`,
@@ -655,7 +665,6 @@ export async function syncUserAcrossAllModules(payload: ERPUserSyncPayload) {
               }
             ]);
           } else if (isVendor && existingPartyList[0].status !== 'give') {
-            // Update party status in Account Ledger without resetting balance or transactions
             await supabase.from('parties').update({ status: 'give' }).eq('id', existingPartyList[0].id);
           }
         } catch (pErr) {

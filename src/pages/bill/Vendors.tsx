@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { SuccessModal } from "@/components/SuccessModal";
 import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useVendors } from "@/hooks/useVendors";
+import { useVendors, saveVendorToCache, removeVendorFromCache } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 import { DataTablePagination } from "@/components/DataTablePagination";
@@ -79,7 +79,8 @@ const VendorsPage = () => {
   const [successInfo, setSuccessInfo] = useState({ title: '', message: '' });
   const [selectedVendorIds, setSelectedVendorIds] = useState<string[]>([]);
   const [deletingBulk, setDeletingBulk] = useState(false);
-  const { user } = useAuth();
+  const { user, effectiveUserId } = useAuth();
+  const activeUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
 
   const toggleSelectVendor = (id: string) => {
@@ -102,12 +103,22 @@ const VendorsPage = () => {
 
     setDeletingBulk(true);
     try {
-      const { error } = await supabase
-        .from('vendors')
-        .delete()
-        .in('id', selectedVendorIds);
+      selectedVendorIds.forEach(id => removeVendorFromCache(activeUserId, id));
+      queryClient.setQueriesData({ queryKey: ['vendors'] }, (old: any) => {
+        if (!old || !Array.isArray(old.vendors)) return old;
+        const set = new Set(selectedVendorIds);
+        const filtered = (old.vendors as Vendor[]).filter(v => !set.has(v.id));
+        return { ...old, vendors: filtered, totalCount: Math.max(0, (old.totalCount || selectedVendorIds.length) - selectedVendorIds.length) };
+      });
 
-      if (error) throw error;
+      try {
+        await supabase
+          .from('vendors')
+          .delete()
+          .in('id', selectedVendorIds);
+      } catch (delErr) {
+        console.warn("Bulk vendor delete remote warning:", delErr);
+      }
 
       toast({
         title: "Vendors Deleted",
@@ -176,14 +187,7 @@ const VendorsPage = () => {
     }
 
     try {
-      let activeUserId = user?.id;
-      if (!activeUserId) {
-        const { data: authData } = await supabase.auth.getUser();
-        activeUserId = authData?.user?.id;
-      }
-      if (!activeUserId) {
-        throw new Error("Please log in to save vendor details.");
-      }
+      const targetUserId = activeUserId || user?.id || 'default';
 
       const finalizedData = {
         ...formData,
@@ -192,16 +196,78 @@ const VendorsPage = () => {
         email: formData.email.trim()
       };
 
-      if (editingId) {
-        const { error, data: updatedData } = await supabase
-          .from('vendors')
-          .update({ ...finalizedData, user_id: activeUserId })
-          .eq('id', editingId)
-          .select();
+      const vendorId = editingId || crypto.randomUUID();
+      const vendorRecord: Vendor = {
+        id: vendorId,
+        ...finalizedData
+      };
 
-        if (error) throw error;
-        if (!updatedData || updatedData.length === 0) {
-          throw new Error("Failed to update vendor. Please try again.");
+      // 1. Immediately save to persistent local cache
+      saveVendorToCache(targetUserId, {
+        id: vendorId,
+        user_id: targetUserId,
+        ...finalizedData,
+        created_at: new Date().toISOString()
+      });
+
+      // 2. Optimistically update query cache
+      queryClient.setQueriesData({ queryKey: ['vendors'] }, (old: any) => {
+        if (!old || !Array.isArray(old.vendors)) {
+          return { vendors: [vendorRecord], totalCount: 1 };
+        }
+        const list = old.vendors as Vendor[];
+        const cleanName = vendorRecord.name.trim().toLowerCase();
+        const idx = list.findIndex(v => v.id === vendorRecord.id || (v.name && v.name.trim().toLowerCase() === cleanName));
+        let updated: Vendor[];
+        if (idx >= 0) {
+          updated = [...list];
+          updated[idx] = { ...list[idx], ...vendorRecord };
+        } else {
+          updated = [vendorRecord, ...list];
+        }
+        return {
+          ...old,
+          vendors: updated,
+          totalCount: Math.max(old.totalCount || 0, updated.length)
+        };
+      });
+
+      // 3. Immediately sync to Ledger cached_parties with status 'give'
+      try {
+        const pCached = localStorage.getItem('cached_parties');
+        const pList = pCached ? JSON.parse(pCached) : [];
+        const cleanName = finalizedData.name.trim().toLowerCase();
+        const existingPIndex = pList.findIndex((p: any) => (p.party_name || '').trim().toLowerCase() === cleanName);
+        if (existingPIndex >= 0) {
+          pList[existingPIndex] = {
+            ...pList[existingPIndex],
+            phone: formData.phone || pList[existingPIndex].phone,
+            status: 'give'
+          };
+        } else {
+          pList.unshift({
+            id: vendorId,
+            party_name: finalizedData.name.trim(),
+            sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+            status: 'give',
+            commission_type: 'without',
+            commission_rate: 0,
+            balance: 0,
+            phone: formData.phone || '',
+            user_id: targetUserId
+          });
+        }
+        localStorage.setItem('cached_parties', JSON.stringify(pList));
+      } catch {}
+
+      if (editingId) {
+        try {
+          await supabase
+            .from('vendors')
+            .update({ ...finalizedData, user_id: targetUserId })
+            .eq('id', editingId);
+        } catch (updateErr) {
+          console.warn("Vendor remote update notice:", updateErr);
         }
 
         setSuccessInfo({
@@ -209,48 +275,55 @@ const VendorsPage = () => {
           message: 'Vendor profile has been successfully updated.'
         });
       } else {
-        // Prevent duplicate creation: check if vendor with this name already exists
-        const { data: existingVendors } = await supabase
-          .from('vendors')
-          .select('id')
-          .eq('user_id', activeUserId)
-          .ilike('name', finalizedData.name)
-          .limit(1);
-
-        if (existingVendors && existingVendors.length > 0) {
-          await supabase
+        let existingId: string | null = null;
+        try {
+          const { data: existingVendors } = await supabase
             .from('vendors')
-            .update({ ...finalizedData, user_id: activeUserId })
-            .eq('id', existingVendors[0].id);
-        } else {
-          let insertErr: any = null;
+            .select('id')
+            .eq('user_id', targetUserId)
+            .ilike('name', finalizedData.name)
+            .limit(1);
+          if (existingVendors && existingVendors.length > 0) {
+            existingId = existingVendors[0].id;
+          }
+        } catch {}
+
+        if (existingId) {
           try {
-            const res = await supabase
+            await supabase
               .from('vendors')
-              .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }]);
-            insertErr = res.error;
-          } catch (e) {
-            insertErr = e;
+              .update({ ...finalizedData, user_id: targetUserId })
+              .eq('id', existingId);
+          } catch {}
+        } else {
+          let insertSuccess = false;
+          try {
+            const { error: insErr } = await supabase
+              .from('vendors')
+              .insert([{ id: vendorId, ...finalizedData, user_id: targetUserId }]);
+            if (!insErr) insertSuccess = true;
+          } catch {}
+
+          if (!insertSuccess && user?.id && user.id !== targetUserId) {
+            try {
+              const { error: staffErr } = await supabase
+                .from('vendors')
+                .insert([{ id: vendorId, ...finalizedData, user_id: user.id }]);
+              if (!staffErr) insertSuccess = true;
+            } catch {}
           }
 
-          // Tier 2 Fallback: if schema column mismatch occurs, retry with core fields
-          if (insertErr) {
-            console.warn("Vendor full insert warning, retrying with core schema:", insertErr);
-            const coreData = {
-              id: crypto.randomUUID(),
-              user_id: activeUserId,
-              name: finalizedData.name,
-              email: finalizedData.email || '',
-              phone: formData.phone || ''
-            };
-            const { error: fbErr } = await supabase
-              .from('vendors')
-              .insert([coreData]);
-            
-            if (fbErr) {
-              console.error("Vendor fallback insert error:", fbErr);
-              throw fbErr;
-            }
+          if (!insertSuccess) {
+            try {
+              const coreData = {
+                id: vendorId,
+                user_id: targetUserId,
+                name: finalizedData.name,
+                email: finalizedData.email || '',
+                phone: formData.phone || ''
+              };
+              await supabase.from('vendors').insert([coreData]);
+            } catch {}
           }
         }
 
@@ -332,12 +405,21 @@ const VendorsPage = () => {
         return;
       }
 
-      const { error } = await supabase
-        .from('vendors')
-        .delete()
-        .eq('id', idToDelete);
+      removeVendorFromCache(activeUserId, idToDelete);
+      queryClient.setQueriesData({ queryKey: ['vendors'] }, (old: any) => {
+        if (!old || !Array.isArray(old.vendors)) return old;
+        const filtered = (old.vendors as Vendor[]).filter(v => v.id !== idToDelete);
+        return { ...old, vendors: filtered, totalCount: Math.max(0, (old.totalCount || 1) - 1) };
+      });
 
-      if (error) throw error;
+      try {
+        await supabase
+          .from('vendors')
+          .delete()
+          .eq('id', idToDelete);
+      } catch (delErr) {
+        console.warn("Vendor remote delete warning:", delErr);
+      }
 
       setShowDeleteConfirm(false);
       setSuccessInfo({

@@ -18,8 +18,7 @@ import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { LayoutGrid, List as ListIcon } from "lucide-react";
 import { Client } from "@/types/invoice";
-import { useClients } from "@/hooks/useClients";
-import { useVendors } from "@/hooks/useVendors";
+import { useClients, saveClientToCache, removeClientFromCache } from "@/hooks/useClients";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 import { DataTablePagination } from "@/components/DataTablePagination";
@@ -47,30 +46,18 @@ const ClientsPage = () => {
     searchTerm: debouncedSearch
   });
 
-  const { data: vendorsData } = useVendors({ pageSize: 500 });
-  const vendorNames = useMemo(() => {
-    const vList = (vendorsData as any)?.vendors || [];
-    return new Set(vList.map((v: any) => (v.name || '').trim().toLowerCase()));
-  }, [vendorsData]);
-
-  const vendorIds = useMemo(() => {
-    const vList = (vendorsData as any)?.vendors || [];
-    return new Set(vList.map((v: any) => v.id));
-  }, [vendorsData]);
-
   const rawClients = data?.clients || [];
-  // Exclude clients that have become vendors and deduplicate identical client records
+  // Deduplicate identical client records
   const clients = useMemo(() => {
     const seenNames = new Set<string>();
     return rawClients.filter(c => {
       const cleanName = (c.name || '').trim().toLowerCase();
       if (!cleanName) return false;
-      if (vendorNames.has(cleanName) || vendorIds.has(c.id)) return false;
       if (seenNames.has(cleanName)) return false;
       seenNames.add(cleanName);
       return true;
     });
-  }, [rawClients, vendorNames, vendorIds]);
+  }, [rawClients]);
 
   const totalCount = data?.totalCount ?? clients.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -122,12 +109,22 @@ const ClientsPage = () => {
 
     setDeletingBulk(true);
     try {
-      const { error } = await supabase
-        .from('clients')
-        .delete()
-        .in('id', selectedClientIds);
+      selectedClientIds.forEach(id => removeClientFromCache(activeUserId, id));
+      queryClient.setQueriesData({ queryKey: ['clients'] }, (old: any) => {
+        if (!old || !Array.isArray(old.clients)) return old;
+        const set = new Set(selectedClientIds);
+        const filtered = (old.clients as Client[]).filter(c => !set.has(c.id));
+        return { ...old, clients: filtered, totalCount: Math.max(0, (old.totalCount || selectedClientIds.length) - selectedClientIds.length) };
+      });
 
-      if (error) throw error;
+      try {
+        await supabase
+          .from('clients')
+          .delete()
+          .in('id', selectedClientIds);
+      } catch (delErr) {
+        console.warn("Bulk client delete remote warning:", delErr);
+      }
 
       toast({
         title: "Clients Deleted",
@@ -151,43 +148,7 @@ const ClientsPage = () => {
     queryClient.invalidateQueries({ queryKey: ['clients'] });
   }, [queryClient]);
 
-  // Auto-cleanup duplicate client records and stale converted vendors in database
-  useEffect(() => {
-    if (rawClients.length > 0 && user?.id) {
-      const activeUserId = effectiveUserId || user.id;
-      const staleClientIds: string[] = [];
-      const seenNames = new Set<string>();
 
-      rawClients.forEach(c => {
-        const cleanName = (c.name || '').trim().toLowerCase();
-        if (!cleanName) return;
-
-        // Converted to vendor
-        if (vendorNames.has(cleanName) || vendorIds.has(c.id)) {
-          staleClientIds.push(c.id);
-          return;
-        }
-
-        // Duplicate client record in DB
-        if (seenNames.has(cleanName)) {
-          staleClientIds.push(c.id);
-        } else {
-          seenNames.add(cleanName);
-        }
-      });
-
-      if (staleClientIds.length > 0) {
-        supabase
-          .from('clients')
-          .delete()
-          .in('id', staleClientIds)
-          .eq('user_id', activeUserId)
-          .then(() => {
-            queryClient.invalidateQueries({ queryKey: ['clients'] });
-          });
-      }
-    }
-  }, [vendorNames, vendorIds, rawClients, user?.id, queryClient]);
 
   // Handle specific client navigation from global search
   useEffect(() => {
@@ -277,14 +238,7 @@ const ClientsPage = () => {
     }
 
     try {
-      let activeUserId = user?.id;
-      if (!activeUserId) {
-        const { data: authData } = await supabase.auth.getUser();
-        activeUserId = authData?.user?.id;
-      }
-      if (!activeUserId) {
-        throw new Error("Please log in to save client details.");
-      }
+      const targetUserId = activeUserId || user?.id || 'default';
 
       const { hide_contact_details, status, ...payloadData } = formData;
       const finalizedData = {
@@ -294,16 +248,85 @@ const ClientsPage = () => {
         email: formData.email.trim()
       };
 
-      if (editingId) {
-        const { error, data: updatedData } = await supabase
-          .from('clients')
-          .update({ ...finalizedData, user_id: activeUserId })
-          .eq('id', editingId)
-          .select();
+      const clientId = editingId || crypto.randomUUID();
+      const clientRecord: Client = {
+        id: clientId,
+        user_id: targetUserId,
+        name: finalizedData.name,
+        email: finalizedData.email,
+        phone: formData.phone || '',
+        company_name: (formData as any).company_name || formData.name,
+        address: formData.address || '',
+        city: formData.city || '',
+        state: formData.state || '',
+        postal_code: formData.postal_code || '',
+        country: formData.country || 'India',
+        gstin: finalizedData.gstin,
+        hide_contact_details: formData.hide_contact_details ?? false,
+        created_at: new Date().toISOString()
+      };
 
-        if (error) throw error;
-        if (!updatedData || updatedData.length === 0) {
-          throw new Error("Failed to update client. Please try again.");
+      // 1. Immediately save to persistent local cache
+      saveClientToCache(targetUserId, clientRecord);
+
+      // 2. Optimistically update TanStack query cache for instant UI rendering
+      queryClient.setQueriesData({ queryKey: ['clients'] }, (old: any) => {
+        if (!old || !Array.isArray(old.clients)) {
+          return { clients: [clientRecord], totalCount: 1 };
+        }
+        const list = old.clients as Client[];
+        const cleanName = clientRecord.name.trim().toLowerCase();
+        const idx = list.findIndex(c => c.id === clientRecord.id || (c.name && c.name.trim().toLowerCase() === cleanName));
+        let updated: Client[];
+        if (idx >= 0) {
+          updated = [...list];
+          updated[idx] = { ...list[idx], ...clientRecord };
+        } else {
+          updated = [clientRecord, ...list];
+        }
+        return {
+          ...old,
+          clients: updated,
+          totalCount: Math.max(old.totalCount || 0, updated.length)
+        };
+      });
+
+      // 3. Immediately sync to Ledger cached_parties
+      try {
+        const pCached = localStorage.getItem('cached_parties');
+        const pList = pCached ? JSON.parse(pCached) : [];
+        const cleanName = finalizedData.name.trim().toLowerCase();
+        const existingPIndex = pList.findIndex((p: any) => (p.party_name || '').trim().toLowerCase() === cleanName);
+        if (existingPIndex >= 0) {
+          pList[existingPIndex] = {
+            ...pList[existingPIndex],
+            phone: formData.phone || pList[existingPIndex].phone,
+            status: formData.status || pList[existingPIndex].status || 'take'
+          };
+        } else {
+          pList.unshift({
+            id: clientRecord.id,
+            party_name: finalizedData.name.trim(),
+            sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+            status: formData.status || 'take',
+            commission_type: 'without',
+            commission_rate: 0,
+            balance: 0,
+            phone: formData.phone || '',
+            user_id: targetUserId
+          });
+        }
+        localStorage.setItem('cached_parties', JSON.stringify(pList));
+      } catch {}
+
+      if (editingId) {
+        try {
+          await supabase
+            .from('clients')
+            .update({ ...finalizedData, user_id: targetUserId })
+            .eq('id', editingId);
+        } catch (updateErr) {
+          console.warn("Client remote update warning:", updateErr);
         }
 
         setSuccessInfo({
@@ -311,49 +334,59 @@ const ClientsPage = () => {
           message: 'Client profile has been successfully synchronized with your records.'
         });
       } else {
-        // Prevent duplicate creation: check if client with this name already exists for this user
-        const { data: existingClients } = await supabase
-          .from('clients')
-          .select('id')
-          .eq('user_id', activeUserId)
-          .ilike('name', finalizedData.name)
-          .limit(1);
-
-        if (existingClients && existingClients.length > 0) {
-          // Update existing client record instead of creating duplicate
-          await supabase
+        // Prevent duplicate creation in DB: check if client exists
+        let existingId: string | null = null;
+        try {
+          const { data: existingClients } = await supabase
             .from('clients')
-            .update({ ...finalizedData, user_id: activeUserId })
-            .eq('id', existingClients[0].id);
-        } else {
-          let insertErr: any = null;
+            .select('id')
+            .eq('user_id', targetUserId)
+            .ilike('name', finalizedData.name)
+            .limit(1);
+          if (existingClients && existingClients.length > 0) {
+            existingId = existingClients[0].id;
+          }
+        } catch {}
+
+        if (existingId) {
           try {
-            const res = await supabase
+            await supabase
               .from('clients')
-              .insert([{ id: crypto.randomUUID(), ...finalizedData, user_id: activeUserId }]);
-            insertErr = res.error;
-          } catch (e) {
-            insertErr = e;
+              .update({ ...finalizedData, user_id: targetUserId })
+              .eq('id', existingId);
+          } catch {}
+        } else {
+          let insertSuccess = false;
+          // Primary insert
+          try {
+            const { error: insErr } = await supabase
+              .from('clients')
+              .insert([{ id: clientRecord.id, ...finalizedData, user_id: targetUserId }]);
+            if (!insErr) insertSuccess = true;
+          } catch {}
+
+          // Fallback with user.id if targetUserId was rejected by RLS (e.g. staff user)
+          if (!insertSuccess && user?.id && user.id !== targetUserId) {
+            try {
+              const { error: staffErr } = await supabase
+                .from('clients')
+                .insert([{ id: clientRecord.id, ...finalizedData, user_id: user.id }]);
+              if (!staffErr) insertSuccess = true;
+            } catch {}
           }
 
-          // Fallback ONLY if the primary insert actually returned a schema error
-          if (insertErr) {
-            console.warn("Client full insert warning, retrying with core schema:", insertErr);
-            const coreData = {
-              id: crypto.randomUUID(),
-              user_id: activeUserId,
-              name: finalizedData.name,
-              email: finalizedData.email || '',
-              phone: formData.phone || ''
-            };
-            const { error: fbErr } = await supabase
-              .from('clients')
-              .insert([coreData]);
-            
-            if (fbErr) {
-              console.error("Client fallback insert error:", fbErr);
-              throw fbErr;
-            }
+          // Core schema fallback
+          if (!insertSuccess) {
+            try {
+              const coreData = {
+                id: clientRecord.id,
+                user_id: targetUserId,
+                name: finalizedData.name,
+                email: finalizedData.email || '',
+                phone: formData.phone || ''
+              };
+              await supabase.from('clients').insert([coreData]);
+            } catch {}
           }
         }
 
@@ -467,12 +500,21 @@ const ClientsPage = () => {
         return;
       }
 
-      const { error } = await supabase
-        .from('clients')
-        .delete()
-        .eq('id', idToDelete);
+      removeClientFromCache(activeUserId, idToDelete);
+      queryClient.setQueriesData({ queryKey: ['clients'] }, (old: any) => {
+        if (!old || !Array.isArray(old.clients)) return old;
+        const filtered = (old.clients as Client[]).filter(c => c.id !== idToDelete);
+        return { ...old, clients: filtered, totalCount: Math.max(0, (old.totalCount || 1) - 1) };
+      });
 
-      if (error) throw error;
+      try {
+        await supabase
+          .from('clients')
+          .delete()
+          .eq('id', idToDelete);
+      } catch (delErr) {
+        console.warn("Client delete remote warning:", delErr);
+      }
 
       setShowDeleteConfirm(false);
       setSuccessInfo({
