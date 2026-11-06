@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 import { useCrm } from '@/contexts/CrmContext';
 import type { Lead } from '@/contexts/CrmContext';
 import { X } from 'lucide-react';
@@ -139,13 +140,10 @@ export const LeadModal: React.FC<LeadModalProps> = ({ isOpen, onClose, leadId })
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Phone Number</label>
-                <input
-                  type="tel"
+                <CountryPhoneInput
                   value={phone}
-                  onChange={e => setPhone(e.target.value)}
+                  onChange={(val) => setPhone(val)}
                   required
-                  className="px-4 py-2.5 border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 rounded-xl focus:bg-white dark:focus:bg-slate-900 focus:border-indigo-500 focus:ring-3 focus:ring-indigo-500/10 text-slate-800 dark:text-slate-100 transition-all outline-none"
-                  placeholder="e.g. +1 (555) 019-2834"
                 />
               </div>
             </div>

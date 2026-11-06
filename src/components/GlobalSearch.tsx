@@ -17,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { Badge } from '@/components/ui/badge';
 import { InvoicePreview } from './InvoicePreview';
 
@@ -40,6 +41,7 @@ interface SearchResult {
 }
 
 export function GlobalSearch() {
+  const { currencySymbol } = useCurrency();
     const { user } = useAuth();
     const navigate = useNavigate();
     const [open, setOpen] = useState(false);
@@ -289,7 +291,7 @@ export function GlobalSearch() {
                                                 </span>
                                             </div>
                                             <div className="flex flex-col items-end gap-1 shrink-0">
-                                                <span className="font-medium text-xs">₹{inv.total_amount?.toFixed(2) || '0.00'}</span>
+                                                <span className="font-medium text-xs">{currencySymbol || '₹'}{inv.total_amount?.toFixed(2) || '0.00'}</span>
                                                 <Badge variant={inv.status === 'paid' ? 'default' : 'secondary'} className="text-[9px] px-1.5 py-0 h-4">
                                                     {inv.status}
                                                 </Badge>
@@ -342,7 +344,7 @@ export function GlobalSearch() {
                                             </div>
                                             <div className="flex flex-col items-end shrink-0">
                                                 <span className="text-muted-foreground text-[10px] font-mono uppercase">{product.sku || 'No SKU'}</span>
-                                                <span className="font-medium text-xs">₹{product.price?.toLocaleString() || '0'}</span>
+                                                <span className="font-medium text-xs">{currencySymbol || '₹'}{product.price?.toLocaleString() || '0'}</span>
                                             </div>
                                         </CommandItem>
                                     ))}
@@ -366,7 +368,7 @@ export function GlobalSearch() {
                                                 <span className="text-muted-foreground text-[10px] pl-6 truncate max-w-[150px] uppercase tracking-wider">{expense.category}</span>
                                             </div>
                                             <div className="flex flex-col items-end shrink-0">
-                                                <span className="font-medium text-xs text-rose-600">₹{expense.amount?.toLocaleString() || '0'}</span>
+                                                <span className="font-medium text-xs text-rose-600">{currencySymbol || '₹'}{expense.amount?.toLocaleString() || '0'}</span>
                                                 <span className="text-[9px] text-muted-foreground italic">Expense</span>
                                             </div>
                                         </CommandItem>
@@ -416,7 +418,7 @@ export function GlobalSearch() {
                                                 <span className="text-muted-foreground text-[10px] pl-6 truncate max-w-[150px]">{bill.vendors?.name || 'Unknown Vendor'}</span>
                                             </div>
                                             <div className="flex flex-col items-end shrink-0">
-                                                <span className="font-medium text-xs">₹{bill.total_amount?.toLocaleString() || '0'}</span>
+                                                <span className="font-medium text-xs">{currencySymbol || '₹'}{bill.total_amount?.toLocaleString() || '0'}</span>
                                                 <Badge variant="outline" className="text-[8px] h-3 px-1">BILL</Badge>
                                             </div>
                                         </CommandItem>

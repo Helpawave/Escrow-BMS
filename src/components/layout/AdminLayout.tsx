@@ -1,3 +1,4 @@
+import BrandLogo from '@/components/BrandLogo';
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -65,10 +66,7 @@ export const AdminLayout = ({ children }: AdminLayoutProps) => {
         <div className="container mx-auto px-3 sm:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-8">
-              <Link to="/admin/dashboard" className="flex items-center gap-2">
-                <img src="/logo.png" alt="Escrow Daily Hisab" className="w-6 h-6 sm:w-8 sm:h-8" />
-                <span className="text-base sm:text-xl font-bold">Admin Panel</span>
-              </Link>
+              <BrandLogo size="md" asLink to="/admin/dashboard" subtitle="Platform Admin" />
 
               <div className="hidden md:flex space-x-1">
                 <Link to="/admin/dashboard">

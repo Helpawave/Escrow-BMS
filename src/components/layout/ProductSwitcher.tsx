@@ -54,8 +54,8 @@ export function ProductSwitcher({ align = 'start', showActiveLabel = true }: Pro
             <img src="/logo.png" alt="Escrow" className="w-6 h-6 object-contain flex-shrink-0" />
             {showActiveLabel && (
               <div className="flex flex-col min-w-0">
-                <span className="font-bold tracking-tight text-slate-800 dark:text-slate-100 leading-none">
-                  Escrow {activeModule ? t(activeModule.key) : 'BMS'}
+                <span className="font-sans font-black tracking-tight text-slate-900 dark:text-white leading-none">
+                  ESCROW<span className="text-emerald-500">{activeModule ? t(activeModule.key) : 'BMS'}</span>
                 </span>
                 <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium tracking-wider uppercase mt-0.5">
                   {activeModule ? t(`${activeModule.key}Subtitle`) : t('bmsSubtitle')}

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, serviceSupabase } from '@/integrations/supabase/client';
 import { useAuth } from './AuthContext';
+import { getCountryTaxConfig } from '@/data/taxCountries';
 import {
   ForexRates,
   FALLBACK_RATES,
@@ -19,7 +20,7 @@ export interface CurrencyContextType {
   inrPerUnit: number;   // 1 foreign unit in INR (e.g. 95.51)
   convertFromINR: (amountInINR: number) => number;
   convertToINR: (amountInForeign: number) => number;
-  formatAmount: (amountInINR: number, options?: { showSymbol?: boolean; decimals?: number }) => string;
+  formatAmount: (amount: number, options?: { showSymbol?: boolean; decimals?: number; convertFromInr?: boolean }) => string;
   setCurrencyCode: (code: string) => void;
   setCurrencySymbol: (symbol: string) => void;
   refreshRates: () => Promise<void>;
@@ -31,8 +32,28 @@ export interface CurrencyContextType {
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currencyCode, setCurrencyCodeState] = useState<string>('INR');
-  const [currencySymbol, setCurrencySymbolState] = useState<string>('₹');
+  const [currencyCode, setCurrencyCodeState] = useState<string>(() => {
+    try {
+      const savedCountry = localStorage.getItem('escrow_business_country');
+      if (savedCountry) {
+        return getCountryTaxConfig(savedCountry).currencyCode;
+      }
+      const savedCurr = localStorage.getItem('currency');
+      if (savedCurr) return savedCurr.toUpperCase();
+    } catch {}
+    return 'INR';
+  });
+  const [currencySymbol, setCurrencySymbolState] = useState<string>(() => {
+    try {
+      const savedCountry = localStorage.getItem('escrow_business_country');
+      if (savedCountry) {
+        return getCountryTaxConfig(savedCountry).currencySymbol;
+      }
+      const savedCurr = localStorage.getItem('currency');
+      if (savedCurr) return CURRENCY_SYMBOLS[savedCurr.toUpperCase()] || '₹';
+    } catch {}
+    return '₹';
+  });
   const [rates, setRates] = useState<ForexRates>(FALLBACK_RATES);
   const [isFallbackRate, setIsFallbackRate] = useState<boolean>(false);
   const [ratesTimestamp, setRatesTimestamp] = useState<number>(Date.now());
@@ -67,26 +88,85 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       try {
-        const client = (serviceSupabase || supabase) as any;
-        const { data, error } = await client
-          .from('user_settings')
-          .select('default_currency')
-          .eq('user_id', targetId)
-          .maybeSingle();
+        // Priority 1: If user explicitly configured a business country, use its standard currency
+        const savedCountry = localStorage.getItem('escrow_business_country');
+        const isConfigured = localStorage.getItem('escrow_business_country_configured') === 'true';
+        let code: string | null = null;
 
-        if (error) throw error;
+        if (savedCountry && isConfigured) {
+          const explicitConfig = getCountryTaxConfig(savedCountry);
+          code = explicitConfig.currencyCode;
+        }
 
-        const settings = data as unknown as { default_currency: string } | null;
-        const currencyValue = settings?.default_currency?.trim() || 'INR';
-        const code = currencyValue.toUpperCase();
-        const symbol = CURRENCY_SYMBOLS[code] || CURRENCY_SYMBOLS[currencyValue] || '₹';
+        // Priority 2: Check user_settings from Supabase
+        if (!code) {
+          try {
+            const { data } = await (supabase as any)
+              .from('user_settings')
+              .select('default_currency')
+              .eq('user_id', targetId)
+              .maybeSingle();
 
+            if (data?.default_currency) {
+              code = data.default_currency.trim().toUpperCase();
+            }
+          } catch (e) {
+            console.warn('Error reading user_settings default_currency:', e);
+          }
+        }
+
+        // Priority 3: Check profile country if available
+        if (!code) {
+          try {
+            const { data: profData } = await (supabase as any)
+              .from('profiles')
+              .select('country')
+              .eq('id', targetId)
+              .maybeSingle();
+
+            if (profData?.country) {
+              const countryConfig = getCountryTaxConfig(profData.country);
+              code = countryConfig.currencyCode;
+            }
+          } catch {}
+        }
+
+        // Fallback default
+        if (!code) {
+          code = savedCountry ? getCountryTaxConfig(savedCountry).currencyCode : 'INR';
+        }
+
+        const symbol = CURRENCY_SYMBOLS[code] || getCountryTaxConfig(code).currencySymbol || '₹';
         setCurrencyCodeState(code);
         setCurrencySymbolState(symbol);
+
+        try {
+          localStorage.setItem('currency', code);
+          localStorage.setItem('currency_symbol', symbol);
+        } catch {}
+
+        // Ensure user_settings in Supabase is synced if different
+        try {
+          await (supabase as any)
+            .from('user_settings')
+            .upsert({ user_id: targetId, default_currency: code }, { onConflict: 'user_id' });
+        } catch {}
       } catch (error) {
         console.error('Error fetching currency setting:', error);
-        setCurrencyCodeState('INR');
-        setCurrencySymbolState('₹');
+        try {
+          const savedCountry = localStorage.getItem('escrow_business_country');
+          if (savedCountry) {
+            const cfg = getCountryTaxConfig(savedCountry);
+            setCurrencyCodeState(cfg.currencyCode);
+            setCurrencySymbolState(cfg.currencySymbol);
+          } else {
+            setCurrencyCodeState('INR');
+            setCurrencySymbolState('₹');
+          }
+        } catch {
+          setCurrencyCodeState('INR');
+          setCurrencySymbolState('₹');
+        }
       } finally {
         setLoading(false);
       }
@@ -97,9 +177,13 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const setCurrencyCode = useCallback((code: string) => {
     const normalized = (code || 'INR').toUpperCase().trim();
-    const symbol = CURRENCY_SYMBOLS[normalized] || '₹';
+    const symbol = CURRENCY_SYMBOLS[normalized] || getCountryTaxConfig(normalized).currencySymbol || '₹';
     setCurrencyCodeState(normalized);
     setCurrencySymbolState(symbol);
+    try {
+      localStorage.setItem('currency', normalized);
+      localStorage.setItem('currency_symbol', symbol);
+    } catch {}
   }, []);
 
   const setCurrencySymbol = useCallback((symbol: string) => {
@@ -123,11 +207,12 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return convertToInr(amountInForeign, currencyCode, rates);
   }, [currencyCode, rates]);
 
-  const formatAmount = useCallback((amountInINR: number, options?: { showSymbol?: boolean; decimals?: number }): string => {
+  const formatAmount = useCallback((amount: number, options?: { showSymbol?: boolean; decimals?: number; convertFromInr?: boolean }): string => {
     const showSymbol = options?.showSymbol !== false;
     const decimals = options?.decimals ?? 2;
-    const converted = convertFromInr(amountInINR, currencyCode, rates);
-    const formatted = converted.toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US', {
+    const val = options?.convertFromInr ? convertFromInr(amount, currencyCode, rates) : (amount || 0);
+    const locale = currencyCode === 'INR' ? 'en-IN' : currencyCode === 'GBP' ? 'en-GB' : currencyCode === 'EUR' ? 'de-DE' : 'en-US';
+    const formatted = val.toLocaleString(locale, {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals
     });

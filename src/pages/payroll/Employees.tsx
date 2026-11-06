@@ -2,6 +2,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
 import {
   Search,
   Plus,
@@ -69,6 +70,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { useCurrency } from "@/contexts/CurrencyContext";
 import { supabase } from "@/integrations/supabase/client";
 import { updateUserAcrossAllModules } from "@/utils/erpPosting";
 
@@ -153,9 +155,20 @@ export function calculateSalaryBreakdown(ctcValue: number | string, isAnnual: bo
   };
 }
 
-export function formatSalaryDisplay(salaryVal: string | number): { formattedBadge: string; subtext: string } {
-  if (!salaryVal) return { formattedBadge: '₹6.0 LPA', subtext: '₹48,000/mo in-hand' };
+export function formatSalaryDisplay(salaryVal: string | number, sym: string = '₹'): { formattedBadge: string; subtext: string } {
+  const isINR = sym === '₹' || sym === 'INR';
   const rawNum = typeof salaryVal === 'number' ? salaryVal : parseFloat(String(salaryVal).replace(/[^\d.]/g, '')) || 0;
+  
+  if (!isINR) {
+    if (rawNum <= 0) return { formattedBadge: `${sym}5,000/mo`, subtext: `${sym}60,000/yr` };
+    const monthly = rawNum >= 10000 ? Math.round(rawNum / 12) : rawNum;
+    const annual = rawNum >= 10000 ? rawNum : rawNum * 12;
+    return {
+      formattedBadge: `${sym}${monthly.toLocaleString()}/mo`,
+      subtext: `${sym}${annual.toLocaleString()}/yr package`
+    };
+  }
+
   if (rawNum <= 0) return { formattedBadge: '₹6.0 LPA', subtext: '₹48,000/mo in-hand' };
 
   if (rawNum >= 100000) {
@@ -202,6 +215,7 @@ function getAvatarColor(name: string) {
 
 const Employees = () => {
   const { user, hasRole } = useAuth();
+  const { currencySymbol, currencyCode } = useCurrency();
   const { t } = useLanguage();
   // Ensure Owner and all authenticated admins can manage employees
   const canManage = true;
@@ -228,7 +242,7 @@ const Employees = () => {
           name: e.name || e.full_name || '',
           department: e.department || '',
           designation: e.designation || e.position || 'Staff Member',
-          salary: e.salary ? `₹${Number(e.salary).toLocaleString('en-IN')}` : '₹45,000',
+          salary: e.salary ? `${currencySymbol}${Number(e.salary).toLocaleString()}` : `${currencySymbol}45,000`,
           status: e.status || 'Active',
           joinDate: e.join_date || e.joining_date || e.created_at?.substring(0, 10) || '',
           email: e.email || '',
@@ -257,7 +271,7 @@ const Employees = () => {
               name: mName,
               department: mDept || 'General Operations',
               designation: mDesig || 'Department Staff',
-              salary: '₹6,00,000',
+              salary: `${currencySymbol}60,000`,
               status: 'Active',
               joinDate: mDate || new Date().toISOString().substring(0, 10),
               email: mEmail || '',
@@ -641,7 +655,7 @@ const Employees = () => {
                       {/* Salary */}
                       <td className="px-5 py-3 text-right hidden sm:table-cell">
                         {(() => {
-                          const fmt = formatSalaryDisplay(emp.salary);
+                          const fmt = formatSalaryDisplay(emp.salary, currencySymbol);
                           return (
                             <div className="flex flex-col items-end">
                               <span className="font-extrabold text-slate-900 dark:text-white text-xs bg-purple-50 dark:bg-purple-950/60 px-2.5 py-1 rounded-xl border border-purple-200 dark:border-purple-800/80 shadow-2xs">
@@ -856,7 +870,7 @@ const Employees = () => {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label className="text-[10px] text-slate-500 mb-1 block">Annual CTC Package (₹)</Label>
+                    <Label className="text-[10px] text-slate-500 mb-1 block">Annual CTC Package ({currencySymbol})</Label>
                     <Input
                       type="number"
                       placeholder="e.g. 600000 (6 Lakhs)"
@@ -878,16 +892,16 @@ const Employees = () => {
                     <div className="mt-3 p-3 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl space-y-2 text-xs">
                       <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
                         <span className="font-bold text-slate-600 dark:text-slate-300">Gross Monthly CTC:</span>
-                        <span className="font-black text-slate-900 dark:text-white">₹{b.ctcMonthly.toLocaleString('en-IN')}/mo</span>
+                        <span className="font-black text-slate-900 dark:text-white">{currencySymbol}{b.ctcMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-400">
-                        <div>Basic Salary (50%): <strong className="text-slate-800 dark:text-slate-200">₹{b.basicMonthly.toLocaleString('en-IN')}</strong></div>
-                        <div>HRA (25%): <strong className="text-slate-800 dark:text-slate-200">₹{b.hraMonthly.toLocaleString('en-IN')}</strong></div>
-                        <div>Special Allowance: <strong className="text-slate-800 dark:text-slate-200">₹{b.specialAllowanceMonthly.toLocaleString('en-IN')}</strong></div>
-                        <div>PF Deduction (12%): <strong className="text-rose-600 dark:text-rose-400">-₹{b.pfDeduction.toLocaleString('en-IN')}</strong></div>
-                        <div>Professional Tax: <strong className="text-rose-600 dark:text-rose-400">-₹{b.ptDeduction.toLocaleString('en-IN')}</strong></div>
-                        <div>Total Monthly Deductions: <strong className="text-rose-600 font-bold">-₹{b.totalDeductions.toLocaleString('en-IN')}</strong></div>
+                        <div>Basic Salary (50%): <strong className="text-slate-800 dark:text-slate-200">{currencySymbol}{b.basicMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+                        <div>HRA (25%): <strong className="text-slate-800 dark:text-slate-200">{currencySymbol}{b.hraMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+                        <div>Special Allowance: <strong className="text-slate-800 dark:text-slate-200">{currencySymbol}{b.specialAllowanceMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+                        <div>PF Deduction (12%): <strong className="text-rose-600 dark:text-rose-400">-{currencySymbol}{b.pfDeduction.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+                        <div>Professional Tax: <strong className="text-rose-600 dark:text-rose-400">-{currencySymbol}{b.ptDeduction.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+                        <div>Total Monthly Deductions: <strong className="text-rose-600 font-bold">-{currencySymbol}{b.totalDeductions.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
                       </div>
 
                       <div className="pt-2 border-t border-purple-100 dark:border-purple-900/60 flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg text-emerald-800 dark:text-emerald-300">
@@ -896,7 +910,7 @@ const Employees = () => {
                           Estimated Monthly In-Hand Take Home:
                         </span>
                         <span className="font-black text-sm text-emerald-600 dark:text-emerald-400">
-                          ₹{b.netInHandMonthly.toLocaleString('en-IN')} / month
+                          {currencySymbol}{b.netInHandMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })} / month
                         </span>
                       </div>
                     </div>
@@ -956,14 +970,14 @@ const Employees = () => {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Phone</Label>
-                <Input value={editForm.phone ?? ""} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} />
+                <CountryPhoneInput value={editForm.phone ?? ""} onChange={(val) => setEditForm((f) => ({ ...f, phone: val }))} />
               </div>
 
               {/* Edit Salary CTC Input */}
               <div className="col-span-2 space-y-2 p-3.5 bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl">
                 <Label className="text-xs font-black text-purple-900 dark:text-purple-200 uppercase tracking-wider flex items-center gap-1.5">
                   <Calculator className="w-4 h-4 text-purple-600" />
-                  Annual CTC Package (₹)
+                  Annual CTC Package ({currencySymbol})
                 </Label>
                 <Input
                   type="number"
@@ -978,14 +992,14 @@ const Employees = () => {
                   return (
                     <div className="mt-2 p-3 bg-white dark:bg-slate-900 border border-purple-200 rounded-xl space-y-1.5 text-xs">
                       <div className="flex justify-between font-bold">
-                        <span>Monthly CTC: ₹{b.ctcMonthly.toLocaleString('en-IN')}</span>
-                        <span className="text-emerald-600">Net In-Hand: ₹{b.netInHandMonthly.toLocaleString('en-IN')}/mo</span>
+                        <span>Monthly CTC: {currencySymbol}{b.ctcMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span className="text-emerald-600">Net In-Hand: {currencySymbol}{b.netInHandMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</span>
                       </div>
                       <div className="grid grid-cols-2 gap-1 text-[11px] text-slate-500">
-                        <span>Basic: ₹{b.basicMonthly.toLocaleString('en-IN')}</span>
-                        <span>HRA: ₹{b.hraMonthly.toLocaleString('en-IN')}</span>
-                        <span>PF: -₹{b.pfDeduction.toLocaleString('en-IN')}</span>
-                        <span>PT: -₹{b.ptDeduction.toLocaleString('en-IN')}</span>
+                        <span>Basic: {currencySymbol}{b.basicMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span>HRA: {currencySymbol}{b.hraMonthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span>PF: -{currencySymbol}{b.pfDeduction.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        <span>PT: -{currencySymbol}{b.ptDeduction.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                       </div>
                     </div>
                   );

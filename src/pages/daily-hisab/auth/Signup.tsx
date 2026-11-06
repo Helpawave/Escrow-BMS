@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Mail, User, Phone, DollarSign, Loader2 } from 'lucide-react';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 
 export const Signup = () => {
   const [formData, setFormData] = useState({
@@ -46,7 +47,7 @@ export const Signup = () => {
     }
 
     const result = await signup(formData.email, formData.password, formData.name, formData.phone);
-    if (result.success) {
+    if (!result?.error) {
       console.log('[SIGNUP_FORM]: Signup successful');
       toast({
         title: "Account created successfully!",
@@ -57,7 +58,7 @@ export const Signup = () => {
       console.log('[SIGNUP_FORM]: Signup failed');
       toast({
         title: "Signup failed",
-        description: result.error || "Please try again",
+        description: result.error?.message || "Please try again",
         variant: "destructive"
       });
     }
@@ -156,17 +157,11 @@ export const Signup = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number (Optional)</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="Enter your phone number"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    className="pl-10"
-                  />
-                </div>
+                <CountryPhoneInput
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(val) => setFormData(prev => ({ ...prev, phone: val }))}
+                />
               </div>
 
               <div className="space-y-2">

@@ -10,8 +10,47 @@ import {
   Package,
   CheckSquare,
   History,
-  FileSpreadsheet
+  FileSpreadsheet,
+  AlertCircle
 } from 'lucide-react';
+
+// Context Providers required by sub-modules
+import { NotificationProvider } from '@/contexts/NotificationContext';
+import { ProductsProvider } from '@/contexts/ProductsContext';
+import { CrmProvider } from '@/contexts/CrmContext';
+import { FinanceProvider } from '@/contexts/FinanceContext';
+
+// Simple Error Boundary for Tab Contents
+class TabErrorBoundary extends React.Component<{ name: string; children: React.ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: any, info: any) {
+    console.error(`Error loading report tab [${this.props.name}]:`, error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center space-y-3">
+          <AlertCircle className="w-8 h-8 text-rose-500 mx-auto" />
+          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Unable to load {this.props.name} report</h3>
+          <p className="text-xs text-slate-500 font-medium">Please check your network connection or try refreshing the page.</p>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg font-bold hover:bg-indigo-100 transition-colors"
+          >
+            Retry Loading
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Lazy Loaded Comprehensive Module Reports
 const BillReportsPage = React.lazy(() => import('@/pages/bill/Reports'));
@@ -43,12 +82,12 @@ export default function ReportsPage() {
   });
 
   const reportTabs = [
-    ...(showBilling ? [{ key: 'billing', label: 'Billing & Invoices', icon: Receipt, desc: 'Sales, GST, e-Way & Profit Statements' }] : []),
+    ...(showBilling ? [{ key: 'billing', label: 'Billing & Invoices', icon: Receipt, desc: 'Sales, Tax, e-Way & Profit Statements' }] : []),
     ...(showLedger ? [{ key: 'ledger', label: 'Account Ledger', icon: BookOpen, desc: 'Party Ledgers, Balance Sheet & Cash Statement' }] : []),
     ...(showPayroll ? [{ key: 'payroll', label: 'Payroll & HR', icon: Users, desc: 'Salary Summaries, Payslips & Attendance' }] : []),
     ...(showInventory ? [{ key: 'inventory', label: 'Stock & Inventory', icon: Package, desc: 'Stock Valuation, Low Stock & Movement' }] : []),
     ...(showCRM ? [{ key: 'crm', label: 'CRM & Pipeline', icon: CheckSquare, desc: 'Lead Conversions & Team Performance' }] : []),
-    ...(showHisab ? [{ key: 'hisab', label: 'Daily Hisab', icon: History, desc: 'Daily Income/Expense Calculations' }] : []),
+    ...(showHisab ? [{ key: 'hisab', label: 'Daily Calculation', icon: History, desc: 'Daily Income/Expense Calculations' }] : []),
   ];
 
   return (
@@ -97,39 +136,59 @@ export default function ReportsPage() {
       {/* Tab Body Content */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-6 min-h-[500px]">
         {activeTab === 'billing' && showBilling && (
-          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Billing Reports Suite...</div>}>
-            <BillReportsPage />
-          </React.Suspense>
+          <TabErrorBoundary name="Billing">
+            <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Billing Reports Suite...</div>}>
+              <BillReportsPage />
+            </React.Suspense>
+          </TabErrorBoundary>
         )}
 
         {activeTab === 'ledger' && showLedger && (
-          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Party Ledger Reports...</div>}>
-            <LedgerPartyReportPage />
-          </React.Suspense>
+          <TabErrorBoundary name="Account Ledger">
+            <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Party Ledger Reports...</div>}>
+              <LedgerPartyReportPage />
+            </React.Suspense>
+          </TabErrorBoundary>
         )}
 
         {activeTab === 'payroll' && showPayroll && (
-          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading HR & Payroll Reports...</div>}>
-            <PayrollReportsPage />
-          </React.Suspense>
+          <TabErrorBoundary name="Payroll">
+            <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading HR & Payroll Reports...</div>}>
+              <PayrollReportsPage />
+            </React.Suspense>
+          </TabErrorBoundary>
         )}
 
         {activeTab === 'inventory' && showInventory && (
-          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Stock Reports Suite...</div>}>
-            <InventoryReportsPage />
-          </React.Suspense>
+          <TabErrorBoundary name="Stock & Inventory">
+            <NotificationProvider>
+              <ProductsProvider>
+                <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Stock Reports Suite...</div>}>
+                  <InventoryReportsPage />
+                </React.Suspense>
+              </ProductsProvider>
+            </NotificationProvider>
+          </TabErrorBoundary>
         )}
 
         {activeTab === 'crm' && showCRM && (
-          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading CRM Analytics Suite...</div>}>
-            <CrmAnalyticsPage />
-          </React.Suspense>
+          <TabErrorBoundary name="CRM & Pipeline">
+            <CrmProvider>
+              <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading CRM Analytics Suite...</div>}>
+                <CrmAnalyticsPage />
+              </React.Suspense>
+            </CrmProvider>
+          </TabErrorBoundary>
         )}
 
         {activeTab === 'hisab' && showHisab && (
-          <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Daily Hisab History...</div>}>
-            <HisabHistoryPage />
-          </React.Suspense>
+          <TabErrorBoundary name="Daily Calculation">
+            <FinanceProvider>
+              <React.Suspense fallback={<div className="p-12 text-center text-xs font-bold text-slate-400">Loading Daily Calculation History...</div>}>
+                <HisabHistoryPage />
+              </React.Suspense>
+            </FinanceProvider>
+          </TabErrorBoundary>
         )}
       </div>
     </PageTransition>

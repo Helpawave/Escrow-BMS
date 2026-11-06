@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Package, AlertTriangle, CheckCircle2, Barcode as BarcodeIcon, Loader2, Info } from "lucide-react";
+import { useTaxConfig } from "@/contexts/TaxContext";
 
 export interface UncatalogedProductItem {
   index: number;
@@ -46,6 +47,7 @@ export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> =
   currencySymbol,
   saving = false
 }) => {
+  const { taxName } = useTaxConfig();
   const hasIncomplete = incompleteItems.length > 0;
 
   return (
@@ -125,7 +127,7 @@ export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> =
                         <TableCell className="font-bold text-xs">
                           <div>{item.name}</div>
                           {item.tax_rate > 0 && (
-                            <span className="text-[10px] text-muted-foreground font-medium">GST: {item.tax_rate}%</span>
+                            <span className="text-[10px] text-muted-foreground font-medium">{taxName}: {item.tax_rate}%</span>
                           )}
                         </TableCell>
                         <TableCell className="text-center font-bold text-xs tabular-nums text-emerald-600">

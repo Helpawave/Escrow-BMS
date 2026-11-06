@@ -45,7 +45,7 @@ export interface SystemUser {
 }
 
 export default function UsersAndMembers({ defaultTab = 'members' }: { defaultTab?: 'users' | 'members' }) {
-  const { profile: currentProfile } = useAuth();
+  const { user, profile: currentProfile } = useAuth();
   const { refresh: refreshSubscription } = useSubscription();
   const [activeTab, setActiveTab] = useState<'users' | 'members'>(defaultTab);
   const [searchQuery, setSearchQuery] = useState('');

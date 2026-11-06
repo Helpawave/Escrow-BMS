@@ -8,11 +8,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Client, Product, Vendor, InvoiceItem, Invoice, PurchaseInvoice, Expense } from '@/types/invoice';
 import { adjustStock, formatCategory } from '@/utils/inventory';
-import { postInvoiceToLedger } from '@/utils/erpPosting';
+import { postInvoiceToLedger, postPaymentToLedger } from '@/utils/erpPosting';
 import { calculateItemAmount as calcItemAmount, generateInvoiceNumber as genInvNum } from '@/utils/invoice-helpers';
 import { type HSNCode } from '@/types/hsn';
 import { type InvoiceFormData } from '@/components/invoice/InvoiceHeader';
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTaxConfig } from "@/contexts/TaxContext";
 import { UncatalogedProductItem, IncompleteItem } from '@/components/invoice/UncatalogedProductsModal';
 import { useUserType } from "@/hooks/useUserType";
 // import hsnData from '@/data/hsnCodes.json'; // Removed static import for bundle optimization
@@ -50,7 +51,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const invoiceId = initialId || paramsId;
   const location = useLocation();
   const [searchParams] = useState(() => new URLSearchParams(location.search));
-  const { currencySymbol: globalCurrencySymbol, convertFromINR, convertToINR, inrPerUnit } = useCurrency();
+  const { currencyCode, currencySymbol: globalCurrencySymbol, convertFromINR, convertToINR, inrPerUnit } = useCurrency();
+  const { standardTaxRate } = useTaxConfig();
   const symbolMap: Record<string, string> = {
     'INR': '₹',
     'USD': '$',
@@ -65,14 +67,15 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const isEditing = Boolean(invoiceId);
   const [invoiceNumber, setInvoiceNumber] = useState<string | null>(null);
   const [invoiceStatus, setInvoiceStatus] = useState<string>('draft');
-  const [invoiceCurrency, setInvoiceCurrency] = useState<string>('INR');
+  const [invoiceCurrency, setInvoiceCurrency] = useState<string>(currencyCode || 'INR');
   const [currencySymbol, setCurrencySymbol] = useState<string>(globalCurrencySymbol || '₹');
 
   useEffect(() => {
-    if (!isEditing && globalCurrencySymbol) {
-      setCurrencySymbol(globalCurrencySymbol);
+    if (!isEditing) {
+      if (currencyCode) setInvoiceCurrency(currencyCode);
+      if (globalCurrencySymbol) setCurrencySymbol(globalCurrencySymbol);
     }
-  }, [globalCurrencySymbol, isEditing]);
+  }, [currencyCode, globalCurrencySymbol, isEditing]);
 
   const initialBillingType = (
     searchParams.get('type') === 'purchase'
@@ -116,7 +119,7 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
   const [newProductActiveTab, setNewProductActiveTab] = useState("basic");
   const [newProductFormData, setNewProductFormData] = useState({
     name: '', type: 'product', category: '', sales_price: '',
-    price_with_tax: true, tax_rate: '18', unit: 'pcs',
+    price_with_tax: true, tax_rate: String(standardTaxRate ?? 18), unit: 'pcs',
     opening_stock: '', description: '',
     purchase_price: '', sku: '', discount: '',
     hsn_code: '', barcode: '', alternative_unit: '',
@@ -256,12 +259,56 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
 
       if (error) throw error;
       const rawClients = (data as unknown as Client[]) || [];
-      const uniqueClients: Client[] = [];
+
+      // Also query parties from ledger to guarantee common party list
+      const { data: rawParties } = await clientToUse
+        .from('parties')
+        .select('*')
+        .eq('user_id', targetUserId)
+        .order('party_name', { ascending: true });
+
+      const clientList: Client[] = [...rawClients];
       const seenNames = new Set<string>();
       for (const c of rawClients) {
         const key = (c.name || '').trim().toLowerCase();
-        if (key && !seenNames.has(key)) {
-          seenNames.add(key);
+        if (key) seenNames.add(key);
+      }
+
+      // Auto-sync missing parties into clientList and clients table
+      if (rawParties && rawParties.length > 0) {
+        for (const p of rawParties) {
+          const key = (p.party_name || '').trim().toLowerCase();
+          if (key && !seenNames.has(key) && p.system_type !== 'commission') {
+            seenNames.add(key);
+            const clientRecord: Client = {
+              id: p.id,
+              user_id: targetUserId,
+              name: p.party_name,
+              phone: p.phone || '',
+              email: '',
+              created_at: p.created_at || new Date().toISOString()
+            } as Client;
+            clientList.push(clientRecord);
+
+            // Silently persist to clients table in background so foreign key constraints pass
+            clientToUse.from('clients').insert([{
+              id: p.id,
+              user_id: targetUserId,
+              name: p.party_name,
+              phone: p.phone || '',
+              email: '',
+              pending_amount: Math.abs(Number(p.balance) || 0)
+            }]).then(() => {}).catch(() => {});
+          }
+        }
+      }
+
+      const uniqueClients: Client[] = [];
+      const finalSeen = new Set<string>();
+      for (const c of clientList) {
+        const key = (c.name || '').trim().toLowerCase();
+        if (key && !finalSeen.has(key)) {
+          finalSeen.add(key);
           uniqueClients.push(c);
         } else if (!key) {
           uniqueClients.push(c);
@@ -270,13 +317,8 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       setClients(uniqueClients);
     } catch (error) {
       console.error('Error fetching clients:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to load clients."
-      });
     }
-  }, [targetUserId, toast]);
+  }, [targetUserId]);
 
   const fetchVendors = useCallback(async () => {
     if (!targetUserId) return;
@@ -505,6 +547,98 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
       }
     }
   }, [billingType, ledgerParties, searchParams, selectedLedgerPartyId, handleLedgerPartySelect]);
+
+  // Universal Direct Bill generator from Ledger URL parameters (?partyId=...&partyName=...&amount=...)
+  const hasAppliedLedgerParams = useRef(false);
+  useEffect(() => {
+    if (hasAppliedLedgerParams.current || isEditing) return;
+    const partyIdParam = searchParams.get('partyId');
+    const partyNameParam = searchParams.get('partyName');
+    const amountParam = searchParams.get('amount');
+    const balanceTypeParam = searchParams.get('balanceType') || '';
+
+    if (!partyIdParam && !partyNameParam && !amountParam) return;
+    if (clients.length === 0 && !partyNameParam) return;
+
+    // Find client by partyId or partyName
+    const matchedClient = clients.find(c =>
+      (partyIdParam && c.id === partyIdParam) ||
+      (partyNameParam && c.name?.trim().toLowerCase() === partyNameParam.trim().toLowerCase())
+    );
+
+    if (matchedClient) {
+      hasAppliedLedgerParams.current = true;
+      setFormData(prev => ({
+        ...prev,
+        client_id: matchedClient.id,
+        notes: amountParam && Number(amountParam) > 0
+          ? `Settlement bill against Account Ledger balance of ₹${Math.round(Number(amountParam)).toLocaleString()}${balanceTypeParam ? ` (${balanceTypeParam})` : ''}.`
+          : prev.notes
+      }));
+
+      if (amountParam && Number(amountParam) > 0) {
+        const parsedAmt = Math.round(Number(amountParam));
+        setItems([
+          {
+            product_name: `Ledger Settlement (${matchedClient.name})`,
+            description: `Direct Bill generated from Account Ledger balance (${balanceTypeParam || 'Balance Settlement'})`,
+            quantity: 1,
+            rate: parsedAmt,
+            discount: 0,
+            tax_rate: 0,
+            amount: parsedAmt
+          }
+        ]);
+      }
+    } else if (partyNameParam && targetUserId) {
+      hasAppliedLedgerParams.current = true;
+      const clientToUse = serviceSupabase || supabase;
+      const newClientId = partyIdParam || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `client-${Date.now()}`);
+      clientToUse
+        .from('clients')
+        .insert([{
+          id: newClientId,
+          user_id: targetUserId,
+          name: partyNameParam.trim(),
+          phone: '',
+          email: ''
+        }])
+        .select()
+        .maybeSingle()
+        .then(({ data: created }: any) => {
+          const clientObj = (created as Client) || ({
+            id: newClientId,
+            user_id: targetUserId,
+            name: partyNameParam.trim(),
+            phone: '',
+            email: ''
+          } as Client);
+          setClients(prev => [...prev, clientObj]);
+          setFormData(prev => ({
+            ...prev,
+            client_id: clientObj.id,
+            notes: amountParam && Number(amountParam) > 0
+              ? `Settlement bill against Account Ledger balance of ₹${Math.round(Number(amountParam)).toLocaleString()}${balanceTypeParam ? ` (${balanceTypeParam})` : ''}.`
+              : prev.notes
+          }));
+          if (amountParam && Number(amountParam) > 0) {
+            const parsedAmt = Math.round(Number(amountParam));
+            setItems([
+              {
+                product_name: `Ledger Settlement (${partyNameParam})`,
+                description: `Direct Bill generated from Account Ledger balance (${balanceTypeParam || 'Balance Settlement'})`,
+                quantity: 1,
+                rate: parsedAmt,
+                discount: 0,
+                tax_rate: 0,
+                amount: parsedAmt
+              }
+            ]);
+          }
+        })
+        .catch((e: any) => console.warn('Could not auto-link client from ledger:', e));
+    }
+  }, [clients, searchParams, isEditing, targetUserId]);
 
   useEffect(() => {
     if (formData.client_id) {
@@ -1116,6 +1250,37 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         });
         
         // Invalidate relevant queries
+        
+        // Auto-post Purchase Bill to Account Ledger
+        try {
+          const vendorRecord = vendors.find(v => v.id === formData.vendor_id);
+          const partyName = vendorRecord?.name || 'Vendor';
+          await postInvoiceToLedger({
+            invoiceId: purchaseData.id,
+            invoiceNumber: finalInvoiceNumber,
+            partyName,
+            amount: total,
+            type: 'purchase',
+            date: formData.issue_date || new Date().toISOString(),
+            userId: targetUserId
+          });
+
+          if (finalStatus === 'paid') {
+            await postPaymentToLedger({
+              invoiceId: purchaseData.id,
+              invoiceNumber: finalInvoiceNumber,
+              partyName,
+              amount: total,
+              type: 'paid',
+              paymentMode: formData.payment_method || 'cash',
+              date: formData.issue_date || new Date().toISOString(),
+              userId: targetUserId
+            });
+          }
+        } catch (erpErr) {
+          console.warn("ERP Ledger Auto-Post warning:", erpErr);
+        }
+
         queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
         queryClient.invalidateQueries({ queryKey: ['products'] });
         queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -1380,6 +1545,37 @@ export function useInvoiceForm(initialId?: string, onSaveSuccess?: () => void) {
         });
 
         // Invalidate relevant queries
+        
+        // Auto-post Sales Invoice to Account Ledger
+        try {
+          const clientRecord = clients.find(c => c.id === formData.client_id);
+          const partyName = clientRecord?.name || 'Customer';
+          await postInvoiceToLedger({
+            invoiceId: invoiceId!,
+            invoiceNumber: invoiceNumber || formData.invoice_number || 'INV',
+            partyName,
+            amount: total,
+            type: 'sales',
+            date: formData.issue_date || new Date().toISOString(),
+            userId: targetUserId
+          });
+
+          if (invoiceStatus === 'paid') {
+            await postPaymentToLedger({
+              invoiceId: invoiceId!,
+              invoiceNumber: invoiceNumber || formData.invoice_number || 'INV',
+              partyName,
+              amount: total,
+              type: 'received',
+              paymentMode: formData.payment_method || 'Cash',
+              date: formData.issue_date || new Date().toISOString(),
+              userId: targetUserId
+            });
+          }
+        } catch (erpErr) {
+          console.warn("ERP Ledger Auto-Post warning:", erpErr);
+        }
+
         queryClient.invalidateQueries({ queryKey: ['invoices'] });
         queryClient.invalidateQueries({ queryKey: ['products'] });
         queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });

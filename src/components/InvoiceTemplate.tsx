@@ -1,6 +1,7 @@
 import React from 'react';
 import { safelyFormatDate } from '@/utils/dateUtils';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { useTaxConfig } from '@/contexts/TaxContext';
 import { format } from 'date-fns';
 import { numberToWords } from '@/utils/numberUtils';
 import { InvoiceTemplateId } from '@/types/invoice';
@@ -152,6 +153,19 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
     // Ignore error if used outside of provider
   }
   const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
+  let taxName = 'GST';
+  let taxIdLabel = 'GSTIN';
+  let isVat = false;
+  let isGst = true;
+  try {
+    const taxCtx = useTaxConfig();
+    taxName = taxCtx.taxName;
+    taxIdLabel = taxCtx.taxIdLabel;
+    isVat = taxCtx.isVat;
+    isGst = taxCtx.isGst;
+  } catch (e) {
+    // Ignore error if used outside of provider
+  }
   const effectiveStatus = getInvoiceEffectiveStatus(invoice.status, invoice.due_date);
   const isPaid = effectiveStatus === 'paid';
   const isOverdue = effectiveStatus === 'overdue';
@@ -354,7 +368,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </p>
           )}
           {company.phone && <p className="text-[11px]">Tel: {company.phone}</p>}
-          {company.gstin && <p className="text-[11px] font-bold">GSTIN: {company.gstin}</p>}
+          {company.gstin && <p className="text-[11px] font-bold">{taxIdLabel}: {company.gstin}</p>}
         </div>
 
         {/* Invoice Meta */}
@@ -391,7 +405,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           )}
           {client.gstin && (
             <div className="flex justify-between">
-              <span>Cust GSTIN:</span>
+              <span>Cust {taxIdLabel}:</span>
               <span className="font-bold">{client.gstin}</span>
             </div>
           )}
@@ -443,7 +457,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           )}
           {invoice.tax_amount > 0 && (
             <div className="flex justify-between">
-              <span>Tax (GST):</span>
+              <span>Tax ({taxName}):</span>
               <span>{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
             </div>
           )}
@@ -522,7 +536,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               {!company.hide_company_details && (company.city || company.state || company.pincode) && (
                 <p>{[company.city, company.state, company.pincode].filter(Boolean).join(', ')}</p>
               )}
-              {company.gstin && <p className="text-black font-semibold mt-1">GSTIN: {company.gstin}</p>}
+              {company.gstin && <p className="text-black font-semibold mt-1">{taxIdLabel}: {company.gstin}</p>}
             </div>
           </div>
           <div className="text-right">
@@ -546,7 +560,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               {!client.hide_contact_details && (client.city || client.state || client.postal_code) && (
                 <p>{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
               )}
-              {client.gstin && <p className="mt-1 text-black font-semibold">GSTIN: {client.gstin}</p>}
+              {client.gstin && <p className="mt-1 text-black font-semibold">{taxIdLabel}: {client.gstin}</p>}
             </div>
           </div>
 
@@ -674,7 +688,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 </span>
                 <h1 className="text-xl font-black tracking-tight">{company.company_name}</h1>
                 <p className="text-[10px] text-blue-100 font-mono mt-0.5">
-                  GSTIN: {company.gstin || '24AADCS9081J1ZP'} {company.state && `• State: ${company.state}`}
+                  {taxIdLabel}: {company.gstin || '24AADCS9081J1ZP'} {company.state && `• State: ${company.state}`}
                 </p>
               </div>
             </div>
@@ -703,7 +717,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             {!client.hide_contact_details && (client.city || client.state || client.postal_code) && (
               <p className="text-slate-600">{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
             )}
-            {client.gstin && <p className="font-mono font-bold text-slate-700 pt-0.5">GSTIN: {client.gstin}</p>}
+            {client.gstin && <p className="font-mono font-bold text-slate-700 pt-0.5">{taxIdLabel}: {client.gstin}</p>}
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 sm:text-right flex flex-col justify-between">
@@ -725,7 +739,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="py-2 px-2 text-center">HSN/SAC</th>
                 <th className="py-2 px-2 text-center">Qty</th>
                 <th className="py-2 px-3 text-right">Rate</th>
-                <th className="py-2 px-3 text-right">Tax (GST)</th>
+                <th className="py-2 px-3 text-right">{taxName}</th>
                 <th className="py-2 px-3 text-right">Amount</th>
               </tr>
             </thead>
@@ -872,7 +886,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="font-black text-xs text-slate-900">{company.company_name}</p>
             {company.business_address && <p className="text-slate-600">{company.business_address}</p>}
             <p className="text-slate-600">{[company.city, company.state, company.pincode, 'INDIA'].filter(Boolean).join(', ')}</p>
-            <p className="font-mono text-slate-700 font-bold pt-0.5">IEC No: 0519823489 • GSTIN: {company.gstin || '24AADCS9081J1ZP'}</p>
+            <p className="font-mono text-slate-700 font-bold pt-0.5">IEC No: 0519823489 • {taxIdLabel}: {company.gstin || '24AADCS9081J1ZP'}</p>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-0.5">
@@ -1020,7 +1034,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {[company.phone, company.email].filter(Boolean).join(' | ')}
                 </p>
               )}
-              {!company.hide_company_details && company.gstin && <p className="text-xs font-bold mt-1 text-slate-800">GSTIN: {company.gstin}</p>}
+              {!company.hide_company_details && company.gstin && <p className="text-xs font-bold mt-1 text-slate-800">{taxIdLabel}: {company.gstin}</p>}
             </div>
           </div>
           <div className="text-right flex flex-col items-end pt-1">
@@ -1045,7 +1059,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               )}
               {!client.hide_contact_details && client.phone && <p className="text-gray-600 text-xs">Ph: {client.phone}</p>}
               {!client.hide_contact_details && client.email && <p className="text-gray-600 text-xs">{client.email}</p>}
-              {!client.hide_contact_details && client.gstin && <p className="font-bold text-xs mt-2 text-slate-800">GSTIN: {client.gstin}</p>}
+              {!client.hide_contact_details && client.gstin && <p className="font-bold text-xs mt-2 text-slate-800">{taxIdLabel}: {client.gstin}</p>}
             </div>
           </div>
 
@@ -1076,7 +1090,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="py-2.5 px-3 text-center font-semibold tracking-wider uppercase w-20">Qty</th>
                 <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-24">Rate</th>
                 {hasDiscount && <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-20">Disc%</th>}
-                {hasGST && <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-20">GST%</th>}
+                {hasGST && <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-20">{taxName}%</th>}
                 <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-28">Amount</th>
               </tr>
             </thead>
@@ -1141,7 +1155,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   ) : null}
                   {invoice.tax_amount > 0 && (
                     <tr>
-                      <td className="py-2 px-4 font-semibold text-right">Total Tax Amount (GST)</td>
+                      <td className="py-2 px-4 font-semibold text-right">Total Tax Amount ({taxName})</td>
                       <td className="py-2 px-4 text-right font-mono">{currencySymbol}{invoice.tax_amount.toFixed(2)}</td>
                     </tr>
                   )}
@@ -1268,7 +1282,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {[company.city, company.state, company.pincode].filter(Boolean).join(', ')}
                 </p>
               )}
-              {company.gstin && <p className="mt-1"><span className="font-bold text-slate-900">GSTIN:</span> {company.gstin}</p>}
+              {company.gstin && <p className="mt-1"><span className="font-bold text-slate-900">{taxIdLabel}:</span> {company.gstin}</p>}
               <p><span className="font-bold text-slate-900">PAN:</span> {company.gstin?.substring(2, 12) || 'N/A'}</p>
             </div>
           </div>
@@ -1282,7 +1296,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 {!client.hide_contact_details && (client.city || client.state || client.postal_code) && (
                   <p>{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
                 )}
-                {client.gstin && <p className="mt-1"><span className="font-bold text-slate-900">GSTIN:</span> {client.gstin}</p>}
+                {client.gstin && <p className="mt-1"><span className="font-bold text-slate-900">{taxIdLabel}:</span> {client.gstin}</p>}
               </div>
             </div>
             <div>
@@ -1508,7 +1522,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                     </div>
                   )}
                   {!company.hide_company_details && company.website && <div>🌐 {company.website}</div>}
-                  {!company.hide_company_details && company.gstin && <div className="mt-1 font-bold">GSTIN: {company.gstin}</div>}
+                  {!company.hide_company_details && company.gstin && <div className="mt-1 font-bold">{taxIdLabel}: {company.gstin}</div>}
                 </div>
               </div>
             </div>
@@ -1544,7 +1558,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {client.country && <div>{client.country}</div>}
                 </div>
               )}
-              {!client.hide_contact_details && client.gstin && <div className="mt-1 text-xs font-bold text-gray-800">GSTIN: {client.gstin}</div>}
+              {!client.hide_contact_details && client.gstin && <div className="mt-1 text-xs font-bold text-gray-800">{taxIdLabel}: {client.gstin}</div>}
             </div>
           </div>
           <div>
@@ -1584,7 +1598,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="border border-gray-300 p-2.5 text-center font-bold w-16">Qty</th>
                 <th className="border border-gray-300 p-2.5 text-right font-bold w-24">Rate</th>
                 {hasDiscount && <th className="border border-gray-300 p-2.5 text-right font-bold w-20">Discount %</th>}
-                {hasGST && <th className="border border-gray-300 p-2.5 text-right font-bold w-20">GST %</th>}
+                {hasGST && <th className="border border-gray-300 p-2.5 text-right font-bold w-20">{taxName} %</th>}
                 <th className="border border-gray-300 p-2.5 text-right font-bold w-28">Amount</th>
               </tr>
             </thead>
@@ -1673,7 +1687,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               ) : null}
               {invoice.tax_amount > 0 && (
                 <div className="flex justify-between">
-                  <span>Total Tax (GST):</span>
+                  <span>Total Tax ({taxName}):</span>
                   <span className="font-mono">{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
                 </div>
               )}
@@ -1800,7 +1814,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <p className="text-xs text-slate-500">{[company.city, company.state, company.pincode].filter(Boolean).join(', ')}</p>
               )}
               {!company.hide_company_details && company.gstin && (
-                <p className="text-xs font-mono font-semibold text-violet-700 mt-1">GSTIN: {company.gstin}</p>
+                <p className="text-xs font-mono font-semibold text-violet-700 mt-1">{taxIdLabel}: {company.gstin}</p>
               )}
             </div>
           </div>
@@ -1831,7 +1845,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             )}
             {!client.hide_contact_details && client.phone && <p className="text-xs text-slate-500">Tel: {client.phone}</p>}
             {!client.hide_contact_details && client.email && <p className="text-xs text-slate-500">{client.email}</p>}
-            {client.gstin && <p className="text-xs font-mono font-semibold text-slate-700 mt-1">GSTIN: {client.gstin}</p>}
+            {client.gstin && <p className="text-xs font-mono font-semibold text-slate-700 mt-1">{taxIdLabel}: {client.gstin}</p>}
           </div>
 
           <div className="p-4 rounded-xl bg-violet-50/40 border border-violet-100/60 flex flex-col justify-between">
@@ -1869,7 +1883,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="py-2.5 px-3 text-right">Qty</th>
                 <th className="py-2.5 px-3 text-right">Rate</th>
                 {hasDiscount && <th className="py-2.5 px-3 text-right">Disc</th>}
-                <th className="py-2.5 px-3 text-right">GST</th>
+                <th className="py-2.5 px-3 text-right">{taxName}</th>
                 <th className="py-2.5 px-3 text-right">Amount</th>
               </tr>
             </thead>
@@ -1952,7 +1966,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               )}
               {hasGST && (
                 <div className="flex justify-between text-slate-600">
-                  <span>GST Total:</span>
+                  <span>{taxName} Total:</span>
                   <span className="font-mono font-semibold">{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
                 </div>
               )}
@@ -2009,7 +2023,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 {!company.hide_company_details && (company.phone || company.mobile) && (
                   <p className="text-xs text-slate-600">Helpline: {company.phone || company.mobile}</p>
                 )}
-                <p className="text-xs font-mono font-black text-emerald-800 mt-0.5">GSTIN: {company.gstin || '24AAACC1206D1ZH'}</p>
+                <p className="text-xs font-mono font-black text-emerald-800 mt-0.5">{taxIdLabel}: {company.gstin || '24AAACC1206D1ZH'}</p>
               </div>
             </div>
 
@@ -2036,7 +2050,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="font-mono text-slate-800">{client.phone || client.email || 'Retail Walk-in'}</p>
           </div>
           <div>
-            <span className="text-[9px] font-black uppercase text-emerald-800">Customer GSTIN:</span>
+            <span className="text-[9px] font-black uppercase text-emerald-800">Customer {taxIdLabel}:</span>
             <p className="font-mono text-slate-800">{client.gstin || 'Unregistered / B2C'}</p>
           </div>
           <div>
@@ -2057,7 +2071,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="p-2 text-right">MRP / Rate</th>
                 <th className="p-2 text-right">Disc</th>
                 <th className="p-2 text-right">Taxable</th>
-                <th className="p-2 text-right">GST</th>
+                <th className="p-2 text-right">{taxName}</th>
                 <th className="p-2 text-right">Net Amount</th>
               </tr>
             </thead>
@@ -2150,7 +2164,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               )}
               {hasGST && (
                 <div className="flex justify-between text-slate-600">
-                  <span>Total GST ({company.state?.toLowerCase() === client.state?.toLowerCase() ? 'CGST+SGST' : 'IGST'}):</span>
+                  <span>Total {taxName} {isGst ? `(${company.state?.toLowerCase() === client.state?.toLowerCase() ? 'CGST+SGST' : 'IGST'})` : ''}:</span>
                   <span className="font-mono font-semibold">{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
                 </div>
               )}
@@ -2181,10 +2195,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           TAX INVOICE
         </h3>
         <p className="text-[9px] text-slate-600 font-semibold uppercase">
-          (Issued under Section 31 of CGST Act, 2017 & Rule 46 of CGST Rules, 2017)
+          {isGst ? '(Issued under Section 31 of CGST Act, 2017 & Rule 46 of CGST Rules, 2017)' : `(Issued in compliance with ${taxName} regulations)`}
         </p>
         <div className="flex justify-between items-center text-[8.5px] font-bold text-slate-700 mt-1 px-1">
-          <span>GSTIN: {company.gstin || '24AADCS9081J1ZP'}</span>
+          <span>{taxIdLabel}: {company.gstin || '24AADCS9081J1ZP'}</span>
           <span className="border border-slate-800 px-2 py-0.5 uppercase bg-slate-100 font-black">ORIGINAL FOR RECIPIENT</span>
           <span>STATE: {company.state?.toUpperCase() || 'GUJARAT (24)'}</span>
         </div>
@@ -2198,7 +2212,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           <p className="font-black text-xs text-slate-950">{company.company_name}</p>
           {company.business_address && <p className="text-slate-700">{company.business_address}</p>}
           <p className="text-slate-700">{[company.city, company.state, company.pincode].filter(Boolean).join(', ')}</p>
-          <p className="text-slate-700 font-mono font-bold">GSTIN: {company.gstin || 'N/A'}</p>
+          <p className="text-slate-700 font-mono font-bold">{taxIdLabel}: {company.gstin || 'N/A'}</p>
           <p className="text-slate-700">{company.email} • {company.phone}</p>
         </div>
 
@@ -2241,7 +2255,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="text-slate-700">{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
           </div>
           <div className="sm:text-right space-y-0.5">
-            <p><strong className="text-slate-700">GSTIN / UIN:</strong> <span className="font-mono font-bold">{client.gstin || 'Unregistered'}</span></p>
+            <p><strong className="text-slate-700">{taxIdLabel} / Tax ID:</strong> <span className="font-mono font-bold">{client.gstin || 'Unregistered'}</span></p>
             <p><strong className="text-slate-700">State:</strong> {client.state || 'N/A'}</p>
             <p><strong className="text-slate-700">Payment Due:</strong> {invoice.due_date ? safelyFormatDate(invoice.due_date, 'dd-MMM-yyyy') : 'On Receipt'}</p>
           </div>
@@ -2292,7 +2306,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           {invoice.tax_amount > 0 && (
             <tr className="divide-x-2 divide-slate-900">
               <td colSpan={6} className="py-1 px-3 text-right text-slate-700">
-                GST Tax Amount:
+                {taxName} Tax Amount:
               </td>
               <td className="py-1 px-3 text-right font-mono font-bold">{currencySymbol}{invoice.tax_amount.toFixed(2)}</td>
             </tr>
@@ -2333,7 +2347,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               <tr className="bg-slate-200/80 font-black border-b border-slate-900 divide-x divide-slate-900">
                 <th className="py-1 px-1">HSN/SAC</th>
                 <th className="py-1 px-1 text-right">Taxable Value</th>
-                <th className="py-1 px-1">GST Rate</th>
+                <th className="py-1 px-1">{taxName} Rate</th>
                 <th className="py-1 px-1 text-right">Tax Amount</th>
                 <th className="py-1 px-1 text-right">Total Tax</th>
               </tr>

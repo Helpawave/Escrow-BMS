@@ -61,6 +61,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { adjustStock } from "@/utils/inventory";
+import { postPaymentToLedger, removeInvoiceFromLedger } from "@/utils/erpPosting";
 import { DataTablePagination } from "@/components/DataTablePagination";
 
 const getPaymentMethodLabel = (method: string | null | undefined): string => {
@@ -305,6 +306,26 @@ const PurchaseInvoicesPage = () => {
       }
 
       // Invalidate queries to refresh data
+      
+      // Auto-post purchase payment to Account Ledger
+      try {
+        const vendorName = inv.vendors?.name || '';
+        if (vendorName) {
+          await postPaymentToLedger({
+            invoiceId: inv.id,
+            invoiceNumber: inv.invoice_number,
+            partyName: vendorName,
+            amount: Number(inv.total_amount || 0),
+            type: 'paid',
+            paymentMode: actualMethod,
+            date: new Date().toISOString(),
+            userId: targetUserId
+          });
+        }
+      } catch (erpErr) {
+        console.warn("ERP Ledger Purchase Payment Auto-Post error:", erpErr);
+      }
+
       queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
       queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });

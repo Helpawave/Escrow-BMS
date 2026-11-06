@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { LogIn, Loader2, Check, Eye, EyeOff } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
 
 const highlights = [
   {
@@ -54,13 +55,15 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-background">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-background font-sans">
       {/* Mobile: short brand strip (full panel is lg+) */}
       <div
         className="lg:hidden shrink-0 px-6 py-8 text-center text-white"
         style={{ backgroundColor: "#0a0b14" }}
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50 mb-2">Escoroll</p>
+        <div className="flex justify-center mb-3">
+          <BrandLogo size="md" asLink to="/" textClassName="text-white" subtitle="Payroll Suite" />
+        </div>
         <p className="text-lg font-bold tracking-tight">Escrow payroll made simple.</p>
         <p className="mt-2 text-sm text-white/60 max-w-md mx-auto">
           Secure runs, attendance, and payslips in one workspace.
@@ -80,10 +83,10 @@ const Login = () => {
         </div>
 
         <div className="relative z-10 max-w-lg">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50 mb-4">
-            Escoroll
-          </p>
-          <h1 className="text-4xl xl:text-[2.75rem] font-bold tracking-tight leading-[1.15] mb-5">
+          <div className="mb-6">
+            <BrandLogo size="lg" asLink to="/" textClassName="text-white" subtitle="Payroll Suite" />
+          </div>
+          <h1 className="text-4xl xl:text-[2.75rem] font-black tracking-tight leading-[1.15] mb-5">
             Escrow payroll made simple.
           </h1>
           <p className="text-base text-white/65 leading-relaxed mb-10">
@@ -111,11 +114,8 @@ const Login = () => {
       {/* Right: sign in */}
       <main className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-10 lg:w-1/2 lg:px-12 xl:px-20">
         <div className="mx-auto w-full max-w-[400px]">
-          <div className="mb-10 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-lg bg-primary">
-              <img src="/public/icon.png" alt="" className="h-7 w-7 object-contain" />
-            </div>
-            <span className="text-lg font-bold tracking-tight">ESCOROLL</span>
+          <div className="mb-8">
+            <BrandLogo size="lg" asLink to="/" subtitle="Payroll & Escrow" />
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight mb-1">Sign in</h2>
@@ -187,7 +187,7 @@ const Login = () => {
               <button
                 type="button"
                 className="font-medium text-primary hover:underline"
-                onClick={() => navigate("/register")}
+                onClick={() => navigate("/auth?plan=starter")}
               >
                 Register here
               </button>

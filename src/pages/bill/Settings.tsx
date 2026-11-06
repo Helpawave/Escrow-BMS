@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import * as XLSX from 'xlsx';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
+import { useTaxConfig } from "@/contexts/TaxContext";
+import { TAX_COUNTRIES, getCountryTaxConfig } from "@/data/taxCountries";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -225,7 +228,25 @@ const loadRazorpay = () => {
 const SettingsPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { theme, setTheme } = useTheme();
+  const { user, signOut, isTrialActive, trialDaysRemaining, isStaff, companyProfile, staffRole, staffPermissions, effectiveUserId, refreshProfile } = useAuth();
+  const { setCurrencySymbol, setCurrencyCode, inrPerUnit, refreshRates } = useCurrency();
   const [activeSection, setActiveSection] = useState('business');
+  const {
+    businessCountry,
+    countryCode,
+    taxSystem,
+    taxName,
+    taxIdLabel,
+    taxIdPlaceholder,
+    standardTaxRate,
+    currencySymbol,
+    isGst,
+    isVat,
+    updateBusinessCountry
+  } = useTaxConfig();
   const [profile, setProfile] = useState<Profile>({
     company_name: '',
     business_address: '',
@@ -429,6 +450,12 @@ const SettingsPage = () => {
   const [confirmWhatsAppCheck, setConfirmWhatsAppCheck] = useState(false);
   const [whatsAppSaving, setWhatsAppSaving] = useState(false);
 
+  // Business Country & Tax Double Confirmation State
+  const [isCountryConfirmOpen, setIsCountryConfirmOpen] = useState(false);
+  const [pendingCountryCode, setPendingCountryCode] = useState<string | null>(null);
+  const [confirmCountryCheck, setConfirmCountryCheck] = useState(false);
+  const [countryUpdating, setCountryUpdating] = useState(false);
+
   const handleInitiateWhatsAppChange = (targetProvider: 'meta' | 'personal') => {
     if (targetProvider === (settings.whatsapp_provider ?? 'meta')) return;
     setPendingWhatsAppProvider(targetProvider);
@@ -450,11 +477,7 @@ const SettingsPage = () => {
   };
 
   const [bankOptions, setBankOptions] = useState<string[]>([]);
-  const { user, signOut, isTrialActive, trialDaysRemaining, isStaff, companyProfile, staffRole, staffPermissions, effectiveUserId, refreshProfile } = useAuth();
-  const { theme, setTheme } = useTheme();
-  const { setCurrencySymbol, setCurrencyCode, inrPerUnit, refreshRates } = useCurrency();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+// Auth, theme, currency, toast initialized at top of SettingsPage
 
   const [personalName, setPersonalName] = useState('');
   const [personalPhone, setPersonalPhone] = useState('');
@@ -1081,7 +1104,7 @@ const SettingsPage = () => {
         console.error('Error auto-saving logo to database:', saveError);
       }
 
-      await refreshProfile(true);
+      await refreshProfile();
 
       toast({
         title: "Success",
@@ -1115,7 +1138,7 @@ const SettingsPage = () => {
           .from('profiles')
           .update({ logo_url: null, updated_at: new Date().toISOString() })
           .eq('user_id', targetUserId);
-        await refreshProfile(true);
+        await refreshProfile();
         void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
         void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
       }
@@ -1185,7 +1208,7 @@ const SettingsPage = () => {
         console.error('Error saving signature to database:', saveError);
       }
 
-      await refreshProfile(true);
+      await refreshProfile();
 
       toast({
         title: "Success",
@@ -1217,7 +1240,7 @@ const SettingsPage = () => {
           .from('profiles')
           .update({ signature_url: null, updated_at: new Date().toISOString() })
           .eq('user_id', targetUserId);
-        await refreshProfile(true);
+        await refreshProfile();
         void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
         void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
       }
@@ -2457,6 +2480,51 @@ const SettingsPage = () => {
                           </div>
                         </div>
 
+                        {/* Business Country & Tax System Compliance */}
+                        <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/70 via-blue-50/40 to-slate-50 dark:from-indigo-950/20 dark:via-blue-950/10 dark:to-slate-900/30 border-2 border-indigo-100 dark:border-indigo-900/50 space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <span className="text-3xl">{businessCountry.flag}</span>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold text-sm text-foreground">
+                                    {businessCountry.countryName} ({businessCountry.taxSystem})
+                                  </h4>
+                                  <Badge className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2 py-0.5 rounded-full">
+                                    {businessCountry.taxName} • {businessCountry.standardTaxRate}%
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  Currency: <strong className="text-foreground">{businessCountry.currencyCode} ({businessCountry.currencySymbol})</strong> • Tax ID: <strong className="text-foreground">{businessCountry.taxIdLabel}</strong>
+                                </p>
+                              </div>
+                            </div>
+                            <Select
+                              value={businessCountry.countryCode}
+                              onValueChange={(newCode) => {
+                                if (newCode && newCode !== businessCountry.countryCode) {
+                                  setPendingCountryCode(newCode);
+                                  setConfirmCountryCheck(false);
+                                  setIsCountryConfirmOpen(true);
+                                }
+                              }}
+                              disabled={profile.settings_locked}
+                            >
+                              <SelectTrigger className="w-full sm:w-64 h-10 rounded-xl bg-background font-bold text-xs border-indigo-200">
+                                <SelectValue placeholder="Change Business Country" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-72">
+                                {TAX_COUNTRIES.map((c) => (
+                                  <SelectItem key={c.countryCode} value={c.countryCode} className="text-xs font-medium">
+                                    <span className="mr-2 text-base">{c.flag}</span>
+                                    {c.countryName} ({c.taxSystem})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
                         {/* Company Fields */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div className="space-y-1.5">
@@ -2471,13 +2539,23 @@ const SettingsPage = () => {
                             />
                           </div>
                           <div className="space-y-1.5">
-                            <Label htmlFor="gstin" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">GSTIN Number</Label>
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="gstin" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                {taxIdLabel}
+                              </Label>
+                              <span className="text-[10px] text-muted-foreground font-medium">
+                                {businessCountry.taxName} Rate: {businessCountry.standardTaxRate}%
+                              </span>
+                            </div>
                             <div className="relative flex items-center">
                               <Input
                                 id="gstin"
                                 value={profile.gstin || ''}
                                 onChange={(e) => {
-                                  const val = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 15);
+                                  const raw = e.target.value.toUpperCase();
+                                  const val = (isGst && countryCode === 'IN')
+                                    ? raw.replace(/[^0-9A-Z]/g, '').slice(0, 15)
+                                    : raw.slice(0, 24);
                                   setProfile({ ...profile, gstin: val });
                                   if (gstVerified) {
                                     setGstVerified(false);
@@ -2485,38 +2563,45 @@ const SettingsPage = () => {
                                     setGstVerificationData(null);
                                   }
                                 }}
-                                placeholder="22AAAAA0000A1Z5"
+                                placeholder={taxIdPlaceholder}
                                 disabled={profile.settings_locked}
                                 className={cn(
-                                  "bg-background uppercase h-10 font-mono tracking-wider pr-28", 
+                                  "bg-background uppercase h-10 font-mono tracking-wider", 
+                                  (isGst && countryCode === 'IN') ? "pr-28" : "pr-10",
                                   profile.settings_locked && "bg-muted",
-                                  gstVerified && "border-emerald-500/80 focus-visible:ring-emerald-500"
+                                  (gstVerified || (!isGst && profile.gstin)) && "border-emerald-500/80 focus-visible:ring-emerald-500"
                                 )}
                               />
 
-                              {/* Verify button OR Green Tick */}
+                              {/* Verify button for India GST, or Checkmark for international */}
                               <div className="absolute right-2 flex items-center gap-1.5">
-                                {gstVerifying ? (
-                                  <div className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                                    <span>Checking...</span>
+                                {(isGst && countryCode === 'IN') ? (
+                                  gstVerifying ? (
+                                    <div className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                                      <span>Checking...</span>
+                                    </div>
+                                  ) : gstVerified ? (
+                                    <div className="flex items-center pr-1 animate-in zoom-in-75 duration-200" title="GSTIN Verified">
+                                      <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                                    </div>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={handleVerifyGST}
+                                      disabled={!profile.gstin || profile.gstin.trim().length !== 15 || profile.settings_locked}
+                                      className="h-7 text-xs px-2.5 font-bold text-primary border-primary/30 hover:bg-primary/10 transition-all cursor-pointer"
+                                    >
+                                      Verify
+                                    </Button>
+                                  )
+                                ) : profile.gstin ? (
+                                  <div className="flex items-center pr-1 animate-in zoom-in-75 duration-200" title="Tax ID Active">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                                   </div>
-                                ) : gstVerified ? (
-                                  <div className="flex items-center pr-1 animate-in zoom-in-75 duration-200" title="GSTIN Verified">
-                                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                                  </div>
-                                ) : (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleVerifyGST}
-                                    disabled={!profile.gstin || profile.gstin.trim().length !== 15 || profile.settings_locked}
-                                    className="h-7 text-xs px-2.5 font-bold text-primary border-primary/30 hover:bg-primary/10 transition-all cursor-pointer"
-                                  >
-                                    Verify
-                                  </Button>
-                                )}
+                                ) : null}
                               </div>
                             </div>
 
@@ -2644,13 +2729,11 @@ const SettingsPage = () => {
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="personal_phone" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Personal Mobile Number</Label>
-                              <Input
+                              <CountryPhoneInput
                                 id="personal_phone"
-                                type="tel"
                                 value={personalPhone}
-                                onChange={(e) => setPersonalPhone(e.target.value)}
-                                placeholder="e.g. 9876543210"
-                                className="bg-background h-10 font-medium"
+                                onChange={(val) => setPersonalPhone(val)}
+                                placeholder="e.g. 98765 43210"
                               />
                             </div>
                             <div className="space-y-1.5">
@@ -4719,7 +4802,134 @@ const SettingsPage = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Account Deletion Request Dialog Modal */}
+      {/* Business Country & Tax Regime Double Confirmation Dialog */}
+      <AlertDialog
+        open={isCountryConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !countryUpdating) {
+            setIsCountryConfirmOpen(false);
+            setPendingCountryCode(null);
+            setConfirmCountryCheck(false);
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl border-border/60 max-w-lg p-6 shadow-2xl">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-1">
+              <ShieldAlert className="w-5 h-5 shrink-0" />
+              <Badge variant="outline" className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30">
+                Double Confirmation Required
+              </Badge>
+            </div>
+            <AlertDialogTitle className="text-xl font-black text-foreground tracking-tight">
+              Change Business Country & Tax Regime?
+            </AlertDialogTitle>
+            <div className="text-xs sm:text-sm text-muted-foreground space-y-3 pt-2 text-left">
+              <p>
+                Are you sure you want to change your operating business jurisdiction? This is a system-wide setting that updates your entire workspace.
+              </p>
+              {pendingCountryCode && (() => {
+                const pendingCfg = getCountryTaxConfig(pendingCountryCode);
+                return (
+                  <div className="rounded-xl border border-border/80 bg-muted/40 p-3.5 space-y-2.5 text-xs text-foreground font-medium">
+                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
+                      <span className="text-muted-foreground font-semibold">Current Setup:</span>
+                      <span className="font-bold">{businessCountry.flag} {businessCountry.countryName} ({businessCountry.taxSystem} • {businessCountry.currencyCode} {businessCountry.currencySymbol})</span>
+                    </div>
+                    <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400">
+                      <span className="font-semibold">New Selection:</span>
+                      <span className="font-black text-sm">{pendingCfg.flag} {pendingCfg.countryName} ({pendingCfg.taxSystem} • {pendingCfg.currencyCode} {pendingCfg.currencySymbol})</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground bg-background/80 p-2.5 rounded-lg border border-border/40 space-y-1">
+                      <p>• <strong>Tax System:</strong> {pendingCfg.taxName} (Standard Rate: {pendingCfg.standardTaxRate}%)</p>
+                      <p>• <strong>Currency Symbol:</strong> {pendingCfg.currencyCode} ({pendingCfg.currencySymbol})</p>
+                      <p>• <strong>Compliance ID Label:</strong> {pendingCfg.taxIdLabel}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+              <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200 dark:border-amber-800/40">
+                ⚠️ Once confirmed, tax calculations, invoice templates, payroll reports, and currency symbols across all modules will permanently stick to this country until changed again.
+              </p>
+            </div>
+          </AlertDialogHeader>
+
+          <div className="flex items-start space-x-2 py-3 px-1">
+            <Checkbox
+              id="confirm-country-bill"
+              checked={confirmCountryCheck}
+              onCheckedChange={(checked) => setConfirmCountryCheck(!!checked)}
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor="confirm-country-bill"
+              className="text-xs font-semibold text-foreground cursor-pointer select-none leading-tight"
+            >
+              I understand and confirm that I want to apply this operating country across my entire business.
+            </Label>
+          </div>
+
+          <AlertDialogFooter className="mt-2 gap-2 sm:gap-3">
+            <AlertDialogCancel
+              disabled={countryUpdating}
+              onClick={() => {
+                setIsCountryConfirmOpen(false);
+                setPendingCountryCode(null);
+                setConfirmCountryCheck(false);
+              }}
+              className="rounded-xl border-2 font-bold uppercase tracking-widest text-[10px]"
+            >
+              Cancel (रद्द करें)
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!confirmCountryCheck || countryUpdating || !pendingCountryCode}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!pendingCountryCode) return;
+                setCountryUpdating(true);
+                try {
+                  const res = await updateBusinessCountry(pendingCountryCode);
+                  if (res.success) {
+                    const cfg = getCountryTaxConfig(pendingCountryCode);
+                    setSettings((prev) => ({ ...prev, default_currency: cfg.currencyCode }));
+                    toast({
+                      title: "Business Country & Tax Regime Updated",
+                      description: `Workspace set to ${cfg.countryName} (${cfg.taxSystem} - ${cfg.taxName}). Currency: ${cfg.currencyCode} (${cfg.currencySymbol}).`,
+                    });
+                  }
+                } catch (err: any) {
+                  console.error('Failed to change business country:', err);
+                  toast({
+                    variant: "destructive",
+                    title: "Failed to Update Country",
+                    description: err?.message || "An error occurred while saving."
+                  });
+                } finally {
+                  setCountryUpdating(false);
+                  setIsCountryConfirmOpen(false);
+                  setPendingCountryCode(null);
+                  setConfirmCountryCheck(false);
+                }
+              }}
+              className={cn(
+                "rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-sm px-6 transition-all gap-1.5",
+                confirmCountryCheck && !countryUpdating
+                  ? "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                  : "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
+              )}
+            >
+              {countryUpdating ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Applying Setup...
+                </>
+              ) : (
+                "Confirm & Apply Setup (लागू करें)"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
         <DialogContent className="sm:max-w-lg p-0 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
           <div className="bg-rose-50 dark:bg-rose-950/40 p-5 md:p-6 border-b border-rose-200 dark:border-rose-900/50 flex items-start gap-4">

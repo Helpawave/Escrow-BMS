@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { syncClientsAndLedgerParties } from "@/utils/erpPosting";
 
 interface Client {
   id: string;
@@ -32,6 +33,12 @@ export function useClients({ page = 1, pageSize = 50, searchTerm = "" }: UseClie
     queryKey: ['clients', targetUserId, page, pageSize, searchTerm],
     queryFn: async () => {
       if (!user) throw new Error("User not authenticated");
+
+      if (page === 1 && !searchTerm && targetUserId) {
+        try {
+          await syncClientsAndLedgerParties(targetUserId);
+        } catch {}
+      }
 
       let query = supabase
         .from('clients')

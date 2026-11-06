@@ -20,6 +20,10 @@ import { useVendors } from "@/hooks/useVendors";
 import { useQueryClient } from "@tanstack/react-query";
 import { syncUserAcrossAllModules } from "@/utils/erpPosting";
 import { DataTablePagination } from "@/components/DataTablePagination";
+import { StateCitySelect } from "@/components/common/StateCitySelect";
+import { getStateFromGSTIN } from "@/data/indianStatesCities";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
+import { useTaxConfig } from "@/contexts/TaxContext";
 
 export interface Vendor {
   id: string;
@@ -36,6 +40,7 @@ export interface Vendor {
 
 const VendorsPage = () => {
   const queryClient = useQueryClient();
+  const { taxIdLabel, taxIdPlaceholder, taxName, isGst } = useTaxConfig();
   const [searchParams] = useSearchParams();
   const initialSearch = searchParams.get('search') || "";
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -426,13 +431,10 @@ const VendorsPage = () => {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="phone">Phone Number *</Label>
-                      <Input
+                      <CountryPhoneInput
                         id="phone"
-                        type="tel"
-                        placeholder="10-digit mobile number"
                         value={formData.phone}
-                        onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                        pattern="[0-9]{10}"
+                        onChange={(val) => setFormData({ ...formData, phone: val })}
                         required
                       />
                     </div>
@@ -457,44 +459,27 @@ const VendorsPage = () => {
                       onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="city">
-                        City <span className="text-destructive font-bold">*</span>
-                      </Label>
-                      <Input
-                        id="city"
-                        required
-                        placeholder="City"
-                        value={formData.city}
-                        onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="state">
-                        State <span className="text-destructive font-bold">*</span>
-                      </Label>
-                      <Input
-                        id="state"
-                        required
-                        placeholder="State"
-                        value={formData.state}
-                        onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="postal_code">
-                        PIN Code <span className="text-destructive font-bold">*</span>
-                      </Label>
-                      <Input
-                        id="postal_code"
-                        required
-                        maxLength={6}
-                        placeholder="6-digit PIN"
-                        value={formData.postal_code}
-                        onChange={(e) => setFormData({ ...formData, postal_code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
-                      />
-                    </div>
+                  {/* Dropdown State & Dynamic City Selector */}
+                  <StateCitySelect
+                    selectedState={formData.state}
+                    selectedCity={formData.city}
+                    onStateChange={(state) => setFormData(prev => ({ ...prev, state }))}
+                    onCityChange={(city) => setFormData(prev => ({ ...prev, city }))}
+                    required={true}
+                  />
+
+                  <div className="space-y-2">
+                    <Label htmlFor="postal_code">
+                      PIN Code <span className="text-destructive font-bold">*</span>
+                    </Label>
+                    <Input
+                      id="postal_code"
+                      required
+                      maxLength={6}
+                      placeholder="6-digit PIN"
+                      value={formData.postal_code}
+                      onChange={(e) => setFormData({ ...formData, postal_code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                    />
                   </div>
                 </div>
 
@@ -504,13 +489,21 @@ const VendorsPage = () => {
                     <h3 className="font-semibold text-sm uppercase tracking-wider">Tax & Compliance</h3>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="gstin">GSTIN Number (Optional)</Label>
+                    <Label htmlFor="gstin">{taxIdLabel} (Optional)</Label>
                     <Input
                       id="gstin"
-                      placeholder="22AAAAA0000A1Z5"
+                      placeholder={taxIdPlaceholder || "e.g. Tax Registration No"}
                       className="uppercase"
                       value={formData.gstin}
-                      onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase();
+                        const detected = isGst ? getStateFromGSTIN(val) : null;
+                        setFormData(prev => ({
+                          ...prev,
+                          gstin: val,
+                          ...(detected ? { state: detected } : {})
+                        }));
+                      }}
                     />
                   </div>
                 </div>
@@ -536,7 +529,7 @@ const VendorsPage = () => {
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by name, email, phone or GSTIN..."
+          placeholder={`Search by name, email, phone or ${taxIdLabel}...`}
           className="pl-10 h-11 bg-background border-border/50 rounded-xl"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -732,9 +725,9 @@ const VendorsPage = () => {
                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Compliance & Legal</p>
                </div>
                <div>
-                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">GSTIN Registered</p>
+                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{taxIdLabel} Registered</p>
                  <p className="text-sm font-semibold text-primary uppercase">
-                   {selectedVendor?.gstin || 'No GST Details Provided'}
+                   {selectedVendor?.gstin || `No ${taxName} Details Provided`}
                  </p>
                </div>
              </div>

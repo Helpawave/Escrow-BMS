@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -1185,11 +1186,10 @@ export default function RolesPermissions() {
 
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">Contact Number</Label>
-              <Input 
+              <CountryPhoneInput 
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(val) => setPhone(val)}
                 placeholder="Optional"
-                className="h-9 text-xs"
               />
             </div>
 

@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { SubscriptionModal } from "./SubscriptionModal";
 import { MobileNumberRequiredModal } from "./MobileNumberRequiredModal";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const Layout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -18,10 +19,8 @@ const Layout = () => {
   
   const showSubscriptionModal = isSubscribed === false && !loading;
 
-
-
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col font-sans">
       <Header />
       <ScrollToTop />
       <BroadcastModal />
@@ -51,14 +50,7 @@ const Layout = () => {
           >
             <div className="flex flex-col h-full">
               <div className="p-4 border-b flex items-center justify-between bg-muted/30">
-                <div className="flex items-center gap-2">
-                  <img 
-                    src="/assets/images/e9085822-5bea-4642-b19e-dcfcde6248f7.png" 
-                    alt="Logo" 
-                    className="w-6 h-6 object-contain"
-                  />
-                  <span className="font-bold text-lg tracking-tight">ESCROWBILL</span>
-                </div>
+                <BrandLogo size="md" asLink to="/" onClick={() => setIsMobileMenuOpen(false)} />
                 <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(false)} className="rounded-full">
                   <X className="h-5 w-5" />
                 </Button>

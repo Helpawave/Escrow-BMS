@@ -4,12 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useTaxConfig } from "@/contexts/TaxContext";
+import { useCurrency } from "@/contexts/CurrencyContext";
 import { Sun, Moon, Building2, Globe, Shield, Bell, Palette } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 const Settings = () => {
   const { theme, setTheme } = useTheme();
+  const { businessCountry } = useTaxConfig();
+  const { currencyCode, currencySymbol } = useCurrency();
 
   const [company, setCompany] = useState({
     name: "ESCOROLL Technologies Pvt. Ltd.",
@@ -103,11 +107,11 @@ const Settings = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Country</label>
-                <Input defaultValue="India" className="bg-background" />
+                <Input value={`${businessCountry.flag} ${businessCountry.countryName}`} readOnly className="bg-background font-medium" />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Currency</label>
-                <Input defaultValue="INR (₹)" className="bg-background" />
+                <Input value={`${currencyCode} (${currencySymbol})`} readOnly className="bg-background font-medium" />
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Date Format</label>

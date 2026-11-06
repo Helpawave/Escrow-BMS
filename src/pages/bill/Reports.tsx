@@ -40,6 +40,8 @@ import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useTaxConfig } from "@/contexts/TaxContext";
+import { VatReturnReport } from "@/components/reports/VatReturnReport";
 import { Invoice, Expense, Client } from "@/types/invoice";
 import { DataTablePagination } from "@/components/DataTablePagination";
 
@@ -418,13 +420,18 @@ const ReportsPage = () => {
   const [paymentStats, setPaymentStats] = useState<PaymentStats>({
     totalCollected: 0,
     totalTransactions: 0,
+    totalCount: 0,
     upiTotal: 0,
+    upiCollected: 0,
     cashTotal: 0,
+    cashCollected: 0,
     bankTransferTotal: 0,
+    bankCollected: 0,
     chequeTotal: 0,
     cardTotal: 0,
     otherTotal: 0,
-    averagePayment: 0
+    averagePayment: 0,
+    averageReceipt: 0
   });
   const [paymentMethodDistribution, setPaymentMethodDistribution] = useState<PaymentMethodData[]>([]);
   const [paymentTimeline, setPaymentTimeline] = useState<PaymentTimelineItem[]>([]);
@@ -753,29 +760,9 @@ const ReportsPage = () => {
   const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
   const { currencySymbol, formatAmount } = useCurrency();
+  const { businessCountry, isVat, isGst, taxName, taxRates } = useTaxConfig();
 
-  useEffect(() => {
-    if (isStaff) {
-      const permissionPathMap: Record<string, string> = {
-        'invoices': '/invoices',
-        'purchase-invoices': '/purchase-invoices',
-        'clients': '/clients',
-        'vendors': '/vendors',
-        'products': '/products',
-        'payments': '/payments',
-        'expenses': '/expenses',
-        'einvoice': '/einvoice',
-      };
-      let target = '/settings';
-      for (const perm of (staffPermissions || [])) {
-        if (permissionPathMap[perm]) {
-          target = permissionPathMap[perm];
-          break;
-        }
-      }
-      navigate(target, { replace: true });
-    }
-  }, [isStaff, staffPermissions, navigate]);
+// Staff members can view Reports Suite tailored to their module permissions
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1126,22 +1113,7 @@ const ReportsPage = () => {
           .eq('user_id', targetUserId),
         clientToUse
           .from('payments')
-          .select(`
-            id,
-            amount,
-            payment_date,
-            payment_method,
-            reference_number,
-            notes,
-            created_at,
-            invoice_id,
-            purchase_invoice_id,
-            invoices (
-              invoice_number,
-              status,
-              clients (name)
-            )
-          `)
+          .select('id, amount, payment_date, payment_method, reference_number, notes, created_at, invoice_id')
           .eq('user_id', targetUserId)
           .gte('payment_date', startDateOnly)
           .lte('payment_date', endDateOnly)
@@ -1174,7 +1146,7 @@ const ReportsPage = () => {
 
       if (invoicesRes.error) throw invoicesRes.error;
       if (expensesRes.error) throw expensesRes.error;
-      if (paymentsRes.error) throw paymentsRes.error;
+      if (paymentsRes.error) console.warn('Payments fetch warning:', paymentsRes.error);
 
       const invoices = (invoicesRes.data as unknown) as ReportInvoice[];
       const expenses = (expensesRes.data as unknown) as Expense[];
@@ -4725,7 +4697,7 @@ const ReportsPage = () => {
               className="rounded-xl font-bold py-2.5 px-3.5 sm:px-4 text-xs sm:text-sm data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-sm flex items-center gap-2 transition-all whitespace-nowrap"
             >
               <FileSpreadsheet className="w-4 h-4 text-teal-500" />
-              <span>GST Returns</span>
+              <span>{isVat ? `${taxName} Return` : isGst ? 'GST Returns' : 'Tax Return'}</span>
             </TabsTrigger>
             <TabsTrigger 
               value="expenses" 
@@ -5144,10 +5116,10 @@ const ReportsPage = () => {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Total Collections</p>
                   <h3 className="text-xl font-bold tracking-tight text-foreground mt-0.5">
-                    {currencySymbol}{paymentStats.totalCollected.toLocaleString('en-IN')}
+                    {currencySymbol}{(paymentStats?.totalCollected || 0).toLocaleString('en-IN')}
                   </h3>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {paymentStats.totalCount} transactions received
+                    {paymentStats?.totalCount || 0} transactions received
                   </p>
                 </div>
               </div>
@@ -5161,11 +5133,11 @@ const ReportsPage = () => {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">UPI / Digital</p>
                   <h3 className="text-xl font-bold tracking-tight text-foreground mt-0.5">
-                    {currencySymbol}{paymentStats.upiCollected.toLocaleString('en-IN')}
+                    {currencySymbol}{(paymentStats?.upiCollected || 0).toLocaleString('en-IN')}
                   </h3>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {paymentStats.totalCollected > 0 
-                      ? ((paymentStats.upiCollected / paymentStats.totalCollected) * 100).toFixed(1) 
+                      ? (((paymentStats?.upiCollected || 0) / (paymentStats?.totalCollected || 1)) * 100).toFixed(1) 
                       : 0}% of collections
                   </p>
                 </div>
@@ -5180,11 +5152,11 @@ const ReportsPage = () => {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Cash Collections</p>
                   <h3 className="text-xl font-bold tracking-tight text-foreground mt-0.5">
-                    {currencySymbol}{paymentStats.cashCollected.toLocaleString('en-IN')}
+                    {currencySymbol}{(paymentStats?.cashCollected || 0).toLocaleString('en-IN')}
                   </h3>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {paymentStats.totalCollected > 0 
-                      ? ((paymentStats.cashCollected / paymentStats.totalCollected) * 100).toFixed(1) 
+                      ? (((paymentStats?.cashCollected || 0) / (paymentStats?.totalCollected || 1)) * 100).toFixed(1) 
                       : 0}% of collections
                   </p>
                 </div>
@@ -5199,10 +5171,10 @@ const ReportsPage = () => {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Bank & Others</p>
                   <h3 className="text-xl font-bold tracking-tight text-foreground mt-0.5">
-                    {currencySymbol}{paymentStats.bankCollected.toLocaleString('en-IN')}
+                    {currencySymbol}{(paymentStats?.bankCollected || 0).toLocaleString('en-IN')}
                   </h3>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Avg ticket: {currencySymbol}{Math.round(paymentStats.averageReceipt).toLocaleString('en-IN')}
+                    Avg ticket: {currencySymbol}{Math.round(paymentStats?.averageReceipt || 0).toLocaleString('en-IN')}
                   </p>
                 </div>
               </div>
@@ -6005,6 +5977,23 @@ const ReportsPage = () => {
         </TabsContent>
 
         <TabsContent value="gst" className="space-y-6">
+          {isVat ? (
+            <VatReturnReport
+              businessCountry={businessCountry}
+              companyProfile={companyProfile}
+              profile={profile}
+              currencySymbol={currencySymbol}
+              dateRange={dateRange}
+              startDate={startDate ? new Date(startDate) : null}
+              endDate={endDate ? new Date(endDate) : null}
+              gstSummaryStats={gstSummaryStats}
+              gstr1B2BList={gstr1B2BList}
+              gstr1B2CSList={gstr1B2CSList}
+              gstr2bList={gstr2bList}
+              taxRates={taxRates}
+            />
+          ) : (
+            <>
           {/* Header Action Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border/70 rounded-2xl p-4 sm:p-5 shadow-sm">
             <div>
@@ -6751,6 +6740,8 @@ const ReportsPage = () => {
               </div>
             </Card>
           )}
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="inventory" className="space-y-6">
@@ -6913,7 +6904,7 @@ const ReportsPage = () => {
             >
               <div className="flex items-center gap-2">
                 <Filter className="w-4 h-4 text-primary" />
-                <span>GST Tax Bracket Stock Summary ({inventoryTaxBrackets.length} Brackets Active)</span>
+                <span>{taxName} Tax Bracket Stock Summary ({inventoryTaxBrackets.length} Brackets Active)</span>
               </div>
               <span className="text-[11px] text-primary hover:underline font-bold">
                 {showInventoryTaxBreakdown ? "Hide Summary ▲" : "Show Summary ▼"}
@@ -6928,7 +6919,7 @@ const ReportsPage = () => {
                   inventoryTaxBrackets.map((bracket) => (
                     <div key={bracket.rate} className="p-3.5 bg-card border border-border/60 rounded-xl space-y-1.5 shadow-sm">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-black bg-primary/10 text-primary px-2 py-0.5 rounded-full">GST {bracket.rate}%</span>
+                        <span className="text-[10px] font-black bg-primary/10 text-primary px-2 py-0.5 rounded-full">{taxName} {bracket.rate}%</span>
                         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{bracket.itemsCount} items</span>
                       </div>
                       <div className="space-y-1 pt-1 text-xs">
@@ -6937,7 +6928,7 @@ const ReportsPage = () => {
                           <span className="font-semibold text-foreground">{currencySymbol}{bracket.taxableValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
                         </div>
                         <div className="flex justify-between text-muted-foreground">
-                          <span>GST Amount:</span>
+                          <span>{taxName} Amount:</span>
                           <span className="font-semibold text-emerald-600 dark:text-emerald-400">{currencySymbol}{bracket.taxAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
                         </div>
                         <div className="flex justify-between border-t border-border/60 pt-1.5 mt-1 font-bold text-xs">
@@ -7061,7 +7052,7 @@ const ReportsPage = () => {
                       </div>
                     </th>
                     <th className="px-3 py-3 text-center">Unit</th>
-                    <th className="px-3 py-3 text-center">GST %</th>
+                    <th className="px-3 py-3 text-center">{taxName} %</th>
                     <th className="px-3 py-3 text-right">Cost Rate</th>
                     <th className="px-3 py-3 text-right">Sale Price</th>
                     <th onClick={() => handleInventorySort('stock')} className="px-4 py-3 text-center cursor-pointer hover:bg-muted/80 transition-colors">

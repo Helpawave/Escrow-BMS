@@ -1,10 +1,9 @@
-import { Shield, Eye, Lock, ArrowLeft, Users, CheckCircle, Scale } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import { Shield, Eye, Lock, Users, CheckCircle, Scale } from "lucide-react";
+import Footer from "@/components/Footer";
+import PublicNavbar from "@/components/PublicNavbar";
+import { WhatsAppChatWidget } from "@/components/WhatsAppChatWidget";
 
 const PrivacyPolicy = () => {
-  const navigate = useNavigate();
-
   const sections = [
     {
       icon: Shield,
@@ -39,43 +38,43 @@ const PrivacyPolicy = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card/50 backdrop-blur-md">
-        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
-          <Button variant="ghost" size="sm" className="gap-2" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4" /> Back to Platform
-          </Button>
-          <span className="font-extrabold tracking-tight text-lg text-foreground">ESCROW BMS</span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background flex flex-col justify-between overflow-x-hidden">
+      <div>
+        <PublicNavbar />
 
-      <main className="container mx-auto px-6 py-12 max-w-4xl">
-        <div className="flex items-center gap-5 mb-12">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-600">
-            <Shield className="h-7 w-7" />
-          </div>
-          <div>
-            <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">
-              Privacy Policy
-            </h1>
-            <p className="text-muted-foreground text-sm font-semibold mt-1">
-              Data Protection & RLS Isolation Standards
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          {sections.map((section, index) => (
-            <div key={index} className="p-6 rounded-2xl border bg-card shadow-sm space-y-3">
-              <div className="flex items-center gap-3">
-                <section.icon className="h-5 w-5 text-indigo-600" />
-                <h2 className="text-xl font-bold text-foreground">{section.title}</h2>
-              </div>
-              <p className="text-muted-foreground leading-relaxed text-sm">{section.content}</p>
+        <main className="container mx-auto px-4 sm:px-6 py-8 sm:py-14 max-w-4xl">
+          <div className="flex items-center gap-4 sm:gap-5 mb-8 sm:mb-12">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 shrink-0 shadow-sm">
+              <Shield className="h-6 w-6 sm:h-7 sm:w-7" />
             </div>
-          ))}
-        </div>
-      </main>
+            <div>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">
+                Privacy Policy
+              </h1>
+              <p className="text-muted-foreground text-xs sm:text-sm font-semibold mt-1">
+                Data Protection &amp; RLS Isolation Standards
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4 sm:space-y-6">
+            {sections.map((section, index) => (
+              <div key={index} className="p-4 sm:p-6 rounded-2xl border bg-card/90 backdrop-blur-sm shadow-sm space-y-2.5 sm:space-y-3 transition-all hover:border-slate-300 dark:hover:border-slate-700">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                    <section.icon className="h-4 w-4 text-emerald-600" />
+                  </div>
+                  <h2 className="text-base sm:text-lg font-bold text-foreground">{section.title}</h2>
+                </div>
+                <p className="text-muted-foreground leading-relaxed text-xs sm:text-sm pl-0 sm:pl-11">{section.content}</p>
+              </div>
+            ))}
+          </div>
+        </main>
+      </div>
+
+      <Footer />
+      <WhatsAppChatWidget />
     </div>
   );
 };

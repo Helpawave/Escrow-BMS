@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Save, CreditCard } from "lucide-react";
 import { Client } from '@/types/invoice';
 import { InvoiceFormData } from './InvoiceHeader';
+import { useTaxConfig } from '@/contexts/TaxContext';
 
 interface InvoiceTotalsProps {
   currencySymbol: string;
@@ -41,6 +42,8 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
   isPurchase = false,
   isDownpayment = false
 }) => {
+  const { taxName } = useTaxConfig();
+
   return (
     <div className="space-y-6">
       {/* Notes/Terms and Totals Grid */}
@@ -86,7 +89,7 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
             </div>
             {taxAmount > 0 && (
               <div className="flex justify-between items-center text-sm text-muted-foreground">
-                <span>Tax (GST)</span>
+                <span>Tax ({taxName})</span>
                 <span className="font-bold text-foreground">{currencySymbol} {taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             )}

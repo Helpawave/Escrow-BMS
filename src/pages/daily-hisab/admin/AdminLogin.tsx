@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Mail, Shield, Loader2 } from 'lucide-react';
+import BrandLogo from '@/components/BrandLogo';
 
 export const AdminLogin = () => {
   const [email, setEmail] = useState('');
@@ -43,15 +44,15 @@ export const AdminLogin = () => {
   }, [adminUser, navigate]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted flex items-center justify-center p-3 sm:p-6">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted flex items-center justify-center p-3 sm:p-6 font-sans">
       <div className="w-full max-w-md animate-fade-in">
         {/* Header */}
         <div className="text-center mb-8">
-          <Link to="/" className="inline-block">
-            <img src="/logo.png" alt="Escrow Daily Hisab" className="w-16 h-16 mx-auto mb-4 hover:opacity-80 transition-all duration-200 cursor-pointer" />
-          </Link>
-          <h1 className="text-3xl font-bold">Admin Portal</h1>
-          <p className="text-muted-foreground">Secure access to system administration</p>
+          <div className="flex justify-center mb-4">
+            <BrandLogo size="xl" asLink to="/" className="justify-center" />
+          </div>
+          <h1 className="text-3xl font-black tracking-tight text-foreground">Admin Portal</h1>
+          <p className="text-muted-foreground text-sm mt-1">Secure access to system administration</p>
         </div>
 
         <Card className="shadow-card border-orange-200 dark:border-orange-800">
@@ -138,7 +139,7 @@ export const AdminLogin = () => {
               <div className="border-t pt-4">
                 <p className="text-sm text-muted-foreground">
                   Need user access?{' '}
-                  <Link to="/login" className="font-medium text-primary hover:underline">
+                  <Link to="/auth" className="font-medium text-primary hover:underline">
                     User Login
                   </Link>
                 </p>

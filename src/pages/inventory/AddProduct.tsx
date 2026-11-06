@@ -30,6 +30,7 @@ import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { useTaxConfig } from '@/contexts/TaxContext';
 import { useProducts, Product } from '@/contexts/ProductsContext';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -43,6 +44,7 @@ export function AddProduct() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { currencySymbol } = useCurrency();
+  const { taxName, standardTaxRate, taxRates, isVat } = useTaxConfig();
   const { addProduct: addContextProduct } = useProducts();
   const queryClient = useQueryClient();
   const barcodePrintRef = useRef<HTMLDivElement>(null);
@@ -56,7 +58,7 @@ export function AddProduct() {
     category: 'general',
     price: '',
     price_with_tax: true,
-    tax_rate: '18',
+    tax_rate: String(standardTaxRate ?? 18),
     unit: 'pcs',
     opening_stock: '',
     description: '',
@@ -91,6 +93,16 @@ export function AddProduct() {
     };
     fetchVendors();
   }, [user]);
+
+  // Synchronize default tax_rate with current country's standardTaxRate
+  useEffect(() => {
+    if (standardTaxRate !== undefined) {
+      setFormData(prev => ({
+        ...prev,
+        tax_rate: String(standardTaxRate)
+      }));
+    }
+  }, [standardTaxRate]);
 
   // Auto Generate SKU Code
   const handleGenerateSKU = () => {
@@ -479,8 +491,12 @@ export function AddProduct() {
             {/* HSN / SAC Code */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">HSN / SAC Code</Label>
-                <span className="text-[11px] text-slate-400 font-medium">GST Tax Classification</span>
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  {isVat ? 'Commodity / Tariff Code (HSN)' : 'HSN / SAC Code'}
+                </Label>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {isVat ? 'Customs & Tax Classification' : `${taxName} Tax Classification`}
+                </span>
               </div>
               <Input
                 placeholder="e.g. 8471 or 8517"
@@ -652,20 +668,22 @@ export function AddProduct() {
 
             {/* Tax Rate % */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Tax Rate (% GST)</Label>
+              <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Tax Rate (% {taxName})</Label>
               <Select
                 value={formData.tax_rate}
                 onValueChange={(val) => setFormData({ ...formData, tax_rate: val })}
               >
                 <SelectTrigger className="h-10 rounded-xl">
-                  <SelectValue placeholder="Select GST Rate" />
+                  <SelectValue placeholder={`Select ${taxName} Rate`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">0% (Exempted / Zero Tax)</SelectItem>
-                  <SelectItem value="5">5% GST</SelectItem>
-                  <SelectItem value="12">12% GST</SelectItem>
-                  <SelectItem value="18">18% GST (Standard)</SelectItem>
-                  <SelectItem value="28">28% GST</SelectItem>
+                  {taxRates.map((rate) => (
+                    <SelectItem key={rate} value={String(rate)}>
+                      {rate === 0
+                        ? `0% (Exempted / Zero ${taxName})`
+                        : `${rate}% ${taxName}${rate === standardTaxRate ? ' (Standard)' : ''}`}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -674,7 +692,7 @@ export function AddProduct() {
             <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-xl md:col-span-2">
               <div>
                 <p className="text-xs font-bold text-slate-800 dark:text-white">Price Includes Tax</p>
-                <p className="text-[11px] text-slate-500 font-medium">Toggle on if selling price already includes GST tax amount</p>
+                <p className="text-[11px] text-slate-500 font-medium">Toggle on if selling price already includes {taxName} tax amount</p>
               </div>
               <Switch
                 checked={formData.price_with_tax}

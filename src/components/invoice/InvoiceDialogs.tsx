@@ -17,6 +17,9 @@ import { SuccessModal } from "@/components/SuccessModal";
 import { Client, Vendor, Product, Expense } from '@/types/invoice';
 import { HSNCode } from '@/types/hsn';
 import { InvoiceFormData } from './InvoiceHeader';
+import { StateCitySelect } from "@/components/common/StateCitySelect";
+import { getStateFromGSTIN } from "@/data/indianStatesCities";
+import { useTaxConfig } from "@/contexts/TaxContext";
 
 interface InvoiceDialogsProps {
   // Expense Dialog
@@ -203,6 +206,8 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
   navigate,
   clients
 }) => {
+  const { taxName, standardTaxRate, taxRates, taxIdLabel, taxIdPlaceholder } = useTaxConfig();
+
   return (
     <>
       {/* Billable Expenses Selection Modal */}
@@ -319,6 +324,15 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                 />
               </div>
 
+              {/* Dropdown State & Dynamic City Selector */}
+              <StateCitySelect
+                selectedState={newClientFormData.state}
+                selectedCity={newClientFormData.city}
+                onStateChange={(state) => setNewClientFormData(prev => ({ ...prev, state }))}
+                onCityChange={(city) => setNewClientFormData(prev => ({ ...prev, city }))}
+                required={false}
+              />
+
               <Collapsible className="space-y-4">
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" className="w-full flex items-center justify-between p-4 h-auto rounded-xl bg-muted/20 hover:bg-muted/30 transition-all group">
@@ -345,12 +359,16 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="client-gstin" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">GSTIN (Optional)</Label>
+                      <Label htmlFor="client-gstin" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">{taxIdLabel} (Optional)</Label>
                       <Input
                         id="client-gstin"
                         value={newClientFormData.gstin}
-                        onChange={(e) => setNewClientFormData({ ...newClientFormData, gstin: e.target.value.toUpperCase() })}
-                        placeholder="15-digit GSTIN"
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase();
+                          const detected = getStateFromGSTIN(val);
+                          setNewClientFormData(prev => ({ ...prev, gstin: val, ...(detected ? { state: detected } : {}) }));
+                        }}
+                        placeholder={taxIdPlaceholder || "Tax ID / Registration No"}
                         className="h-12 rounded-xl border-2 focus-visible:ring-primary/20 font-bold tracking-widest"
                       />
                     </div>
@@ -457,15 +475,28 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                       placeholder="Full business address"
                       className="min-h-[100px] rounded-xl border-2 focus-visible:ring-primary/20 font-medium bg-muted/30"
                     />
+
+                    {/* Dropdown State & Dynamic City Selector */}
+                    <StateCitySelect
+                      selectedState={newVendorFormData.state}
+                      selectedCity={newVendorFormData.city}
+                      onStateChange={(state) => setNewVendorFormData(prev => ({ ...prev, state }))}
+                      onCityChange={(city) => setNewVendorFormData(prev => ({ ...prev, city }))}
+                      required={false}
+                    />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="vendor-gstin" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">GSTIN (Optional)</Label>
+                    <Label htmlFor="vendor-gstin" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">{taxIdLabel} (Optional)</Label>
                     <Input
                       id="vendor-gstin"
                       value={newVendorFormData.gstin}
-                      onChange={(e) => setNewVendorFormData({ ...newVendorFormData, gstin: e.target.value.toUpperCase() })}
-                      placeholder="15-digit GSTIN"
+                      onChange={(e) => {
+                          const val = e.target.value.toUpperCase();
+                          const detected = getStateFromGSTIN(val);
+                          setNewVendorFormData(prev => ({ ...prev, gstin: val, ...(detected ? { state: detected } : {}) }));
+                        }}
+                      placeholder={taxIdPlaceholder || "Tax ID / Registration No"}
                       className="h-12 rounded-xl border-2 focus-visible:ring-primary/20 font-bold tracking-widest"
                     />
                   </div>
@@ -929,20 +960,20 @@ export const InvoiceDialogs: React.FC<InvoiceDialogsProps> = ({
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-sm font-bold">Tax Rate (%)</Label>
+                      <Label className="text-sm font-bold">{taxName} Rate (%)</Label>
                       <Select
                         value={newProductFormData.tax_rate}
                         onValueChange={(val) => setNewProductFormData({ ...newProductFormData, tax_rate: val })}
                       >
                         <SelectTrigger className="h-10">
-                          <SelectValue />
+                          <SelectValue placeholder={`Select ${taxName} Rate`} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="0">0%</SelectItem>
-                          <SelectItem value="5">5%</SelectItem>
-                          <SelectItem value="12">12%</SelectItem>
-                          <SelectItem value="18">18%</SelectItem>
-                          <SelectItem value="28">28%</SelectItem>
+                          {taxRates.map((rate) => (
+                            <SelectItem key={rate} value={String(rate)}>
+                              {rate === 0 ? `0% (Zero ${taxName})` : `${rate}% ${taxName}${rate === standardTaxRate ? ' (Standard)' : ''}`}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

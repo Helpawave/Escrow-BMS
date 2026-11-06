@@ -1,8 +1,45 @@
-import { Database } from "@/integrations/supabase/types";
+export interface Client {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  postal_code?: string;
+  country?: string;
+  gstin?: string;
+  pending_amount?: number;
+  [key: string]: any;
+}
 
-export type Client = Database['public']['Tables']['clients']['Row'];
-export type Product = Database['public']['Tables']['products']['Row'];
-export type Vendor = Database['public']['Tables']['vendors']['Row'];
+export interface Product {
+  id: string;
+  name: string;
+  description?: string;
+  price?: number;
+  discount?: number;
+  tax_rate?: number;
+  unit?: string;
+  category?: string;
+  type?: string;
+  opening_stock?: string | number;
+  purchase_price?: number;
+  sku?: string;
+  hsn_code?: string;
+  [key: string]: any;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  [key: string]: any;
+}
 
 export type InvoiceTemplateId = 
   | 'modern' | 'classic' | 'thermal' | 'export' | 'minimal' | 'corporate' | 'professional' | 'elegant' | 'creative' | 'retail'

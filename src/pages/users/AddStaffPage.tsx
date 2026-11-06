@@ -28,10 +28,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ESCROW_BMS_MODULES, ROLE_PRESETS, type StaffMember } from '@/pages/users/MembersPage';
+import { createStaffAccount, formatStaffWhatsAppInvite } from '@/utils/staffAuth';
 
 const getStaffBackupKey = (ownerId: string) => `escrow_company_staff_backup_${ownerId}`;
 
@@ -105,33 +107,16 @@ export default function AddStaffPage() {
   const shareCredentialsWhatsApp = () => {
     if (!createdCredentials) return;
     const company = profile?.company_name || 'Escrow BMS';
-    const isGoogle = addMode === 'link' || createdCredentials.password === '(Google Sign-In / Existing)';
-    const modulesText = createdCredentials.modules.map(m => `• ${m.toUpperCase()}`).join('\n');
-
-    let message = '';
-    if (isGoogle) {
-      message = `*${company} - Staff Login Access*\n\n` +
-        `Your staff account is ready on Escrow BMS!\n\n` +
-        `🏢 *Company ID:* \`${createdCredentials.companyId}\`\n` +
-        `🆔 *Staff ID:* \`${createdCredentials.staffId}\`\n` +
-        `👤 *Name:* ${createdCredentials.name}\n` +
-        `📧 *Email:* ${createdCredentials.email}\n` +
-        `💼 *Role:* ${createdCredentials.role}\n\n` +
-        `🔐 *Module Access:*\n${modulesText}\n\n` +
-        `👉 *Login Instructions:* Open Escrow BMS and sign in using Google Sign-In with this email address. Your permissions and company data are pre-configured!`;
-    } else {
-      message = `*${company} - Staff Login Access*\n\n` +
-        `Your staff account has been configured on Escrow BMS:\n\n` +
-        `🏢 *Company ID:* \`${createdCredentials.companyId}\`\n` +
-        `🆔 *Staff ID:* \`${createdCredentials.staffId}\`\n` +
-        `👤 *Name:* ${createdCredentials.name}\n` +
-        `📧 *Email:* ${createdCredentials.email}\n` +
-        `🔑 *Password:* \`${createdCredentials.password || '[As Configured]'}\`\n` +
-        `💼 *Role:* ${createdCredentials.role}\n\n` +
-        `🔐 *Module Access:*\n${modulesText}\n\n` +
-        `👉 *Login Instructions:* Sign in using your email and password.`;
-    }
-
+    const message = formatStaffWhatsAppInvite({
+      companyName: company,
+      staffName: createdCredentials.name,
+      companyId: createdCredentials.companyId,
+      staffCode: createdCredentials.staffId,
+      email: createdCredentials.email,
+      password: createdCredentials.password,
+      role: createdCredentials.role,
+      modules: createdCredentials.modules
+    });
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
   };
@@ -149,12 +134,25 @@ export default function AddStaffPage() {
     }
 
     if (addMode === 'create' && (!password || password.length < 6)) {
-      toast.error("Please enter a password with at least 6 characters (or generate one).");
+      toast.error("Please enter a password with at least 6 characters (or click generate).");
       return;
     }
 
     setIsSubmitting(true);
     try {
+      // 1. Create real Supabase Auth user credentials + initialize profile
+      const authResult = await createStaffAccount({
+        email: email.trim().toLowerCase(),
+        password: addMode === 'create' ? password : undefined,
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        role: selectedRole,
+        modules: selectedModules,
+        ownerId: ownerId,
+        companyId: displayCompanyId,
+        companyName: profile?.company_name || 'Escrow BMS'
+      });
+
       // Load current staff list to generate next staff code
       let currentStaff: StaffMember[] = [];
       try {
@@ -163,10 +161,10 @@ export default function AddStaffPage() {
       } catch {}
 
       const generatedCode = generateStaffCode(currentStaff.length + 1);
-      const newStaffId = crypto.randomUUID();
+      const staffRecordId = authResult.userId || crypto.randomUUID();
 
       const newMember: StaffMember = {
-        id: newStaffId,
+        id: staffRecordId,
         staff_id: generatedCode,
         company_owner_id: ownerId,
         company_id: displayCompanyId,
@@ -180,24 +178,8 @@ export default function AddStaffPage() {
         created_at: new Date().toISOString()
       };
 
-      // 1. Try to save to Supabase employees table
-      try {
-        await supabase.from('employees').insert([{
-          id: newStaffId,
-          user_id: ownerId,
-          name: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          phone: phone.trim() || null,
-          role: selectedRole,
-          permissions: selectedModules,
-          status: 'active'
-        }]);
-      } catch (dbErr) {
-        console.warn('Could not insert to employees in DB (using local storage):', dbErr);
-      }
-
       // 2. Update local state & backup
-      const updatedList = [newMember, ...currentStaff.filter(s => s.id !== newStaffId)];
+      const updatedList = [newMember, ...currentStaff.filter(s => s.id !== staffRecordId && s.email.toLowerCase() !== newMember.email)];
       localStorage.setItem(getStaffBackupKey(ownerId), JSON.stringify(updatedList));
 
       // 3. Show credentials modal
@@ -212,7 +194,11 @@ export default function AddStaffPage() {
       });
 
       setShowCredentialsModal(true);
-      toast.success(`Staff member "${newMember.name}" created successfully!`);
+      if (authResult.isExistingUser) {
+        toast.success(`Staff member "${newMember.name}" linked! (Email already registered in system)`);
+      } else {
+        toast.success(`Staff account for "${newMember.name}" created with login access!`);
+      }
     } catch (err: any) {
       console.error('Error adding staff member:', err);
       toast.error(err?.message || 'Failed to create staff member.');
@@ -324,12 +310,10 @@ export default function AddStaffPage() {
                   <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                     Mobile Number (Optional)
                   </Label>
-                  <Input
-                    type="tel"
+                  <CountryPhoneInput
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="e.g. 9876543210"
-                    className="h-12 rounded-xl font-medium text-sm"
+                    onChange={(val) => setPhone(val)}
+                    placeholder="e.g. 98765 43210"
                   />
                 </div>
               </div>

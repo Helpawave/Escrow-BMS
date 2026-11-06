@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { syncUserAcrossAllModules, updateUserAcrossAllModules } from '@/utils/erpPosting';
 import { toast } from 'sonner';
+import { StateCitySelect } from "@/components/common/StateCitySelect";
+import { getStateFromGSTIN } from "@/data/indianStatesCities";
 import {
   Users,
   Search,
@@ -771,7 +773,11 @@ export default function UsersPage() {
                       type="text"
                       placeholder="07AAAAA0000A1Z5"
                       value={form.gstin}
-                      onChange={(e) => setForm({ ...form, gstin: e.target.value.toUpperCase() })}
+                      onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      const detected = getStateFromGSTIN(val);
+                      setForm(prev => ({ ...prev, gstin: val, ...(detected ? { state: detected } : {}) }));
+                    }}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium uppercase text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -792,32 +798,15 @@ export default function UsersPage() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      City
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="New Delhi"
-                      value={form.city}
-                      onChange={(e) => setForm({ ...form, city: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  <div className="col-span-1 sm:col-span-3">
+                    <StateCitySelect
+                      selectedState={form.state}
+                      selectedCity={form.city}
+                      onStateChange={(state) => setForm(prev => ({ ...prev, state }))}
+                      onCityChange={(city) => setForm(prev => ({ ...prev, city }))}
+                      required={false}
                     />
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      State
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Delhi"
-                      value={form.state}
-                      onChange={(e) => setForm({ ...form, state: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       PIN Code
@@ -942,7 +931,11 @@ export default function UsersPage() {
                     <input
                       type="text"
                       value={editForm.gstin}
-                      onChange={(e) => setEditForm({ ...editForm, gstin: e.target.value.toUpperCase() })}
+                      onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      const detected = getStateFromGSTIN(val);
+                      setEditForm(prev => ({ ...prev, gstin: val, ...(detected ? { state: detected } : {}) }));
+                    }}
                       className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium uppercase text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -963,34 +956,15 @@ export default function UsersPage() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      City <span className="text-red-500 font-bold">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="City"
-                      value={editForm.city}
-                      onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  <div className="col-span-1 sm:col-span-3">
+                    <StateCitySelect
+                      selectedState={editForm.state}
+                      selectedCity={editForm.city}
+                      onStateChange={(state) => setEditForm(prev => ({ ...prev, state }))}
+                      onCityChange={(city) => setEditForm(prev => ({ ...prev, city }))}
+                      required={true}
                     />
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                      State <span className="text-red-500 font-bold">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="State"
-                      value={editForm.state}
-                      onChange={(e) => setEditForm({ ...editForm, state: e.target.value })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       PIN Code <span className="text-red-500 font-bold">*</span>

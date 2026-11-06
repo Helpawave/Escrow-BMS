@@ -8,21 +8,24 @@ const supabase = baseSupabase as any;
  */
 
 export interface ERPInvoicePostingPayload {
-  invoiceId: string;
+  invoiceId?: string;
   invoiceNumber: string;
   partyName: string;
   amount: number;
   type: 'sales' | 'purchase';
   date?: string;
+  userId?: string;
 }
 
 export interface ERPPaymentPostingPayload {
+  invoiceId?: string;
   invoiceNumber: string;
   partyName: string;
   amount: number;
   type: 'received' | 'paid';
   paymentMode?: string;
   date?: string;
+  userId?: string;
 }
 
 export interface ERPPayrollPostingPayload {
@@ -44,75 +47,114 @@ export interface ERPHisabPostingPayload {
  */
 export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    let targetUserId = payload.userId;
+    if (!targetUserId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      targetUserId = user?.id;
+    }
+    if (!targetUserId || !payload.partyName || !payload.amount) return;
+
+    const trimmedName = payload.partyName.trim();
+    if (!trimmedName) return;
 
     // Find or create matching Party in Ledger
     let partyId: string | null = null;
     const { data: existingParties } = await supabase
       .from('parties')
       .select('id, party_name')
-      .eq('user_id', user.id)
-      .ilike('party_name', payload.partyName)
+      .eq('user_id', targetUserId)
+      .ilike('party_name', trimmedName)
       .limit(1);
 
     if (existingParties && existingParties.length > 0) {
       partyId = existingParties[0].id;
     } else {
       // Auto-create Party in Ledger Master
+      const newId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${Date.now()}`;
       const { data: newParty, error: partyErr } = await supabase
         .from('parties')
         .insert([{
-          user_id: user.id,
-          party_name: payload.partyName,
+          id: newId,
+          user_id: targetUserId,
+          party_name: trimmedName,
           sr_no: String(Math.floor(1000 + Math.random() * 9000)),
           status: payload.type === 'sales' ? 'take' : 'give',
           commission_type: 'without',
-          commission_rate: 0
+          commission_rate: 0,
+          balance: 0
         }])
         .select('id')
         .single();
 
       if (!partyErr && newParty) {
         partyId = newParty.id;
+      } else {
+        partyId = newId;
       }
     }
 
     if (!partyId) return;
 
-    // Fetch latest balance for Party from parties table
-    const { data: partyData } = await supabase
-      .from('parties')
-      .select('balance')
-      .eq('id', partyId)
-      .maybeSingle();
-
-    const prevBal = partyData ? Number(partyData.balance) || 0 : 0;
     const isSales = payload.type === 'sales';
     const debit = isSales ? payload.amount : 0;
     const credit = isSales ? 0 : payload.amount;
-    const newBalance = isSales ? prevBal - debit : prevBal + credit;
+    const invoiceRemark = `[ERP Auto] ${isSales ? 'Sales Invoice' : 'Purchase Bill'} #${payload.invoiceNumber}`;
 
-    const tnsId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    // Duplicate prevention: check if this invoice transaction already exists
+    const { data: existingTxns } = await supabase
+      .from('transactions')
+      .select('id, amount')
+      .eq('party_id', partyId)
+      .ilike('remarks', `%#${payload.invoiceNumber}%`)
+      .limit(1);
 
-    await supabase.from('transactions').insert([{
-      id: tnsId,
-      user_id: user.id,
-      party_id: partyId,
-      linked_transaction_id: tnsId,
-      remarks: `[ERP Auto] ${isSales ? 'Sales Invoice' : 'Purchase Bill'} #${payload.invoiceNumber}`,
-      tns_type: isSales ? 'DR' : 'CR',
-      debit,
-      credit,
-      amount: payload.amount,
-      date: payload.date || new Date().toISOString(),
-      transaction_date: payload.date || new Date().toISOString(),
-      created_at: payload.date || new Date().toISOString()
-    }]);
+    if (existingTxns && existingTxns.length > 0) {
+      // Already posted. If amount is the same, no need to re-post
+      if (Math.round(Number(existingTxns[0].amount)) === Math.round(payload.amount)) {
+        return;
+      }
+      // If amount changed (invoice updated), update the transaction
+      await supabase
+        .from('transactions')
+        .update({
+          amount: payload.amount,
+          debit,
+          credit,
+          date: payload.date || new Date().toISOString(),
+          transaction_date: payload.date || new Date().toISOString()
+        })
+        .eq('id', existingTxns[0].id);
+    } else {
+      // Insert new ledger transaction
+      const tnsId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+      await supabase.from('transactions').insert([{
+        id: tnsId,
+        user_id: targetUserId,
+        party_id: partyId,
+        linked_transaction_id: tnsId,
+        remarks: invoiceRemark,
+        tns_type: isSales ? 'DR' : 'CR',
+        debit,
+        credit,
+        amount: payload.amount,
+        date: payload.date || new Date().toISOString(),
+        transaction_date: payload.date || new Date().toISOString(),
+        created_at: payload.date || new Date().toISOString()
+      }]);
+    }
 
-    // Update party balance in parties table
-    await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);
+    // Accurate recalculation of party balance from all transactions
+    const { data: allPartyTxns } = await supabase
+      .from('transactions')
+      .select('credit, debit')
+      .eq('party_id', partyId);
 
+    const calculatedBalance = (allPartyTxns || []).reduce(
+      (sum, t) => sum + (Number(t.credit) || 0) - (Number(t.debit) || 0),
+      0
+    );
+
+    await supabase.from('parties').update({ balance: calculatedBalance }).eq('id', partyId);
   } catch (err) {
     console.error("ERP Auto-Posting to Ledger Error:", err);
   }
@@ -124,51 +166,223 @@ export async function postInvoiceToLedger(payload: ERPInvoicePostingPayload) {
  */
 export async function postPaymentToLedger(payload: ERPPaymentPostingPayload) {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    let targetUserId = payload.userId;
+    if (!targetUserId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      targetUserId = user?.id;
+    }
+    if (!targetUserId || !payload.partyName || !payload.amount) return;
 
+    const trimmedName = payload.partyName.trim();
+    if (!trimmedName) return;
+
+    // Find party in Ledger
+    let partyId = null;
     const { data: existingParties } = await supabase
       .from('parties')
       .select('id')
-      .eq('user_id', user.id)
-      .ilike('party_name', payload.partyName)
+      .eq('user_id', targetUserId)
+      .ilike('party_name', trimmedName)
       .limit(1);
 
-    if (!existingParties || existingParties.length === 0) return;
-    const partyId = existingParties[0].id;
+    if (existingParties && existingParties.length > 0) {
+      partyId = existingParties[0].id;
+    } else {
+      const newId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${Date.now()}`;
+      await supabase.from('parties').insert([{
+        id: newId,
+        user_id: targetUserId,
+        party_name: trimmedName,
+        sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+        status: payload.type === 'received' ? 'take' : 'give',
+        commission_type: 'without',
+        commission_rate: 0,
+        balance: 0
+      }]);
+      partyId = newId;
+    }
 
-    const { data: partyData } = await supabase
-      .from('parties')
-      .select('balance')
-      .eq('id', partyId)
-      .maybeSingle();
+    if (!partyId) return;
 
-    const prevBal = partyData ? Number(partyData.balance) || 0 : 0;
     const isReceived = payload.type === 'received';
     const credit = isReceived ? payload.amount : 0;
     const debit = isReceived ? 0 : payload.amount;
-    const newBalance = isReceived ? prevBal + credit : prevBal - debit;
+    const paymentRemark = `[ERP Auto] Payment ${isReceived ? 'Received' : 'Made'} (${payload.paymentMode || 'Cash'}) for Inv #${payload.invoiceNumber}`;
 
-    const tnsId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    // Duplicate check for payments on same invoice
+    const { data: existingPayTxns } = await supabase
+      .from('transactions')
+      .select('id, amount')
+      .eq('party_id', partyId)
+      .ilike('remarks', `%Payment%#${payload.invoiceNumber}%`)
+      .limit(1);
 
-    await supabase.from('transactions').insert([{
-      id: tnsId,
-      user_id: user.id,
-      party_id: partyId,
-      linked_transaction_id: tnsId,
-      remarks: `[ERP Auto] Payment ${isReceived ? 'Received' : 'Made'} (${payload.paymentMode || 'Cash'}) for Inv #${payload.invoiceNumber}`,
-      tns_type: isReceived ? 'CR' : 'DR',
-      credit,
-      debit,
-      amount: payload.amount,
-      date: payload.date || new Date().toISOString(),
-      transaction_date: payload.date || new Date().toISOString(),
-      created_at: payload.date || new Date().toISOString()
-    }]);
+    if (existingPayTxns && existingPayTxns.length > 0) {
+      if (Math.round(Number(existingPayTxns[0].amount)) === Math.round(payload.amount)) {
+        return;
+      }
+      await supabase
+        .from('transactions')
+        .update({
+          amount: payload.amount,
+          credit,
+          debit,
+          remarks: paymentRemark,
+          date: payload.date || new Date().toISOString(),
+          transaction_date: payload.date || new Date().toISOString()
+        })
+        .eq('id', existingPayTxns[0].id);
+    } else {
+      const tnsId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+      await supabase.from('transactions').insert([{
+        id: tnsId,
+        user_id: targetUserId,
+        party_id: partyId,
+        linked_transaction_id: tnsId,
+        remarks: paymentRemark,
+        tns_type: isReceived ? 'CR' : 'DR',
+        credit,
+        debit,
+        amount: payload.amount,
+        date: payload.date || new Date().toISOString(),
+        transaction_date: payload.date || new Date().toISOString(),
+        created_at: payload.date || new Date().toISOString()
+      }]);
+    }
 
-    await supabase.from('parties').update({ balance: newBalance }).eq('id', partyId);
+    // Accurate recalculation of party balance from all transactions
+    const { data: allPartyTxns } = await supabase
+      .from('transactions')
+      .select('credit, debit')
+      .eq('party_id', partyId);
+
+    const calculatedBalance = (allPartyTxns || []).reduce(
+      (sum, t) => sum + (Number(t.credit) || 0) - (Number(t.debit) || 0),
+      0
+    );
+
+    await supabase.from('parties').update({ balance: calculatedBalance }).eq('id', partyId);
   } catch (err) {
     console.error("ERP Payment Posting Error:", err);
+  }
+}
+
+/**
+ * 2B. BILLING -> ACCOUNT LEDGER (DELETE/REVERSE)
+ * Removes auto-posted invoice transactions from the Party's Ledger when an Invoice is deleted.
+ */
+export async function removeInvoiceFromLedger(invoiceNumber: string, partyName?: string, userId?: string) {
+  try {
+    let targetUserId = userId;
+    if (!targetUserId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      targetUserId = user?.id;
+    }
+    if (!targetUserId || !invoiceNumber) return;
+
+    const pattern = `%#${invoiceNumber}%`;
+    const { data: txnsToDelete } = await supabase
+      .from('transactions')
+      .select('id, party_id')
+      .eq('user_id', targetUserId)
+      .ilike('remarks', pattern);
+
+    if (txnsToDelete && txnsToDelete.length > 0) {
+      const partyIds = Array.from(new Set(txnsToDelete.map((t) => t.party_id)));
+      const txnIds = txnsToDelete.map((t) => t.id);
+
+      await supabase.from('transactions').delete().in('id', txnIds);
+
+      for (const pId of partyIds) {
+        const { data: remainingTxns } = await supabase
+          .from('transactions')
+          .select('credit, debit')
+          .eq('party_id', pId);
+
+        const newBal = (remainingTxns || []).reduce(
+          (sum, t) => sum + (Number(t.credit) || 0) - (Number(t.debit) || 0),
+          0
+        );
+
+        await supabase.from('parties').update({ balance: newBal }).eq('id', pId);
+      }
+    }
+  } catch (err) {
+    console.error("removeInvoiceFromLedger error:", err);
+  }
+}
+
+/**
+ * Common Master Party & Client Synchronization
+ * Guarantees that any party created in Ledger appears in Invoices/Clients,
+ * and any client created in Invoices appears in Ledger.
+ */
+export async function syncClientsAndLedgerParties(userId: string) {
+  if (!userId) return;
+  try {
+    const { data: clients } = await supabase
+      .from('clients')
+      .select('id, name, phone')
+      .eq('user_id', userId);
+
+    const { data: parties } = await supabase
+      .from('parties')
+      .select('id, party_name, phone, status, balance, system_type')
+      .eq('user_id', userId);
+
+    const clientNameMap = new Map();
+    (clients || []).forEach((c) => {
+      const k = (c.name || '').trim().toLowerCase();
+      if (k) clientNameMap.set(k, c);
+    });
+
+    const partyNameMap = new Map();
+    (parties || []).forEach((p) => {
+      const k = (p.party_name || '').trim().toLowerCase();
+      if (k) partyNameMap.set(k, p);
+    });
+
+    // 1. Sync from parties -> clients
+    const missingInClients = (parties || []).filter((p) => {
+      const k = (p.party_name || '').trim().toLowerCase();
+      return k && !clientNameMap.has(k) && p.system_type !== 'commission';
+    });
+
+    if (missingInClients.length > 0) {
+      const toInsertClients = missingInClients.map((p) => ({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `client-${Date.now()}-${Math.random()}`,
+        user_id: userId,
+        name: p.party_name.trim(),
+        phone: p.phone || '',
+        email: '',
+        address: '',
+        pending_amount: Math.abs(Number(p.balance) || 0)
+      }));
+      await supabase.from('clients').insert(toInsertClients);
+    }
+
+    // 2. Sync from clients -> parties
+    const missingInParties = (clients || []).filter((c) => {
+      const k = (c.name || '').trim().toLowerCase();
+      return k && !partyNameMap.has(k);
+    });
+
+    if (missingInParties.length > 0) {
+      const toInsertParties = missingInParties.map((c) => ({
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `party-${Date.now()}-${Math.random()}`,
+        user_id: userId,
+        sr_no: String(Math.floor(1000 + Math.random() * 9000)),
+        party_name: c.name.trim(),
+        phone: c.phone || '',
+        status: 'take',
+        balance: 0,
+        commission_type: 'without',
+        commission_rate: 0
+      }));
+      await supabase.from('parties').insert(toInsertParties);
+    }
+  } catch (err) {
+    console.warn("syncClientsAndLedgerParties warning:", err);
   }
 }
 

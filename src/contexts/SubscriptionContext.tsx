@@ -38,24 +38,29 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   }), []);
 
   const activeModules = useMemo<ModuleKey[]>(() => {
+    // 1. Staff Members: STRICTLY lock down access to ONLY explicitly assigned permissions
+    if (isStaff) {
+      if (Array.isArray(staffPermissions) && staffPermissions.length > 0) {
+        const normalizedStaffPerms = staffPermissions.map((m: string) => m === 'daily-hisab' ? 'hisab' : (m as ModuleKey));
+        return ALL_MODULES.filter(m => normalizedStaffPerms.includes(m));
+      }
+      // If staff has no permissions, return empty array (do NOT fallback to all modules!)
+      return [];
+    }
+
+    // 2. Superadmin
     if (isSuperAdmin || profile?.role === 'super_admin') {
       return ALL_MODULES;
     }
     
-    // Determine base active modules for the company's plan
+    // 3. Workspace Owners: Determine base active modules for the company's plan
     let baseModules = ALL_MODULES;
     if (!isTrialActive) {
       const plan = (profile?.plan_type || 'free').toLowerCase();
       baseModules = planModules[plan] || planModules['free'];
     }
 
-    // If user is a staff member, restrict directly to their assigned modular permissions
-    if (isStaff && Array.isArray(staffPermissions) && staffPermissions.length > 0) {
-      const normalizedStaffPerms = staffPermissions.map((m: string) => m === 'daily-hisab' ? 'hisab' : (m as ModuleKey));
-      return baseModules.filter(m => normalizedStaffPerms.includes(m));
-    }
-
-    // Filter by allowed_modules set by Superadmin in profiles
+    // Filter by allowed_modules set in profiles (for company level restrictions)
     if (profile) {
       const allowedRaw = (profile as any).allowed_modules;
       let allowed: string[] = [];

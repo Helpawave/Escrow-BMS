@@ -7,10 +7,13 @@ import { hasRoleModuleAccess, getDefaultRouteForRole, ROLE_LABELS } from '@/lib/
 import { useLanguage } from '@/contexts/LanguageContext';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { ShieldAlert, Sparkles, Building2, User, Phone, DollarSign, Loader2, CreditCard, Wallet, ChevronDown } from 'lucide-react';
 import { SubscriptionModal } from '@/components/SubscriptionModal';
+import { CompulsoryBusinessCountryModal } from '@/components/common/CompulsoryBusinessCountryModal';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   DropdownMenu,
@@ -30,14 +33,20 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { currencyCode } = useCurrency();
   const { user, profile, refreshProfile, isSubscribed, loading: authLoading } = useAuth();
 
   // Modal form states
   const [fullName, setFullName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [phone, setPhone] = useState('');
-  const [currency, setCurrency] = useState('INR');
+  const [currency, setCurrency] = useState(() => localStorage.getItem('currency') || 'INR');
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (currencyCode) {
+      setCurrency(currencyCode);
+    }
+  }, [currencyCode]);
 
   // Set initial form values when profile loads
   useEffect(() => {
@@ -337,17 +346,11 @@ export function AppLayout({ children }: AppLayoutProps) {
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Contact Number</label>
-                <div className="relative">
-                  <Phone className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full h-11 pl-10 pr-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-900 dark:text-slate-50 text-xs font-bold rounded-xl focus:outline-none focus:border-indigo-500 transition-colors"
-                    placeholder="Your phone number"
-                  />
-                </div>
+                <CountryPhoneInput
+                  value={phone}
+                  onChange={(val) => setPhone(val)}
+                  required
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -360,9 +363,14 @@ export function AppLayout({ children }: AppLayoutProps) {
                     className="w-full h-11 pl-10 pr-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-900 dark:text-slate-50 text-xs font-bold rounded-xl focus:outline-none focus:border-indigo-500 transition-colors appearance-none cursor-pointer"
                   >
                     <option value="INR">INR (₹) - Indian Rupee</option>
+                    <option value="GBP">GBP (£) - British Pound</option>
                     <option value="USD">USD ($) - US Dollar</option>
                     <option value="EUR">EUR (€) - Euro</option>
-                    <option value="GBP">GBP (£) - British Pound</option>
+                    <option value="AED">AED (AED) - UAE Dirham</option>
+                    <option value="SAR">SAR (SAR) - Saudi Riyal</option>
+                    <option value="CAD">CAD (CA$) - Canadian Dollar</option>
+                    <option value="AUD">AUD (A$) - Australian Dollar</option>
+                    <option value="SGD">SGD (S$) - Singapore Dollar</option>
                   </select>
                 </div>
               </div>
@@ -383,6 +391,8 @@ export function AppLayout({ children }: AppLayoutProps) {
       {isSubscribed === false && !authLoading && (
         <SubscriptionModal />
       )}
+
+      <CompulsoryBusinessCountryModal />
     </div>
   );
 }

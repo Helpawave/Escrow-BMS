@@ -13,6 +13,7 @@ import {
   Shield 
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { CountryPhoneInput } from '@/components/ui/CountryPhoneInput';
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -166,17 +167,12 @@ const Auth = () => {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 ml-1">Mobile No.</label>
-                  <div className="relative">
-                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-500" />
-                    <input
-                      name="mobile"
-                      required
-                      value={formData.mobile}
-                      onChange={handleChange}
-                      className="w-full pl-12 pr-4 py-3.5 bg-slate-50 lg:bg-white dark:bg-slate-800 lg:dark:bg-slate-800 border border-slate-200 dark:border-slate-750 text-slate-900 dark:text-white rounded-2xl focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all"
-                      placeholder="+91 00000 00000"
-                    />
-                  </div>
+                  <CountryPhoneInput
+                    name="mobile"
+                    required
+                    value={formData.mobile}
+                    onChange={(val) => setFormData(prev => ({ ...prev, mobile: val }))}
+                  />
                 </div>
               </div>
             )}

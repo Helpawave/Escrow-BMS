@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Package, Scan, Trash2, Search, Plus, BookOpen } from "lucide-react";
 import { InvoiceItem } from '@/types/invoice';
+import { useTaxConfig } from '@/contexts/TaxContext';
 
 interface InvoiceItemsTableProps {
   billingType?: 'sales' | 'purchase' | 'ledger' | 'quotation';
@@ -33,6 +34,7 @@ export const InvoiceItemsTable: React.FC<InvoiceItemsTableProps> = ({
   setIsScannerOpen
 }) => {
   const isLedger = billingType === 'ledger';
+  const { taxName } = useTaxConfig();
 
   return (
     <div className="overflow-x-auto">
@@ -119,7 +121,7 @@ export const InvoiceItemsTable: React.FC<InvoiceItemsTableProps> = ({
               <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground opacity-60">Disc %</Label>
             </div>
             <div className="col-span-1 text-center">
-              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground opacity-60">GST %</Label>
+              <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground opacity-60">{taxName} %</Label>
             </div>
             <div className="col-span-1 text-right">
               <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground opacity-60">Amount</Label>
@@ -237,7 +239,7 @@ export const InvoiceItemsTable: React.FC<InvoiceItemsTableProps> = ({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">GST %</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{taxName} %</Label>
                     <Input
                       type="text"
                       inputMode="decimal"

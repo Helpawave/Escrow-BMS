@@ -39,6 +39,7 @@ import { SuccessModal } from "@/components/SuccessModal";
 import { DeleteConfirmation } from "@/components/DeleteConfirmation";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from "@/utils/invoicePDF";
 import { adjustStock } from "@/utils/inventory";
+import { postPaymentToLedger, removeInvoiceFromLedger } from "@/utils/erpPosting";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -512,6 +513,26 @@ const InvoicesPage = ({ isQuotationMode: propQuotationMode, isLedgerMode: propLe
       }
 
       // Invalidate queries to refresh data
+      
+      // Auto-post payment to Account Ledger
+      try {
+        const clientName = invoice.clients?.name || '';
+        if (clientName) {
+          await postPaymentToLedger({
+            invoiceId: invoice.id,
+            invoiceNumber: invoice.invoice_number,
+            partyName: clientName,
+            amount: Number(invoice.total_amount || 0),
+            type: 'received',
+            paymentMode: actualMethod,
+            date: new Date().toISOString(),
+            userId: targetUserId
+          });
+        }
+      } catch (erpErr) {
+        console.warn("ERP Ledger Payment Auto-Post error:", erpErr);
+      }
+
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['invoices', 'pending-for-payments'] });
