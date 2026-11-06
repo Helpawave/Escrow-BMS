@@ -182,6 +182,21 @@ export function Dashboard() {
 
   const { currencySymbol, formatAmount, currencyCode } = useCurrency();
 
+  const handleCreateInvoice = () => navigate('/create-invoice');
+  const handleViewAllInvoices = () => navigate('/invoices');
+
+  if (error) {
+    console.error('Error fetching dashboard stats:', error);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const safeProfile = profile as any;
+  const companyDisplayName = safeProfile?.company_name || authProfile?.company_name || companyProfile?.company_name || 'Business';
+  const companyInitial = companyDisplayName.trim().charAt(0).toUpperCase() || 'B';
+  const effectiveLogoUrl = !logoImageError 
+    ? (safeProfile?.logo_url || authProfile?.logo_url || companyProfile?.logo_url || (typeof window !== 'undefined' ? localStorage.getItem('escrow_company_logo_url') : null))
+    : null;
+
   if (isStaff) {
     return null;
   }
