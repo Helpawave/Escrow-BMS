@@ -145,27 +145,13 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   template = 'corporate',
   currencySymbol: propCurrencySymbol
 }) => {
-  let contextCurrencySymbol = '₹';
-  try {
-    const context = useCurrency();
-    contextCurrencySymbol = context.currencySymbol;
-  } catch (e) {
-    // Ignore error if used outside of provider
-  }
-  const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
-  let taxName = 'GST';
-  let taxIdLabel = 'GSTIN';
-  let isVat = false;
-  let isGst = true;
-  try {
-    const taxCtx = useTaxConfig();
-    taxName = taxCtx.taxName;
-    taxIdLabel = taxCtx.taxIdLabel;
-    isVat = taxCtx.isVat;
-    isGst = taxCtx.isGst;
-  } catch (e) {
-    // Ignore error if used outside of provider
-  }
+  const currencyCtx = useCurrency();
+  const taxCtx = useTaxConfig();
+  const currencySymbol = propCurrencySymbol || currencyCtx?.currencySymbol || '₹';
+  const taxName = taxCtx?.taxName || 'GST';
+  const taxIdLabel = taxCtx?.taxIdLabel || 'GSTIN';
+  const isVat = taxCtx?.isVat ?? false;
+  const isGst = taxCtx?.isGst ?? true;
   const effectiveStatus = getInvoiceEffectiveStatus(invoice.status, invoice.due_date);
   const isPaid = effectiveStatus === 'paid';
   const isOverdue = effectiveStatus === 'overdue';

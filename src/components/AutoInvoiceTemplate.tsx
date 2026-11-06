@@ -128,19 +128,11 @@ export const AutoInvoiceTemplate: React.FC<AutoInvoiceTemplateProps> = ({
   company,
   currencySymbol: propCurrencySymbol
 }) => {
-  let contextCurrencySymbol = '₹';
-  try {
-    const context = useCurrency();
-    contextCurrencySymbol = context.currencySymbol;
-  } catch {}
-  const currencySymbol = propCurrencySymbol || contextCurrencySymbol;
-  let taxName = 'GST';
-  let taxIdLabel = 'GSTIN';
-  try {
-    const taxCtx = useTaxConfig();
-    taxName = taxCtx.taxName;
-    taxIdLabel = taxCtx.taxIdLabel;
-  } catch (e) {}
+  const currencyCtx = useCurrency();
+  const taxCtx = useTaxConfig();
+  const currencySymbol = propCurrencySymbol || currencyCtx?.currencySymbol || '₹';
+  const taxName = taxCtx?.taxName || 'GST';
+  const taxIdLabel = taxCtx?.taxIdLabel || 'GSTIN';
 
   const vehicle = extractVehicleDetails(invoice);
   const paymentDetails = extractPaymentDetails(invoice);

@@ -84,26 +84,6 @@ export function Dashboard() {
     error 
   } = useDashboardStats(effectiveRange);
 
-  if (isStaff) {
-    return null;
-  }
-
-  const {
-    totalRevenue = 0,
-    totalSalesAll = 0,
-    totalInvoices = 0,
-    activeClients = 0,
-    totalProducts = 0,
-    totalQuantitySold = 0,
-    outstanding = 0,
-    totalExpenses = 0,
-    totalPurchase = 0,
-    netProfit = 0,
-    totalPurchaseCost = 0,
-    chartData = [],
-    trends = { sales: 0, purchase: 0, revenue: 0, expense: 0 }
-  } = (stats as any) || {};
-
   const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
   const [logoImageError, setLogoImageError] = useState(false);
 
@@ -167,7 +147,7 @@ export function Dashboard() {
         logo_url: logoUrl
       };
     },
-    enabled: !!targetUserId,
+    enabled: !!targetUserId && !isStaff,
     initialData: authProfile ? {
       company_name: authProfile.company_name || 'Business',
       logo_url: authProfile.logo_url || companyProfile?.logo_url || (typeof window !== 'undefined' ? localStorage.getItem('escrow_company_logo_url') : null)
@@ -177,7 +157,7 @@ export function Dashboard() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!targetUserId) return;
+    if (!targetUserId || isStaff) return;
 
     const channel = supabase
       .channel(`profile-updates-${targetUserId}`)
@@ -198,24 +178,29 @@ export function Dashboard() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [targetUserId, queryClient]);
-
-  const handleCreateInvoice = () => navigate('/create-invoice');
-  const handleViewAllInvoices = () => navigate('/invoices');
-
-  if (error) {
-    console.error('Error fetching dashboard stats:', error);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const safeProfile = profile as any;
-  const companyDisplayName = safeProfile?.company_name || authProfile?.company_name || companyProfile?.company_name || 'Business';
-  const companyInitial = companyDisplayName.trim().charAt(0).toUpperCase() || 'B';
-  const effectiveLogoUrl = !logoImageError 
-    ? (safeProfile?.logo_url || authProfile?.logo_url || companyProfile?.logo_url || (typeof window !== 'undefined' ? localStorage.getItem('escrow_company_logo_url') : null))
-    : null;
+  }, [targetUserId, queryClient, isStaff]);
 
   const { currencySymbol, formatAmount, currencyCode } = useCurrency();
+
+  if (isStaff) {
+    return null;
+  }
+
+  const {
+    totalRevenue = 0,
+    totalSalesAll = 0,
+    totalInvoices = 0,
+    activeClients = 0,
+    totalProducts = 0,
+    totalQuantitySold = 0,
+    outstanding = 0,
+    totalExpenses = 0,
+    totalPurchase = 0,
+    netProfit = 0,
+    totalPurchaseCost = 0,
+    chartData = [],
+    trends = { sales: 0, purchase: 0, revenue: 0, expense: 0 }
+  } = (stats as any) || {};
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">

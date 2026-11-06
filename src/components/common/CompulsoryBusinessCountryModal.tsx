@@ -17,22 +17,6 @@ export function CompulsoryBusinessCountryModal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // If already configured or not logged in, don't show
-  if (!user || isCountryConfigured) {
-    return null;
-  }
-
-  // If user is a restricted staff member without admin permissions, don't block them with company-wide tax configuration
-  if (isStaff && staffRole !== 'Admin') {
-    return null;
-  }
-
-  const selectedCountry: CountryTaxConfig = getCountryTaxConfig(selectedCode);
-
-  const popularCountryCodes = ['IN', 'GB', 'AE', 'SA', 'US', 'SG', 'AU', 'CA', 'DE'];
-  const popularCountries = popularCountryCodes.map((c) => getCountryTaxConfig(c));
-  const otherCountries = TAX_COUNTRIES.filter((c) => !popularCountryCodes.includes(c.countryCode));
-
   // Dynamic search filter across all countries with aliases
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -64,6 +48,22 @@ export function CompulsoryBusinessCountryModal() {
       );
     });
   }, [searchQuery]);
+
+  // If already configured or not logged in, don't show
+  if (!user || isCountryConfigured) {
+    return null;
+  }
+
+  // If user is a restricted staff member without admin permissions, don't block them with company-wide tax configuration
+  if (isStaff && staffRole !== 'Admin') {
+    return null;
+  }
+
+  const selectedCountry: CountryTaxConfig = getCountryTaxConfig(selectedCode);
+
+  const popularCountryCodes = ['IN', 'GB', 'AE', 'SA', 'US', 'SG', 'AU', 'CA', 'DE'];
+  const popularCountries = popularCountryCodes.map((c) => getCountryTaxConfig(c));
+  const otherCountries = TAX_COUNTRIES.filter((c) => !popularCountryCodes.includes(c.countryCode));
 
   const handleConfirm = async () => {
     setSaving(true);

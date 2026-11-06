@@ -84,6 +84,7 @@ const LedgerView = () => {
       return [];
     }
   });
+  const [partyBalances, setPartyBalances] = useState<Map<string, number>>(new Map());
 
   const [loading, setLoading] = useState(() => {
     try {
