@@ -90,5 +90,4 @@ export interface ProfileChangeRequest {
 }
 
 // Export supabase from client mock for local persistence
-export { supabase } from '@/integrations/supabase/client';
-export const serviceSupabase = supabase;
+export { supabase, serviceSupabase } from '@/integrations/supabase/client';
