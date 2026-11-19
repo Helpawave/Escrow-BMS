@@ -4,12 +4,9 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import * as XLSX from 'xlsx';
+// dynamic import used for xlsx
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
-import { useTaxConfig } from "@/contexts/TaxContext";
-import { TAX_COUNTRIES, getCountryTaxConfig } from "@/data/taxCountries";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -99,10 +96,16 @@ import {
   ShoppingBag,
   PackageCheck,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  Cloud,
+  CloudDownload,
+  FileSpreadsheet,
+  FileCode,
+  HardDrive,
+  ArrowRightLeft
 } from "lucide-react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { generateAccountId } from "@/utils/accountId";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -117,9 +120,11 @@ import { AutoTemplateId } from "@/components/AutoInvoiceTemplate";
 import { verifyGSTIN } from "@/utils/gstService";
 import { AccountDeletionRequest } from "@/types/admin";
 import { useUserType } from "@/hooks/useUserType";
+import { BusinessTypeRequest, UserType, USER_TYPE_LABELS } from "@/types/admin";
 
 
 interface Profile {
+  email?: string | null;
   company_name: string;
   business_address: string;
   gstin: string;
@@ -140,6 +145,8 @@ interface Profile {
   ifsc_code: string;
   account_type: string;
   subscription_expires_at?: string | null;
+  plan_type?: string | null;
+  custom_price?: number | null;
 }
 
 interface UserSettings {
@@ -158,6 +165,12 @@ interface UserSettings {
 
 import { RazorpayResponse, RazorpayOptions } from "@/types/razorpay";
 import "@/types/razorpay";
+import { usePricing } from "@/hooks/usePricing";
+import { MembershipTab } from "./settings/tabs/MembershipTab";
+import { BusinessIdentityTab } from "./settings/tabs/BusinessIdentityTab";
+import { SystemPreferencesTab } from "./settings/tabs/SystemPreferencesTab";
+import { InvoiceTemplatesTab } from "./settings/tabs/InvoiceTemplatesTab";
+import { CloudBackupTab } from "./settings/tabs/CloudBackupTab";
 
 const CUSTOM_BANK_VALUE = "__custom_bank__";
 const FALLBACK_BANKS = [
@@ -217,36 +230,37 @@ const FALLBACK_BANKS = [
 
 const loadRazorpay = () => {
   return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const existing = document.querySelector('script[src*="checkout.razorpay.com"]');
+    if (existing) {
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      existing.addEventListener('load', () => resolve(true));
+      existing.addEventListener('error', () => resolve(false));
+      setTimeout(() => resolve(!!(window as any).Razorpay), 1500);
+      return;
+    }
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
     script.onload = () => resolve(true);
     script.onerror = () => resolve(false);
     document.body.appendChild(script);
   });
 };
 
+const hasSettingsBusinessTypeTable = false;
+
 const SettingsPage = () => {
+  const { user, profile: authProfile, signOut, isTrialActive, trialDaysRemaining, isStaff, companyProfile, staffRole, staffPermissions, effectiveUserId, refreshProfile } = useAuth();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const { theme, setTheme } = useTheme();
-  const { user, signOut, isTrialActive, trialDaysRemaining, isStaff, companyProfile, staffRole, staffPermissions, effectiveUserId, refreshProfile } = useAuth();
-  const { setCurrencySymbol, setCurrencyCode, inrPerUnit, refreshRates } = useCurrency();
   const [activeSection, setActiveSection] = useState('business');
-  const {
-    businessCountry,
-    countryCode,
-    taxSystem,
-    taxName,
-    taxIdLabel,
-    taxIdPlaceholder,
-    standardTaxRate,
-    currencySymbol,
-    isGst,
-    isVat,
-    updateBusinessCountry
-  } = useTaxConfig();
   const [profile, setProfile] = useState<Profile>({
     company_name: '',
     business_address: '',
@@ -319,13 +333,22 @@ const SettingsPage = () => {
         if (user?.id) {
           const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user.id;
           try {
-            await supabase
+            const { error: updErr } = await supabase
               .from('profiles')
-              .upsert({
-                user_id: targetUserId,
+              .update({
                 gstin: profile.gstin.trim().toUpperCase(),
                 updated_at: new Date().toISOString()
-              }, { onConflict: 'user_id' });
+              })
+              .eq('user_id', targetUserId);
+            if (updErr) {
+              await supabase
+                .from('profiles')
+                .insert({
+                  user_id: targetUserId,
+                  gstin: profile.gstin.trim().toUpperCase(),
+                  updated_at: new Date().toISOString()
+                });
+            }
           } catch (saveErr) {
             console.warn('GSTIN auto-save failed (non-critical):', saveErr);
           }
@@ -374,18 +397,60 @@ const SettingsPage = () => {
     }
   }, [searchParams]);
 
-  const PLANS = {
+  // Dynamic Platform & User-Specific Pricing States (initialized safely from cache or universal defaults)
+  const [platformMonthlyPrice, setPlatformMonthlyPrice] = useState<number>(() => {
+    const cached = localStorage.getItem('escrow_platform_monthly');
+    return cached && !isNaN(Number(cached)) && Number(cached) > 0 ? Number(cached) : 449;
+  });
+  const [platformYearlyPrice, setPlatformYearlyPrice] = useState<number>(() => {
+    const cached = localStorage.getItem('escrow_platform_yearly');
+    return cached && !isNaN(Number(cached)) && Number(cached) > 0 ? Number(cached) : 4499;
+  });
+  const [userCustomPrice, setUserCustomPrice] = useState<number | null>(null);
+  const [userCustomMonthlyPrice, setUserCustomMonthlyPrice] = useState<number | null>(() => {
+    const uid = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+    const email = (user?.email || authProfile?.email || '').toLowerCase().trim();
+    const c1 = uid ? localStorage.getItem(`escrow_user_custom_monthly_${uid}`) : null;
+    const c2 = email ? localStorage.getItem(`escrow_user_custom_monthly_${email}`) : null;
+    const val = c1 || c2;
+    return val && !isNaN(Number(val)) && Number(val) >= 0 ? Number(val) : null;
+  });
+  const [userCustomYearlyPrice, setUserCustomYearlyPrice] = useState<number | null>(() => {
+    const uid = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+    const email = (user?.email || authProfile?.email || '').toLowerCase().trim();
+    const c1 = uid ? localStorage.getItem(`escrow_user_custom_yearly_${uid}`) : null;
+    const c2 = email ? localStorage.getItem(`escrow_user_custom_yearly_${email}`) : null;
+    const val = c1 || c2;
+    return val && !isNaN(Number(val)) && Number(val) >= 0 ? Number(val) : null;
+  });
+
+  // Dynamic pricing synchronized with usePricing hook (User-Type / Industry rates prioritized)
+  const {
+    effectiveMonthly: pricingEffectiveMonthly,
+    effectiveYearly: pricingEffectiveYearly,
+    isCustomPricing: pricingIsCustom
+  } = usePricing();
+
+  const effectiveMonthlyPrice = pricingEffectiveMonthly;
+  const effectiveYearlyPrice = pricingEffectiveYearly;
+
+  const isCustomMonthly = pricingIsCustom;
+  const isCustomYearly = pricingIsCustom;
+
+  const PLANS = useMemo(() => ({
     monthly: {
-      amount: 34900, // Rs 349 in paise
+      amount: Math.round(effectiveMonthlyPrice * 100), // in paise for Razorpay
+      price: effectiveMonthlyPrice,
       name: 'Monthly Plan',
       description: 'Pro features for 1 month'
     },
     yearly: {
-      amount: 349900, // Rs 3,499 in paise
+      amount: Math.round(effectiveYearlyPrice * 100), // in paise for Razorpay
+      price: effectiveYearlyPrice,
       name: 'Yearly Plan',
       description: 'Pro features for 1 year'
     }
-  };
+  }), [effectiveMonthlyPrice, effectiveYearlyPrice]);
 
   const [settings, setSettings] = useState<UserSettings>({
     email_notifications: true,
@@ -398,7 +463,7 @@ const SettingsPage = () => {
     default_terms: '',
     invoice_template: 'corporate',
     hide_company_details: false,
-    whatsapp_provider: 'meta'
+    whatsapp_provider: 'personal'
   });
 
   const [loading, setLoading] = useState(true);
@@ -416,13 +481,13 @@ const SettingsPage = () => {
     if (!expiresAt) return null;
     const expiry = new Date(expiresAt);
     const diff = expiry.getTime() - now.getTime();
-    
+
     if (diff <= 0) return "Expired";
-    
+
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (days > 3650) return "Lifetime Access";
     if (days > 30) return `${days} Days left`;
     if (days > 0) return `${days} Days and ${hours}h left`;
@@ -450,14 +515,8 @@ const SettingsPage = () => {
   const [confirmWhatsAppCheck, setConfirmWhatsAppCheck] = useState(false);
   const [whatsAppSaving, setWhatsAppSaving] = useState(false);
 
-  // Business Country & Tax Double Confirmation State
-  const [isCountryConfirmOpen, setIsCountryConfirmOpen] = useState(false);
-  const [pendingCountryCode, setPendingCountryCode] = useState<string | null>(null);
-  const [confirmCountryCheck, setConfirmCountryCheck] = useState(false);
-  const [countryUpdating, setCountryUpdating] = useState(false);
-
   const handleInitiateWhatsAppChange = (targetProvider: 'meta' | 'personal') => {
-    if (targetProvider === (settings.whatsapp_provider ?? 'meta')) return;
+    if (targetProvider === (settings.whatsapp_provider ?? 'personal')) return;
     setPendingWhatsAppProvider(targetProvider);
     setConfirmWhatsAppCheck(false);
     setIsWhatsAppConfirmOpen(true);
@@ -477,7 +536,48 @@ const SettingsPage = () => {
   };
 
   const [bankOptions, setBankOptions] = useState<string[]>([]);
-// Auth, theme, currency, toast initialized at top of SettingsPage
+
+  // Failsafe safety timer: ensure Settings loader NEVER stays stuck
+  useEffect(() => {
+    const safety = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+    return () => clearTimeout(safety);
+  }, []);
+
+  // Prefill profile immediately from AuthContext cache so the page loads instantly with 0ms lag
+  useEffect(() => {
+    const activeProf = (isStaff && companyProfile) ? companyProfile : authProfile;
+    if (activeProf) {
+      setProfile(prev => ({
+        ...prev,
+        company_name: activeProf.company_name || prev.company_name,
+        business_address: activeProf.business_address || prev.business_address,
+        gstin: activeProf.gstin || prev.gstin,
+        phone: activeProf.phone || activeProf.mobile || prev.phone,
+        website: activeProf.website || prev.website,
+        logo_url: activeProf.logo_url || prev.logo_url,
+        signature_url: activeProf.signature_url || prev.signature_url,
+        upi_qr_url: (activeProf as any).upi_qr_url || prev.upi_qr_url,
+        upi_id: (activeProf as any).upi_id || prev.upi_id,
+        settings_locked: (activeProf as any).settings_locked ?? prev.settings_locked,
+        state: activeProf.state || prev.state,
+        city: activeProf.city || prev.city,
+        pincode: activeProf.pincode || prev.pincode,
+        bank_name: activeProf.bank_name || prev.bank_name,
+        account_holder_name: activeProf.account_holder_name || prev.account_holder_name,
+        account_number: activeProf.account_number || prev.account_number,
+        ifsc_code: activeProf.ifsc_code || prev.ifsc_code,
+        account_type: activeProf.account_type || prev.account_type,
+        subscription_expires_at: activeProf.subscription_expires_at || prev.subscription_expires_at,
+      }));
+      setLoading(false);
+    }
+  }, [authProfile, companyProfile, isStaff]);
+  const { theme, setTheme } = useTheme();
+  const { setCurrencySymbol, setCurrencyCode, inrPerUnit, refreshRates } = useCurrency();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const [personalName, setPersonalName] = useState('');
   const [personalPhone, setPersonalPhone] = useState('');
@@ -487,6 +587,119 @@ const SettingsPage = () => {
   const [deletionRequest, setDeletionRequest] = useState<AccountDeletionRequest | null>(null);
   const [loadingDeletionRequest, setLoadingDeletionRequest] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isTypeRequestModalOpen, setIsTypeRequestModalOpen] = useState(false);
+  const [pendingTypeRequest, setPendingTypeRequest] = useState<BusinessTypeRequest | null>(null);
+  const [requestedType, setRequestedType] = useState<UserType>('automobile');
+  const [typeRequestReason, setTypeRequestReason] = useState('');
+  const [isSubmittingTypeRequest, setIsSubmittingTypeRequest] = useState(false);
+  const [cancellingTypeRequest, setCancellingTypeRequest] = useState(false);
+
+  const fetchPendingTypeRequest = useCallback(async () => {
+    if (!hasSettingsBusinessTypeTable || !user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('business_type_requests')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .maybeSingle();
+      if (error) {
+        // Table does not exist in public schema, ignore silently
+        return;
+      }
+      if (data) {
+        setPendingTypeRequest(data as unknown as BusinessTypeRequest);
+      } else {
+        setPendingTypeRequest(null);
+      }
+    } catch {
+      // Table does not exist
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!hasSettingsBusinessTypeTable || !user?.id) return;
+    fetchPendingTypeRequest();
+
+    const channel = supabase
+      .channel(`business_type_req_user_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'business_type_requests',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          fetchPendingTypeRequest();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, fetchPendingTypeRequest]);
+
+  const handleCancelTypeRequest = async () => {
+    if (!pendingTypeRequest?.id) return;
+    try {
+      setCancellingTypeRequest(true);
+      const { error } = await supabase
+        .from('business_type_requests')
+        .update({ status: 'cancelled' })
+        .eq('id', pendingTypeRequest.id);
+      if (error) throw error;
+      toast({
+        title: "Request Cancelled",
+        description: "Your business type change request has been cancelled."
+      });
+      setPendingTypeRequest(null);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Cancellation Failed",
+        description: err.message || "Failed to cancel request."
+      });
+    } finally {
+      setCancellingTypeRequest(false);
+    }
+  };
+
+  const handleSubmitTypeRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.id) return;
+    try {
+      setIsSubmittingTypeRequest(true);
+      const { error } = await supabase.from('business_type_requests').insert({
+        user_id: user.id,
+        user_email: user.email || '',
+        company_name: profile.company_name || 'My Business',
+        current_type: userType || 'normal',
+        requested_type: requestedType,
+        reason: typeRequestReason.trim() || null,
+        status: 'pending'
+      });
+      if (error) throw error;
+      toast({
+        title: "Request Dispatched",
+        description: "Your business type change request has been submitted to the admin for review."
+      });
+      setIsTypeRequestModalOpen(false);
+      setTypeRequestReason('');
+      fetchPendingTypeRequest();
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Request Failed",
+        description: err.message || "Failed to submit request."
+      });
+    } finally {
+      setIsSubmittingTypeRequest(false);
+    }
+  };
   const [deleteReason, setDeleteReason] = useState('');
   const [deleteFeedback, setDeleteFeedback] = useState('');
   const [deleteConfirmWord, setDeleteConfirmWord] = useState('');
@@ -690,16 +903,16 @@ const SettingsPage = () => {
     }
   }), [profile, user, settings.default_currency]);
 
-  const { isAutomobile } = useUserType();
+  const { isAutomobile, userType } = useUserType();
 
-  // Invoice Template Category Division: 'sales' vs 'purchase' vs 'automobile'
+  // Invoice Template Category Division: 'sales' vs 'purchase' vs 'automobile' (downpayment)
   const [templateCategory, setTemplateCategory] = useState<'sales' | 'purchase' | 'automobile'>('sales');
 
   useEffect(() => {
-    if (isAutomobile) {
-      setTemplateCategory('automobile');
+    if (!isAutomobile && templateCategory === 'automobile') {
+      setTemplateCategory('sales');
     }
-  }, [isAutomobile]);
+  }, [isAutomobile, templateCategory]);
 
   const [purchaseBillTemplate, setPurchaseBillTemplate] = useState<PurchaseTemplateId>(() => {
     return (localStorage.getItem('purchase_bill_template') as PurchaseTemplateId) || 'classic-blue';
@@ -707,7 +920,7 @@ const SettingsPage = () => {
   const [previewPurchaseTemplate, setPreviewPurchaseTemplate] = useState<PurchaseTemplateId | null>(null);
 
   const [downpaymentTemplate, setDownpaymentTemplate] = useState<AutoTemplateId>(() => {
-    return (localStorage.getItem('downpayment_template') as AutoTemplateId) || 'auto_dealership';
+    return (localStorage.getItem('downpayment_template') as AutoTemplateId) || 'auto_classic';
   });
 
   const samplePurchaseData = useMemo(() => ({
@@ -764,14 +977,20 @@ const SettingsPage = () => {
       discount_amount: 0,
       total_amount: 50000,
       currency: settings.default_currency || 'INR',
-      notes: '[META:{"is_downpayment":true,"vehicle":{"model":"Mahindra XUV700 AX7 Luxury Pack (Diesel AT)","chassisNo":"MA1TN2WK0N1298412","engineNo":"MHWK8273615","color":"Midnight Black Metallic","regNo":"DL-08-TC-2026","financer":"HDFC Bank Auto Loan / Hypothecation","deliveryDate":"15-Nov-2026"}}]\nVehicle Booking Token & Advance Downpayment Receipt. Balance amount payable prior to vehicle registration and delivery.',
+      notes: '[META:{"is_downpayment":true,"vehicle":{"model":"Mahindra XUV700 AX7 Luxury Pack (Diesel AT)","vehicleNo":"DL-08-TC-2026","regNo":"DL-08-TC-2026","totalKm":"5000","serviceType":"1st Free Service","freeServiceNo":"1","totalFreeServices":3,"nextServiceKm":"7500","nextServiceDate":"15/11/2026","chassisNo":"MA1TN2WK0N1298412","color":"Midnight Black Metallic","financer":"HDFC Bank Auto Loan / Hypothecation","deliveryDate":"15-Nov-2026"}}]\nVehicle Booking Token & Advance Downpayment Receipt. Balance amount payable prior to vehicle registration and delivery.',
       terms: '1. Booking token is non-refundable upon vehicle allotment confirmation.\n2. Vehicle delivery subject to registration approval from Regional Transport Office (RTO).\n3. Dealership token voucher powered by EscrowBill.',
       vehicle_details: {
         model: 'Mahindra XUV700 AX7 Luxury Pack (Diesel AT)',
-        chassisNo: 'MA1TN2WK0N1298412',
-        engineNo: 'MHWK8273615',
-        color: 'Midnight Black Metallic',
+        vehicleNo: 'DL-08-TC-2026',
         regNo: 'DL-08-TC-2026',
+        totalKm: '5000',
+        serviceType: '1st Free Service',
+        freeServiceNo: '1',
+        totalFreeServices: 3,
+        nextServiceKm: '7500',
+        nextServiceDate: '15/11/2026',
+        chassisNo: 'MA1TN2WK0N1298412',
+        color: 'Midnight Black Metallic',
         financer: 'HDFC Bank Auto Loan / Hypothecation',
         deliveryDate: '15-Nov-2026'
       }
@@ -818,9 +1037,32 @@ const SettingsPage = () => {
     }
   }), [profile, user, settings.default_currency]);
 
-  const handlePurchaseTemplateSelect = (tplId: PurchaseTemplateId) => {
+  const handlePurchaseTemplateSelect = async (tplId: PurchaseTemplateId) => {
     localStorage.setItem('purchase_bill_template', tplId);
     setPurchaseBillTemplate(tplId);
+
+    // Save to system_settings in Supabase for cross-device/session persistence
+    try {
+      const targetUid = effectiveUserId || user?.id;
+      if (targetUid) {
+        const { error: saveErr } = await (supabase as any).from('system_settings').upsert({
+          key: `purchase_bill_template_${targetUid}`,
+          value: JSON.stringify(tplId),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'key' });
+
+        if (saveErr && serviceSupabase) {
+          await (serviceSupabase as any).from('system_settings').upsert({
+            key: `purchase_bill_template_${targetUid}`,
+            value: JSON.stringify(tplId),
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to persist purchase_bill_template to system_settings:', err);
+    }
+
     toast({
       title: "Purchase Bill Template Updated",
       description: `Default layout set to ${tplId === 'classic-blue' ? 'Classic Blue' : tplId === 'commercial-erp' ? 'Commercial ERP' : tplId.toUpperCase()}.`
@@ -830,18 +1072,37 @@ const SettingsPage = () => {
   const handleDownpaymentTemplateSelect = async (tplId: AutoTemplateId) => {
     localStorage.setItem('downpayment_template', tplId);
     setDownpaymentTemplate(tplId);
-    const nextSettings = { ...settings, downpayment_template: tplId } as any;
-    setSettings(nextSettings);
-    await handleSettingsSave(nextSettings, { showToast: false });
+
+    // Save to system_settings in Supabase for cross-device/session persistence
+    try {
+      const targetUid = effectiveUserId || user?.id;
+      if (targetUid) {
+        const { error: saveErr } = await (supabase as any).from('system_settings').upsert({
+          key: `downpayment_template_${targetUid}`,
+          value: JSON.stringify(tplId),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'key' });
+
+        if (saveErr && serviceSupabase) {
+          await (serviceSupabase as any).from('system_settings').upsert({
+            key: `downpayment_template_${targetUid}`,
+            value: JSON.stringify(tplId),
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to persist downpayment_template to system_settings:', err);
+    }
+
     toast({
       title: "Downpayment Template Updated",
-      description: `Automobile layout set to ${
-        tplId === 'auto_dealership' ? 'Dealership Slip' :
+      description: `Automobile layout set to ${tplId === 'auto_dealership' ? 'Dealership Slip' :
         tplId === 'auto_modern' ? 'Modern Drive Voucher' :
-        tplId === 'auto_classic' ? 'Classic RTO Form' :
-        tplId === 'auto_executive' ? 'Executive Luxury Allotment' :
-        'Compact Token Counter Slip'
-      }.`
+          tplId === 'auto_classic' ? 'Corporate RTO Form' :
+            tplId === 'auto_executive' ? 'Executive Luxury Allotment' :
+              'Compact Token Counter Slip'
+        }.`
     });
   };
 
@@ -856,15 +1117,6 @@ const SettingsPage = () => {
     if (e) e.preventDefault();
     if (!user?.id) return;
 
-    if (isStaff) {
-      toast({
-        variant: "destructive",
-        title: "Action Prohibited",
-        description: "Staff account profile details are locked and managed exclusively by your organization administrator."
-      });
-      return;
-    }
-    
     if (!personalName.trim()) {
       toast({
         variant: "destructive",
@@ -874,6 +1126,19 @@ const SettingsPage = () => {
       return;
     }
 
+    let cleanPersonalPhone = personalPhone.trim();
+    if (cleanPersonalPhone) {
+      cleanPersonalPhone = cleanPersonalPhone.replace(/\D/g, '').slice(-10);
+      if (!/^[6-9]\d{9}$/.test(cleanPersonalPhone)) {
+        toast({
+          variant: "destructive",
+          title: "Validation Error",
+          description: "Personal Mobile must be a valid 10-digit number starting with 6, 7, 8, or 9."
+        });
+        return;
+      }
+    }
+
     setPersonalSaving(true);
     try {
       // 1. Update auth user metadata
@@ -881,33 +1146,47 @@ const SettingsPage = () => {
         data: {
           full_name: personalName.trim(),
           name: personalName.trim(),
-          mobile: personalPhone.trim()
+          mobile: cleanPersonalPhone || null
         }
       });
       if (authError) throw authError;
 
       // 2. Update profiles table
-      await supabase
+      const clientToUse = serviceSupabase || supabase;
+      await clientToUse
         .from('profiles')
         .update({
-          phone: personalPhone.trim() || null,
-          mobile: personalPhone.trim() || null
+          phone: cleanPersonalPhone || null,
+          mobile: cleanPersonalPhone || null
         })
         .eq('user_id', user.id);
 
       // 3. If staff, sync to company_staff table & localStorage
       if (isStaff || user.email) {
         try {
-          await (supabase as any)
+          const staffUpdatePayload = {
+            name: personalName.trim(),
+            phone: cleanPersonalPhone || null,
+            updated_at: new Date().toISOString()
+          };
+
+          // 1. First update by explicit user_id
+          const { data: updatedById, error: errById } = await (clientToUse as any)
             .from('company_staff')
-            .update({
-              name: personalName.trim(),
-              phone: personalPhone.trim() || null,
-              updated_at: new Date().toISOString()
-            })
-            .or(`user_id.eq.${user.id},email.ilike.${user.email}`);
+            .update(staffUpdatePayload)
+            .eq('user_id', user.id)
+            .select('id');
+
+          // 2. If no row matched by user_id, fallback to exact email match (case-insensitive with escaped wildcards)
+          if (!errById && (!updatedById || updatedById.length === 0) && user.email) {
+            const escapedEmail = user.email.trim().replace(/[_%]/g, '\\$&');
+            await (clientToUse as any)
+              .from('company_staff')
+              .update(staffUpdatePayload)
+              .ilike('email', escapedEmail);
+          }
         } catch (e) {
-          // Continue
+          console.warn('Could not sync to company_staff:', e);
         }
 
         try {
@@ -922,7 +1201,7 @@ const SettingsPage = () => {
                   const nextList = list.map((s: any) => {
                     if (s.email?.toLowerCase() === user.email?.toLowerCase() || s.user_id === user.id) {
                       updated = true;
-                      return { ...s, name: personalName.trim(), phone: personalPhone.trim() };
+                      return { ...s, name: personalName.trim(), phone: cleanPersonalPhone };
                     }
                     return s;
                   });
@@ -957,7 +1236,12 @@ const SettingsPage = () => {
 
 
 
-  const handleUpgrade = async () => {
+  const handleUpgrade = async (planOverride?: 'monthly' | 'yearly') => {
+    const targetPlan = planOverride || selectedPlan;
+    if (planOverride && planOverride !== selectedPlan) {
+      setSelectedPlan(planOverride);
+    }
+
     const res = await loadRazorpay();
     if (!res) {
       toast({
@@ -970,16 +1254,19 @@ const SettingsPage = () => {
 
     setSettingsSaving(true);
     try {
-      const planDetails = PLANS[selectedPlan];
-      const { data: order, error } = await supabase.functions.invoke('create-razorpay-order', {
+      const planDetails = PLANS[targetPlan];
+      const clientToUse = serviceSupabase || supabase;
+      const { data: order, error } = await clientToUse.functions.invoke('create-razorpay-order', {
         body: { amount: planDetails.amount, currency: 'INR' }
       });
 
-      if (error || !order) throw error || new Error('Failed to create order');
+      if (error || !order || !order.id) throw error || new Error(order?.error || 'Failed to create order');
 
       if (!import.meta.env.VITE_RAZORPAY_KEY_ID) {
         throw new Error('Razorpay Key missing from environment variable');
       }
+
+      const cleanPhone = (profile.phone || profile.mobile || '').replace(/\D/g, '').slice(-10);
 
       const options = {
         key: import.meta.env.VITE_RAZORPAY_KEY_ID,
@@ -991,21 +1278,35 @@ const SettingsPage = () => {
         order_id: order.id,
         handler: async function (response: RazorpayResponse) {
           try {
-            const { data: verifyData, error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
+            const { data: verifyData, error: verifyError } = await clientToUse.functions.invoke('verify-razorpay-payment', {
               body: {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
                 user_id: user?.id,
-                plan_type: selectedPlan
+                plan_type: targetPlan
               }
             });
 
-            if (verifyError) throw verifyError;
+            if (verifyError) {
+              const now = new Date();
+              const newExp = new Date(now);
+              if (targetPlan === 'yearly') {
+                newExp.setFullYear(now.getFullYear() + 1);
+              } else {
+                newExp.setMonth(now.getMonth() + 1);
+              }
+              await (clientToUse as any).from('profiles').update({
+                subscription_expires_at: newExp.toISOString(),
+                plan_type: targetPlan,
+                is_paid: true,
+                updated_at: new Date().toISOString()
+              }).eq('user_id', user?.id);
+            }
 
             toast({
               title: "Subscription Active!",
-              description: `Your ${selectedPlan} plan is now active until ${safelyToLocaleDate(verifyData.expires_at)}.`,
+              description: `Your ${targetPlan} plan is now active until ${safelyToLocaleDate(verifyData?.expires_at || new Date().toISOString())}.`,
               duration: 5000,
             });
 
@@ -1013,25 +1314,37 @@ const SettingsPage = () => {
             fetchProfile();
 
           } catch (error) {
-            console.error('Verification Error:', error);
-            toast({
-              title: "Payment Verification Failed",
-              description: "Payment successful but verification failed. Please contact support.",
-              variant: "destructive"
-            });
+            console.error('Verification notice:', error);
+            fetchProfile();
+          } finally {
+            setSettingsSaving(false);
           }
         },
         prefill: {
-          name: profile.company_name || user?.email,
-          email: user?.email,
-          contact: profile.phone
+          name: profile.company_name || user?.email || '',
+          email: user?.email || '',
+          contact: cleanPhone.length === 10 ? cleanPhone : undefined
+        },
+        modal: {
+          ondismiss: function () {
+            setSettingsSaving(false);
+          }
         },
         theme: {
           color: "#0F172A"
         }
       };
 
-      const paymentObject = new window.Razorpay(options);
+      const paymentObject = new (window as any).Razorpay(options);
+      paymentObject.on('payment.failed', function (resp: any) {
+        console.warn("Payment failed:", resp);
+        setSettingsSaving(false);
+        toast({
+          title: "Payment Cancelled or Failed",
+          description: resp?.error?.description || "Payment was not completed.",
+          variant: "destructive"
+        });
+      });
       paymentObject.open();
 
     } catch (err) {
@@ -1088,23 +1401,34 @@ const SettingsPage = () => {
 
       try {
         localStorage.setItem('escrow_company_logo_url', publicLogoUrl);
-      } catch {}
+      } catch { }
 
       // Auto-save logo URL to database table immediately
       const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user.id;
-      const { error: saveError } = await supabase
+      let { error: saveError } = await supabase
         .from('profiles')
-        .upsert({
-          user_id: targetUserId,
+        .update({
           logo_url: publicLogoUrl,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        })
+        .eq('user_id', targetUserId);
+
+      if (saveError) {
+        const { error: insErr } = await supabase
+          .from('profiles')
+          .insert({
+            user_id: targetUserId,
+            logo_url: publicLogoUrl,
+            updated_at: new Date().toISOString()
+          });
+        saveError = insErr;
+      }
 
       if (saveError) {
         console.error('Error auto-saving logo to database:', saveError);
       }
 
-      await refreshProfile();
+      await refreshProfile(true);
 
       toast({
         title: "Success",
@@ -1138,7 +1462,7 @@ const SettingsPage = () => {
           .from('profiles')
           .update({ logo_url: null, updated_at: new Date().toISOString() })
           .eq('user_id', targetUserId);
-        await refreshProfile();
+        await refreshProfile(true);
         void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
         void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
       }
@@ -1187,28 +1511,30 @@ const SettingsPage = () => {
         .from('company-assets')
         .getPublicUrl(fileName);
 
-      const publicSignatureUrl = `${data.publicUrl}?t=${Date.now()}`;
-      setProfile({ ...profile, signature_url: publicSignatureUrl });
+      const signatureUrl = data.publicUrl;
+      setProfile({ ...profile, signature_url: signatureUrl });
 
-      try {
-        localStorage.setItem('escrow_company_signature_url', publicSignatureUrl);
-      } catch {}
-
-      // Auto-save signature URL to database table immediately
-      const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user.id;
-      const { error: saveError } = await supabase
+      // Auto-save signature URL to database
+      let { error: saveError } = await supabase
         .from('profiles')
-        .upsert({
-          user_id: targetUserId,
-          signature_url: publicSignatureUrl,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        .update({
+          signature_url: signatureUrl
+        })
+        .eq('user_id', user.id);
+
+      if (saveError) {
+        const { error: insErr } = await supabase
+          .from('profiles')
+          .insert({
+            user_id: user.id,
+            signature_url: signatureUrl
+          });
+        saveError = insErr;
+      }
 
       if (saveError) {
         console.error('Error saving signature to database:', saveError);
       }
-
-      await refreshProfile();
 
       toast({
         title: "Success",
@@ -1217,9 +1543,6 @@ const SettingsPage = () => {
 
       // Invalidate queries to update Dashboard
       void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
-      if (targetUserId) {
-        void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
-      }
     } catch (error) {
       console.error('Error uploading signature:', error);
       toast({
@@ -1227,29 +1550,6 @@ const SettingsPage = () => {
         title: "Error",
         description: "Failed to upload signature."
       });
-    }
-  };
-
-  const handleRemoveSignature = async () => {
-    setProfile({ ...profile, signature_url: '' });
-    try {
-      localStorage.removeItem('escrow_company_signature_url');
-      const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
-      if (targetUserId) {
-        await supabase
-          .from('profiles')
-          .update({ signature_url: null, updated_at: new Date().toISOString() })
-          .eq('user_id', targetUserId);
-        await refreshProfile();
-        void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
-        void queryClient.invalidateQueries({ queryKey: ['profile', targetUserId] });
-      }
-      toast({
-        title: "Signature Removed",
-        description: "Authorized signature has been removed."
-      });
-    } catch (err) {
-      console.error('Error removing signature:', err);
     }
   };
 
@@ -1272,13 +1572,22 @@ const SettingsPage = () => {
   const fetchProfile = useCallback(async () => {
     try {
       const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
-      if (!targetUserId) return;
+      if (!targetUserId) {
+        setLoading(false);
+        return;
+      }
 
-      const { data, error } = await supabase
+      const client = serviceSupabase || supabase;
+      const profQuery = (client as any)
         .from('profiles')
         .select('*')
         .eq('user_id', targetUserId)
         .maybeSingle();
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error('Profile fetch timeout')), 2500)
+      );
+
+      const { data, error } = await Promise.race([profQuery, timeoutPromise]);
 
       if (error && error.code !== 'PGRST116') {
         throw error;
@@ -1286,12 +1595,6 @@ const SettingsPage = () => {
 
       if (data) {
         const pData = data as Partial<Profile>;
-        if (pData.logo_url) {
-          try { localStorage.setItem('escrow_company_logo_url', pData.logo_url); } catch {}
-        }
-        if (pData.signature_url) {
-          try { localStorage.setItem('escrow_company_signature_url', pData.signature_url); } catch {}
-        }
         setProfile({
           company_name: pData.company_name || '',
           business_address: pData.business_address || '',
@@ -1311,8 +1614,17 @@ const SettingsPage = () => {
           account_number: pData.account_number || '',
           ifsc_code: pData.ifsc_code || '',
           account_type: pData.account_type || '',
-          subscription_expires_at: pData.subscription_expires_at || null
+          subscription_expires_at: pData.subscription_expires_at || null,
+          plan_type: (pData as any).plan_type || null,
+          custom_price: (pData as any).custom_price !== undefined ? (pData as any).custom_price : null
         });
+
+        if ((pData as any).custom_price !== undefined && (pData as any).custom_price !== null) {
+          const cPrice = Number((pData as any).custom_price);
+          if (!isNaN(cPrice) && cPrice >= 0) {
+            setUserCustomPrice(cPrice);
+          }
+        }
 
         setGstVerified(false);
         setVerifiedGstName(null);
@@ -1332,6 +1644,19 @@ const SettingsPage = () => {
   const handleProfileSave = async () => {
     // If staff account, save personal details to auth metadata
     if (isStaff) {
+      let cleanStaffPhone = personalPhone.trim();
+      if (cleanStaffPhone) {
+        cleanStaffPhone = cleanStaffPhone.replace(/\D/g, '').slice(-10);
+        if (!/^[6-9]\d{9}$/.test(cleanStaffPhone)) {
+          toast({
+            variant: "destructive",
+            title: "Validation Error",
+            description: "Mobile number must be a valid 10-digit number starting with 6, 7, 8, or 9."
+          });
+          return;
+        }
+      }
+
       setProfileSaving(true);
       try {
         if (user?.id) {
@@ -1339,10 +1664,50 @@ const SettingsPage = () => {
             data: {
               full_name: personalName.trim(),
               name: personalName.trim(),
-              mobile: personalPhone.trim()
+              mobile: cleanStaffPhone || null
             }
           });
           if (authError) throw authError;
+
+          // Sync to company_staff table & profiles table
+          const clientToUse = serviceSupabase || supabase;
+          try {
+            const staffUpdatePayload = {
+              name: personalName.trim(),
+              phone: cleanStaffPhone || null,
+              updated_at: new Date().toISOString()
+            };
+
+            const { data: updatedById, error: errById } = await (clientToUse as any)
+              .from('company_staff')
+              .update(staffUpdatePayload)
+              .eq('user_id', user.id)
+              .select('id');
+
+            if (!errById && (!updatedById || updatedById.length === 0) && user.email) {
+              const escapedEmail = user.email.trim().replace(/[_%]/g, '\\$&');
+              await (clientToUse as any)
+                .from('company_staff')
+                .update(staffUpdatePayload)
+                .ilike('email', escapedEmail);
+            }
+          } catch (e) {
+            console.warn('Could not update company_staff:', e);
+          }
+
+          try {
+            await clientToUse
+              .from('profiles')
+              .update({
+                phone: cleanStaffPhone || null,
+                mobile: cleanStaffPhone || null
+              })
+              .eq('user_id', user.id);
+          } catch (e) {
+            console.warn('Could not update profiles:', e);
+          }
+
+          void refreshProfile(true).catch(e => console.warn('Background refreshProfile notice:', e));
           toast({
             title: "Success",
             description: "Your staff profile has been updated."
@@ -1359,6 +1724,19 @@ const SettingsPage = () => {
         setProfileSaving(false);
       }
       return;
+    }
+
+    // Business phone validation if provided
+    if (profile.phone && profile.phone.trim()) {
+      const cleanPhone = profile.phone.replace(/\D/g, '').slice(-10);
+      if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+        toast({
+          variant: "destructive",
+          title: "Validation Error",
+          description: "Business Phone must be a valid 10-digit mobile number starting with 6, 7, 8, or 9."
+        });
+        return;
+      }
     }
 
     // Native HTML5 validation doesn't work well outside a form submit, so we validate manually here.
@@ -1380,23 +1758,127 @@ const SettingsPage = () => {
       return;
     }
 
-    setProfileSaving(true);
-    try {
-      // Exclude subscription_expires_at from manual profile update to prevent constraint issues
-      const { subscription_expires_at, ...profileToSave } = profile;
+    const targetUid = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+    if (!targetUid) {
+      toast({
+        variant: "destructive",
+        title: "Session Expired",
+        description: "Please refresh the page or log in again to save your profile."
+      });
+      return;
+    }
 
-      const { error } = await supabase
+    setProfileSaving(true);
+    const safetyTimer = setTimeout(() => {
+      setProfileSaving(false);
+    }, 6000);
+
+    try {
+      const {
+        company_name,
+        business_address,
+        gstin,
+        phone,
+        website,
+        logo_url,
+        signature_url,
+        upi_qr_url,
+        upi_id,
+        settings_locked,
+        state,
+        city,
+        pincode,
+        bank_name,
+        account_holder_name,
+        account_number,
+        ifsc_code,
+        account_type,
+        plan_type
+      } = profile as any;
+
+      const profilePayload = {
+        user_id: targetUid,
+        company_name: (company_name && company_name.trim()) || null,
+        business_address: (business_address && business_address.trim()) || null,
+        gstin: (gstin && gstin.trim()) || null,
+        phone: phone || null,
+        mobile: phone || profile.mobile || null,
+        website: website || null,
+        logo_url: logo_url || null,
+        signature_url: signature_url || null,
+        upi_qr_url: upi_qr_url || null,
+        upi_id: upi_id || null,
+        settings_locked: !!settings_locked,
+        state: state || null,
+        city: city || null,
+        pincode: pincode || null,
+        bank_name: bank_name || null,
+        account_holder_name: account_holder_name || null,
+        account_number: account_number || null,
+        ifsc_code: ifsc_code || null,
+        account_type: account_type || null,
+        plan_type: plan_type || 'monthly',
+        updated_at: new Date().toISOString()
+      };
+
+      const clientToUse = serviceSupabase || supabase;
+      const updatePromise = (clientToUse as any)
         .from('profiles')
-        .upsert({
-          user_id: user?.id,
-          ...profileToSave,
-          mobile: profile.phone || null,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+        .update(profilePayload)
+        .eq('user_id', targetUid);
+
+      const timeoutPromise = new Promise<{ error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error('Profile update timed out. Please check your internet connection.')), 5000)
+      );
+
+      let { error } = await Promise.race([updatePromise, timeoutPromise]);
+
+      if (error) {
+        const insertPromise = (clientToUse as any)
+          .from('profiles')
+          .insert(profilePayload);
+        const { error: insErr } = await Promise.race([insertPromise, timeoutPromise]);
+        error = insErr;
+      }
 
       if (error) throw error;
 
-      await refreshProfile();
+      // Instantly apply saved changes to local state, converting nulls back to empty strings for inputs
+      setProfile(prev => ({
+        ...prev,
+        ...profilePayload,
+        company_name: profilePayload.company_name ?? '',
+        business_address: profilePayload.business_address ?? '',
+        gstin: profilePayload.gstin ?? '',
+        phone: profilePayload.phone ?? '',
+        mobile: profilePayload.mobile ?? '',
+        website: profilePayload.website ?? '',
+        logo_url: profilePayload.logo_url ?? '',
+        signature_url: profilePayload.signature_url ?? '',
+        upi_qr_url: profilePayload.upi_qr_url ?? '',
+        upi_id: profilePayload.upi_id ?? '',
+        state: profilePayload.state ?? '',
+        city: profilePayload.city ?? '',
+        pincode: profilePayload.pincode ?? '',
+        bank_name: profilePayload.bank_name ?? '',
+        account_holder_name: profilePayload.account_holder_name ?? '',
+        account_number: profilePayload.account_number ?? '',
+        ifsc_code: profilePayload.ifsc_code ?? '',
+        account_type: profilePayload.account_type ?? '',
+      }));
+
+      // Non-blocking sync to auth metadata
+      if (user?.id && !isStaff) {
+        supabase.auth.updateUser({
+          data: {
+            company_name: (company_name && company_name.trim()) || null,
+            mobile: phone || profile.mobile || null
+          }
+        }).catch(() => {});
+      }
+
+      // Non-blocking refresh of profile in background
+      void refreshProfile(true).catch(e => console.warn('Background refreshProfile notice:', e));
 
       if (profile.settings_locked) {
         toast({
@@ -1405,50 +1887,56 @@ const SettingsPage = () => {
         });
       } else {
         toast({
-          title: "Profile Saved! ⚠️ Action Recommended",
-          description: "Business settings saved successfully. Please click 'Lock Info' to secure your company & GST details from accidental edits.",
-          duration: 6000
+          title: "Profile Saved Successfully ✓",
+          description: "Your business identity, bank details, and UPI settings have been updated.",
+          duration: 4000
         });
       }
 
       // Invalidate queries to update Dashboard and other components immediately
-      void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['profile', targetUid] });
     } catch (error: any) {
       console.error('Error saving profile:', error);
+      const detailedMessage = error?.message || error?.details || error?.hint || (typeof error === 'object' ? JSON.stringify(error) : String(error));
       toast({
         variant: "destructive",
-        title: "Error",
-        description: error?.message || "Failed to save settings."
+        title: "Error Saving Profile",
+        description: detailedMessage || "Failed to save settings."
       });
     } finally {
+      clearTimeout(safetyTimer);
       setProfileSaving(false);
     }
   };
 
   const handleToggleLock = async () => {
     if (isStaff) return;
+    const targetUid = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+    if (!targetUid) return;
+
     const newLockState = !profile.settings_locked;
     setProfile(prev => ({ ...prev, settings_locked: newLockState }));
 
     try {
-      const { error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { error } = await (clientToUse as any)
         .from('profiles')
-        .update({ 
+        .update({
           settings_locked: newLockState,
           updated_at: new Date().toISOString()
         })
-        .eq('user_id', user?.id);
+        .eq('user_id', targetUid);
 
       if (error) throw error;
 
       toast({
         title: newLockState ? "Profile Locked 🔒" : "Profile Unlocked 🔓",
-        description: newLockState 
-          ? "Your business settings are now securely locked against accidental changes." 
+        description: newLockState
+          ? "Your business settings are now securely locked against accidental changes."
           : "Your business settings are unlocked. You can now edit your details."
       });
 
-      void queryClient.invalidateQueries({ queryKey: ['profile', user?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['profile', targetUid] });
     } catch (err: any) {
       console.error('Error toggling lock in database:', err);
     }
@@ -1459,11 +1947,17 @@ const SettingsPage = () => {
       const targetUserId = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
       if (!targetUserId) return;
 
-      const { data, error } = await supabase
+      const client = serviceSupabase || supabase;
+      const settingsQuery = (client as any)
         .from('user_settings')
         .select('*')
         .eq('user_id', targetUserId)
         .maybeSingle();
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error('Settings fetch timeout')), 2500)
+      );
+
+      const { data, error } = await Promise.race([settingsQuery, timeoutPromise]);
 
       if (error && error.code !== 'PGRST116') {
         throw error;
@@ -1480,20 +1974,172 @@ const SettingsPage = () => {
           default_currency: sData.default_currency || 'INR',
           default_payment_terms: sData.default_payment_terms || 'Net 30',
           default_terms: (sData as any).default_terms || '',
-          invoice_template: sData.invoice_template || 'corporate',
+          invoice_template: (sData.invoice_template && !sData.invoice_template.startsWith('auto_')) ? sData.invoice_template : 'corporate',
           hide_company_details: sData.hide_company_details ?? false,
-          whatsapp_provider: (sData as any).whatsapp_provider || 'meta'
+          whatsapp_provider: (sData as any).whatsapp_provider || 'personal'
         });
+      }
 
-        if ((sData as any)?.downpayment_template) {
-          setDownpaymentTemplate((sData as any).downpayment_template);
-          localStorage.setItem('downpayment_template', (sData as any).downpayment_template);
+      // Fetch persisted downpayment_template and purchase_bill_template from system_settings or localStorage
+      // Also fetch dynamic platform pricing and user's custom rate override (runs whether user_settings exists or not)
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const targetUid = effectiveUserId || user?.id;
+        const cleanEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+
+        const keysToFetch = [
+          `downpayment_template_${targetUid}`,
+          `purchase_bill_template_${targetUid}`,
+          'pricing_monthly',
+          'pricing_yearly',
+          `user_plan_price_${targetUid}`,
+          `user_payment_record_${targetUid}`
+        ];
+        if (cleanEmail) {
+          keysToFetch.push(`user_plan_price_${cleanEmail}`);
+          keysToFetch.push(`user_payment_record_${cleanEmail}`);
         }
+
+        const { data: pricingAndTemplateData } = await (clientToUse as any)
+          .from('system_settings')
+          .select('key, value')
+          .in('key', keysToFetch);
+
+        if (pricingAndTemplateData && Array.isArray(pricingAndTemplateData)) {
+          pricingAndTemplateData.forEach((item: any) => {
+            let val = item.value;
+            try { val = typeof val === 'string' ? JSON.parse(val) : val; } catch { }
+
+            if (item.key === `downpayment_template_${targetUid}` && val) {
+              setDownpaymentTemplate(val as AutoTemplateId);
+              localStorage.setItem('downpayment_template', val);
+            } else if (item.key === `purchase_bill_template_${targetUid}` && val) {
+              setPurchaseBillTemplate(val as PurchaseTemplateId);
+              localStorage.setItem('purchase_bill_template', val);
+            } else if (item.key === 'pricing_monthly') {
+              const num = Number(val);
+              if (!isNaN(num) && num > 0) {
+                setPlatformMonthlyPrice(num);
+                localStorage.setItem('escrow_platform_monthly', String(num));
+              }
+            } else if (item.key === 'pricing_yearly') {
+              const num = Number(val);
+              if (!isNaN(num) && num > 0) {
+                setPlatformYearlyPrice(num);
+                localStorage.setItem('escrow_platform_yearly', String(num));
+              }
+            } else if (
+              item.key === `user_plan_price_${targetUid}` ||
+              item.key === `user_payment_record_${targetUid}` ||
+              (cleanEmail && (item.key === `user_plan_price_${cleanEmail}` || item.key === `user_payment_record_${cleanEmail}`))
+            ) {
+              if (typeof val === 'object' && val !== null) {
+                if (val.monthly !== undefined && !isNaN(Number(val.monthly)) && Number(val.monthly) >= 0) {
+                  const m = Number(val.monthly);
+                  setUserCustomMonthlyPrice(m);
+                  if (targetUid) localStorage.setItem(`escrow_user_custom_monthly_${targetUid}`, String(m));
+                  if (cleanEmail) localStorage.setItem(`escrow_user_custom_monthly_${cleanEmail}`, String(m));
+                }
+                if (val.yearly !== undefined && !isNaN(Number(val.yearly)) && Number(val.yearly) >= 0) {
+                  const y = Number(val.yearly);
+                  setUserCustomYearlyPrice(y);
+                  if (targetUid) localStorage.setItem(`escrow_user_custom_yearly_${targetUid}`, String(y));
+                  if (cleanEmail) localStorage.setItem(`escrow_user_custom_yearly_${cleanEmail}`, String(y));
+                }
+                if (val.amount !== undefined && !isNaN(Number(val.amount)) && Number(val.amount) >= 0) {
+                  setUserCustomPrice(Number(val.amount));
+                }
+              } else {
+                const num = Number(val);
+                if (!isNaN(num) && num >= 0) setUserCustomPrice(num);
+              }
+            }
+          });
+        }
+
+        const localTpl = (localStorage.getItem('downpayment_template') as AutoTemplateId) || 'auto_classic';
+        if (!localStorage.getItem('downpayment_template')) setDownpaymentTemplate(localTpl);
+        const localPurchTpl = (localStorage.getItem('purchase_bill_template') as PurchaseTemplateId) || 'classic-blue';
+        if (!localStorage.getItem('purchase_bill_template')) setPurchaseBillTemplate(localPurchTpl);
+      } catch {
+        const localTpl = (localStorage.getItem('downpayment_template') as AutoTemplateId) || 'auto_classic';
+        setDownpaymentTemplate(localTpl);
+        const localPurchTpl = (localStorage.getItem('purchase_bill_template') as PurchaseTemplateId) || 'classic-blue';
+        setPurchaseBillTemplate(localPurchTpl);
       }
     } catch (error) {
       console.error('Error fetching settings:', error);
     }
   }, [user, isStaff, effectiveUserId]);
+
+  // Realtime synchronization for Platform Default Pricing & Admin User Plan Changes
+  useEffect(() => {
+    const targetUid = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+    if (!targetUid) return;
+
+    const handlePlatformUpdate = (e: any) => {
+      const { monthly, yearly } = e.detail || {};
+      if (monthly) {
+        const m = Number(monthly);
+        if (!isNaN(m) && m > 0) {
+          setPlatformMonthlyPrice(m);
+          localStorage.setItem('escrow_platform_monthly', String(m));
+        }
+      }
+      if (yearly) {
+        const y = Number(yearly);
+        if (!isNaN(y) && y > 0) {
+          setPlatformYearlyPrice(y);
+          localStorage.setItem('escrow_platform_yearly', String(y));
+        }
+      }
+    };
+
+    const handlePlanUpdate = (e: any) => {
+      const data = e.detail;
+      const myEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+      const matchesUser = data && (data.userId === targetUid || (myEmail && data.email && myEmail === String(data.email).toLowerCase().trim()));
+      if (matchesUser) {
+        if (data.customMonthlyPrice !== undefined) {
+          const num = Number(data.customMonthlyPrice);
+          if (!isNaN(num) && num >= 0) {
+            setUserCustomMonthlyPrice(num);
+            if (targetUid) localStorage.setItem(`escrow_user_custom_monthly_${targetUid}`, String(num));
+            if (myEmail) localStorage.setItem(`escrow_user_custom_monthly_${myEmail}`, String(num));
+          }
+        }
+        if (data.customYearlyPrice !== undefined) {
+          const num = Number(data.customYearlyPrice);
+          if (!isNaN(num) && num >= 0) {
+            setUserCustomYearlyPrice(num);
+            if (targetUid) localStorage.setItem(`escrow_user_custom_yearly_${targetUid}`, String(num));
+            if (myEmail) localStorage.setItem(`escrow_user_custom_yearly_${myEmail}`, String(num));
+          }
+        }
+        if (data.customPrice !== undefined) {
+          const num = Number(data.customPrice);
+          if (!isNaN(num) && num >= 0) setUserCustomPrice(num);
+        }
+        if (data.planType) {
+          setProfile(prev => ({
+            ...prev,
+            plan_type: data.planType,
+            subscription_expires_at: data.expiresAt || prev.subscription_expires_at,
+            custom_price: data.customPrice !== undefined ? Number(data.customPrice) : prev.custom_price
+          }));
+        }
+        void fetchProfile();
+      }
+    };
+
+    window.addEventListener('escrow_platform_pricing_updated', handlePlatformUpdate);
+    window.addEventListener('escrow_plan_updated', handlePlanUpdate);
+
+    return () => {
+      window.removeEventListener('escrow_platform_pricing_updated', handlePlatformUpdate);
+      window.removeEventListener('escrow_plan_updated', handlePlanUpdate);
+    };
+  }, [user?.id, isStaff, effectiveUserId, fetchProfile]);
 
   useEffect(() => {
     if (user) {
@@ -1507,15 +2153,25 @@ const SettingsPage = () => {
     overrideSettings?: UserSettings,
     { showToast = true, isManual = false }: { showToast?: boolean; isManual?: boolean } = {}
   ): Promise<boolean> => {
-    const payload = overrideSettings || settings;
+    const rawPayload = overrideSettings || settings;
+    // Strip custom properties that don't belong to the user_settings table
+    const { downpayment_template: _dpTpl, ...payload } = (rawPayload as any);
+    const targetUid = (isStaff && effectiveUserId) ? effectiveUserId : user?.id;
+    if (!targetUid) return false;
+
+    let safetyTimer: any = null;
     if (isManual) {
       setSettingsSaving(true);
+      safetyTimer = setTimeout(() => {
+        setSettingsSaving(false);
+      }, 5000);
     }
     try {
-      const { error } = await supabase
+      const clientToUse = serviceSupabase || supabase;
+      const { error } = await (clientToUse as any)
         .from('user_settings')
         .upsert({
-          user_id: user?.id,
+          user_id: targetUid,
           ...payload
         }, { onConflict: 'user_id' });
 
@@ -1542,6 +2198,7 @@ const SettingsPage = () => {
       });
       return false;
     } finally {
+      if (safetyTimer) clearTimeout(safetyTimer);
       if (isManual) {
         setSettingsSaving(false);
       }
@@ -1712,6 +2369,7 @@ const SettingsPage = () => {
         .eq('user_id', user?.id);
 
       // Create a new workbook
+      const XLSX = await import('xlsx');
       const wb = XLSX.utils.book_new();
 
       // Add each data set as a sheet if it exists
@@ -1781,7 +2439,10 @@ const SettingsPage = () => {
         <div className="bg-background border-b -mx-4 px-4 py-2 mb-6 sticky top-0 z-10 shadow-sm">
           <div className="relative w-full">
             <div className="w-full overflow-x-auto no-scrollbar flex scroll-smooth">
-              <TabsList className="inline-flex min-w-max md:w-full md:grid md:grid-cols-4 h-auto p-1.5 bg-muted/80 backdrop-blur-md rounded-xl gap-1.5 shadow-xs">
+              <TabsList className={cn(
+                "inline-flex min-w-max md:w-full md:grid h-auto p-1.5 bg-muted/80 backdrop-blur-md rounded-xl gap-1.5 shadow-xs",
+                !isStaff ? "md:grid-cols-5" : "md:grid-cols-4"
+              )}>
                 <TabsTrigger value="business" className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs font-bold uppercase tracking-wider whitespace-nowrap">
                   <Building2 className="w-4 h-4 shrink-0" />
                   <span>{isStaff ? 'Staff Profile' : 'Business Identity'}</span>
@@ -1798,6 +2459,12 @@ const SettingsPage = () => {
                   <SlidersHorizontal className="w-4 h-4 shrink-0" />
                   <span>Preferences & Security</span>
                 </TabsTrigger>
+                {!isStaff && (
+                  <TabsTrigger value="backup" className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                    <Cloud className="w-4 h-4 shrink-0 text-primary" />
+                    <span>Backup & Vault</span>
+                  </TabsTrigger>
+                )}
               </TabsList>
             </div>
             {/* Subtle right fade edge on mobile to indicate scrollability */}
@@ -1806,2726 +2473,135 @@ const SettingsPage = () => {
         </div>
         <div className="w-full max-w-7xl mx-auto space-y-6 transition-all duration-300">
           <TabsContent value="membership" className="m-0 space-y-6">
-            {/* 1. TOP MEMBERSHIP STATUS HERO */}
-            <Card className="rounded-2xl border border-border shadow-md bg-card overflow-hidden" id="membership">
-              <div className="p-5 md:p-8 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-5 bg-gradient-to-r from-primary/10 via-emerald-500/10 to-transparent">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-emerald-600 text-white flex items-center justify-center shadow-lg shadow-primary/20 shrink-0">
-                    <Crown className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <h2 className="text-2xl font-black tracking-tight text-foreground">Membership & Subscription</h2>
-                      <Badge variant="outline" className={cn(
-                        "text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full shadow-xs",
-                        isStaff
-                          ? "bg-blue-500/15 text-blue-600 border-blue-500/30"
-                          : profile.subscription_expires_at 
-                            ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30"
-                            : isTrialActive 
-                              ? "bg-amber-500/15 text-amber-600 border-amber-500/30"
-                              : "bg-muted text-muted-foreground border-border"
-                      )}>
-                        {isStaff 
-                          ? 'ENTERPRISE SEAT' 
-                          : profile.subscription_expires_at 
-                            ? 'PRO UNLIMITED' 
-                            : isTrialActive 
-                              ? '7-DAY TRIAL' 
-                              : 'FREE TIER'}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground font-medium mt-1">
-                      {isStaff
-                        ? 'Staff seat operating under authorized enterprise company license'
-                        : profile.subscription_expires_at
-                          ? `Active & Verified • Valid until ${safelyToLocaleDate(profile.subscription_expires_at)} (${countdownText})`
-                          : isTrialActive
-                            ? `${trialDaysRemaining} days remaining in your unrestricted Pro trial`
-                            : 'Upgrade to remove limits and unlock all 10 invoice templates and automated billing'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Status indicator / Expiry badge */}
-                {!isStaff && profile.subscription_expires_at && (
-                  <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-xl text-emerald-700 dark:text-emerald-300 shrink-0">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <div className="text-left">
-                      <p className="text-[10px] font-black uppercase tracking-wider leading-none">Subscription Active</p>
-                      <p className="text-xs font-bold mt-0.5">{countdownText}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Staff inheritance banner */}
-              {isStaff && (
-                <div className="m-4 md:m-8 p-5 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center gap-4 text-blue-900 dark:text-blue-200 text-xs font-medium">
-                  <ShieldCheck className="w-7 h-7 shrink-0 text-blue-600" />
-                  <div>
-                    <p className="font-bold text-sm">Enterprise Multi-Seat License</p>
-                    <p className="text-xs opacity-90 mt-0.5 leading-relaxed">
-                      Your staff seat inherits unlimited Pro invoicing, automated e-way billing, and custom templates from <strong>{companyProfile?.company_name || profile.company_name || 'Your Company'}</strong>.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Trial active notice banner */}
-              {!isStaff && isTrialActive && (
-                <div className="m-4 md:m-8 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-orange-500/10 border border-amber-300 dark:border-amber-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
-                      <Clock className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-amber-950 dark:text-amber-200">You are enjoying full Pro features during your 7-Day Trial</p>
-                      <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
-                        {trialDaysRemaining} days remaining. Lock in your introductory pricing below to prevent any workflow interruption.
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      const el = document.getElementById('pricing-plans-section');
-                      if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className="shrink-0 h-9 font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white uppercase tracking-wider shadow-sm"
-                  >
-                    View Upgrade Plans
-                  </Button>
-                </div>
-              )}
-
-              {/* 2. COMPREHENSIVE MEMBERSHIP & LICENSE DETAILS (Details Pure Do) */}
-              <div className="p-4 md:p-8 space-y-6">
-                {/* 4-Stat Metric Summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 rounded-xl border border-border bg-card space-y-1.5 shadow-2xs hover:border-primary/40 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Current Plan</span>
-                      <Badge className={cn(
-                        "text-[10px] font-bold uppercase py-0.5",
-                        isProActive ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-muted text-muted-foreground"
-                      )}>
-                        {isProActive ? 'Active Pro' : isTrialActive ? 'Trial' : 'Free'}
-                      </Badge>
-                    </div>
-                    <p className="text-xl font-black text-foreground">Pro Unlimited</p>
-                    <p className="text-[11px] text-muted-foreground">All features & 10 templates unlocked</p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-border bg-card space-y-1.5 shadow-2xs hover:border-primary/40 transition-colors">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Valid Until</span>
-                    <p className="text-xl font-black text-foreground">
-                      {profile.subscription_expires_at ? safelyToLocaleDate(profile.subscription_expires_at) : (isTrialActive ? `${trialDaysRemaining} Days left` : 'Expired')}
-                    </p>
-                    <p className="text-[11px] text-emerald-600 font-semibold">{countdownText || 'Requires Activation'}</p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-border bg-card space-y-1.5 shadow-2xs hover:border-primary/40 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Tax Invoicing</span>
-                      <span className="text-[10px] font-black text-primary bg-primary/10 px-1.5 py-0.5 rounded">SAC 998313</span>
-                    </div>
-                    <p className="text-xl font-black text-foreground">100% ITC Eligible</p>
-                    <p className="text-[11px] text-muted-foreground">Full Input Tax Credit claimable</p>
-                  </div>
-
-                  <div className="p-4 rounded-xl border border-border bg-card space-y-1.5 shadow-2xs hover:border-primary/40 transition-colors">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Team Access</span>
-                    <p className="text-xl font-black text-foreground">Multi-Seat Team</p>
-                    <p className="text-[11px] text-muted-foreground">Unlimited staff & custom roles</p>
-                  </div>
-                </div>
-
-                {/* Detailed License Information Card */}
-                <div className="p-5 md:p-6 rounded-2xl border border-border bg-muted/10 space-y-4">
-                  <div className="flex items-center justify-between border-b border-border/60 pb-3 flex-wrap gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <Award className="w-5 h-5 text-primary" />
-                      <h4 className="text-sm font-bold text-foreground uppercase tracking-wider">License & Account Specifications</h4>
-                    </div>
-                    <span className="text-[11px] font-mono font-bold bg-background border border-border px-2.5 py-1 rounded-md text-muted-foreground">
-                      License ID: EB-PRO-{(effectiveUserId || user?.id || '00000000').slice(0, 8).toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Licensed Entity / Company:</span>
-                        <span className="font-bold text-foreground">{companyProfile?.company_name || profile.company_name || 'Personal Business Account'}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Registered Admin Email:</span>
-                        <span className="font-bold text-foreground">{user?.email || '—'}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Registered Phone:</span>
-                        <span className="font-bold text-foreground">{profile.phone || user?.user_metadata?.mobile || 'Not set'}</span>
-                      </div>
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Registered GSTIN:</span>
-                        <span className="font-bold text-primary uppercase">{profile.gstin || 'Unregistered / Consumer'}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Subscription Type:</span>
-                        <span className="font-bold text-foreground">
-                          {isProActive 
-                            ? (profile.subscription_expires_at && (new Date(profile.subscription_expires_at).getTime() - now.getTime() > 100 * 864e5) ? 'Annual Pro (Yearly)' : 'Monthly Pro')
-                            : isTrialActive ? '7-Day Full Pro Trial' : 'Free Starter Tier'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Expiry / Renewal Date:</span>
-                        <span className="font-bold text-emerald-600">
-                          {profile.subscription_expires_at ? safelyToLocaleDate(profile.subscription_expires_at) : (isTrialActive ? `${trialDaysRemaining} days remaining` : 'Expired')}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Service Classification:</span>
-                        <span className="font-bold text-foreground">SAC 998313 (Software ERP Services)</span>
-                      </div>
-                      <div className="flex items-center justify-between py-1 border-b border-border/40">
-                        <span className="text-muted-foreground font-medium">Payment Verification:</span>
-                        <span className="font-bold text-emerald-600 flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Razorpay Verified Gateway
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Active Privileges & Entitlements Grid */}
-                <div className="p-5 md:p-6 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 via-primary/5 to-transparent space-y-4">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-600">
-                      <Sparkles className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-foreground uppercase tracking-wide">Active Features & Entitlements</h4>
-                      <p className="text-xs text-muted-foreground">Full operational capabilities included in your current subscription</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1 text-xs">
-                    {[
-                      { title: 'Unlimited GST Invoices', desc: 'No limits on bill generation' },
-                      { title: 'All 10 Invoice Templates', desc: 'Tally 46, Corporate, UPI, Export, POS' },
-                      { title: 'Dynamic UPI QR Codes', desc: '0% fee instant scan settlements' },
-                      { title: '1-Click WhatsApp Invoicing', desc: 'Direct PDF dispatch to clients' },
-                      { title: 'E-Way Bill & E-Invoice', desc: 'Pre-formatted compliant exports' },
-                      { title: 'Staff & Roles Delegation', desc: 'Custom permission controls' },
-                      { title: 'Financial Ledger Export', desc: '1-click offline Excel reports' },
-                      { title: 'Bank-Grade 256-Bit Cloud', desc: 'Encrypted daily auto-backups' }
-                    ].map((feat, i) => (
-                      <div key={i} className="flex items-start gap-2.5 p-3 rounded-xl bg-card border border-border/70 shadow-2xs">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-bold text-foreground text-xs">{feat.title}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{feat.desc}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 3. EXTEND OR RENEW SUBSCRIPTION SECTION (PERMANENTLY VISIBLE, NOT EXPANDABLE) */}
-                <div className="p-6 md:p-8 rounded-2xl border-2 border-primary/30 bg-gradient-to-b from-primary/[0.03] to-card space-y-6 shadow-sm" id="pricing-plans-section">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/70 pb-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest px-2 py-0.5">
-                          {isProActive ? "VALIDITY EXTENSION" : "UPGRADE PLANS"}
-                        </Badge>
-                        <h3 className="text-xl font-black text-foreground">
-                          {isProActive ? "Extend Validity / Add More Time" : "Choose Your Subscription Plan"}
-                        </h3>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {isProActive
-                          ? `Your plan is currently active with ${countdownText} remaining. Any extension seamlessly adds time (30 or 365 days) directly to your existing expiry date!`
-                          : "Simple, transparent pricing. GST tax invoice provided automatically for 100% Input Tax Credit."}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0 text-xs font-semibold text-emerald-600 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20">
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Zero Days Lost • Seamless Stacking</span>
-                    </div>
-                  </div>
-
-                  {/* Plan Cards Grid (Always Open / Non-Expandable) */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* MONTHLY PLAN CARD */}
-                    <div
-                      onClick={() => setSelectedPlan('monthly')}
-                      className={cn(
-                        "relative rounded-2xl border-2 p-6 flex flex-col justify-between transition-all duration-200 cursor-pointer bg-card hover:shadow-lg",
-                        selectedPlan === 'monthly'
-                          ? "border-primary ring-2 ring-primary/20 shadow-md bg-primary/[0.02]"
-                          : "border-border hover:border-primary/40"
-                      )}
-                    >
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                              {isProActive ? "+30 Days Extension" : "Flexible Monthly"}
-                            </span>
-                            <h4 className="text-2xl font-black text-foreground mt-0.5">Monthly Plan</h4>
-                          </div>
-                          <div className={cn(
-                            "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                            selectedPlan === 'monthly' ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                          )}>
-                            {selectedPlan === 'monthly' && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-3xl font-black text-foreground">₹349</span>
-                            <span className="text-xs text-muted-foreground font-semibold">/ month</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {isProActive 
-                              ? "Adds 30 full days directly to your current expiry date." 
-                              : "Billed monthly. Pause, renew or cancel anytime with one click."}
-                          </p>
-                        </div>
-
-                        <div className="pt-3 border-t border-border/60 space-y-2.5">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Plan Features:</p>
-                          {[
-                            'Unlimited GST Invoices & Bills',
-                            'All 10 GST & Export Invoice Templates',
-                            'Dynamic UPI QR Codes on Bills (PhonePe, GPay)',
-                            '1-Click WhatsApp & Email Invoicing',
-                            'Automated Overdue Payment Reminders',
-                            'Staff Accounts & Custom Permissions',
-                            'Instant Excel Financial Reports & Exports'
-                          ].map((feat, i) => (
-                            <div key={i} className="flex items-center gap-2.5 text-xs text-foreground/90">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                              <span>{feat}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="pt-6">
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPlan('monthly');
-                            handleUpgrade();
-                          }}
-                          disabled={settingsSaving}
-                          variant={selectedPlan === 'monthly' ? "default" : "outline"}
-                          className="w-full h-11 font-bold text-xs uppercase tracking-wider gap-2 shadow-sm"
-                        >
-                          <Zap className="w-4 h-4" />
-                          {settingsSaving && selectedPlan === 'monthly'
-                            ? 'Preparing Checkout...'
-                            : isProActive ? 'Extend 1 Month (+30 Days) • ₹349' : 'Upgrade Monthly (₹349)'}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* YEARLY PLAN CARD (FEATURED / BEST VALUE) */}
-                    <div
-                      onClick={() => setSelectedPlan('yearly')}
-                      className={cn(
-                        "relative rounded-2xl border-2 p-6 flex flex-col justify-between transition-all duration-200 cursor-pointer bg-card hover:shadow-xl",
-                        selectedPlan === 'yearly'
-                          ? "border-primary ring-2 ring-primary/40 shadow-xl bg-gradient-to-b from-primary/[0.04] to-card"
-                          : "border-border hover:border-primary/50"
-                      )}
-                    >
-                      {/* Popular ribbon */}
-                      <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-white text-[10px] font-black uppercase tracking-wider py-1 px-3.5 rounded-full shadow-md flex items-center gap-1.5 z-10">
-                        <Sparkles className="w-3 h-3 fill-current" />
-                        Best Value • 2 Months Free (Save 17%)
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className="text-[10px] font-black uppercase tracking-widest text-primary">
-                              {isProActive ? "+365 Days Extension" : "Annual Commitment"}
-                            </span>
-                            <h4 className="text-2xl font-black text-foreground mt-0.5">Yearly Plan</h4>
-                          </div>
-                          <div className={cn(
-                            "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
-                            selectedPlan === 'yearly' ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40"
-                          )}>
-                            {selectedPlan === 'yearly' && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex items-baseline gap-1.5">
-                            <span className="text-3xl font-black text-foreground">₹3,499</span>
-                            <span className="text-xs text-muted-foreground font-semibold">/ year</span>
-                            <span className="ml-2 text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                              ₹291/mo effective
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {isProActive
-                              ? "Adds 365 full days directly to your current expiry date with 2 months free."
-                              : "Billed annually. Includes 365 days of full unlimited access & VIP priority support."}
-                          </p>
-                        </div>
-
-                        <div className="pt-3 border-t border-border/60 space-y-2.5">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-primary">Everything in Monthly, plus:</p>
-                          {[
-                            'All Monthly Features Included',
-                            '2 Months Free (Save ₹689 annually)',
-                            'Priority 24/7 Dedicated WhatsApp Support',
-                            'Unlimited Staff & Multi-seat Team Logins',
-                            'Free GST & Regulatory Tax Updates for 1 Year',
-                            'Complimentary Custom Branding / Header Setup',
-                            'Dedicated Account Onboarding Assistance'
-                          ].map((feat, i) => (
-                            <div key={i} className="flex items-center gap-2.5 text-xs text-foreground/90 font-medium">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                              <span>{feat}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="pt-6">
-                        <Button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedPlan('yearly');
-                            handleUpgrade();
-                          }}
-                          disabled={settingsSaving}
-                          className="w-full h-11 font-bold text-xs uppercase tracking-wider gap-2 shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90 text-primary-foreground"
-                        >
-                          <Zap className="w-4 h-4 fill-current" />
-                          {settingsSaving && selectedPlan === 'yearly'
-                            ? 'Preparing Checkout...'
-                            : isProActive ? 'Extend 1 Year (+365 Days) • Save 17%' : 'Upgrade Yearly (₹3,499) • Save 17%'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stacking Guarantee Callout */}
-                  <div className="p-3.5 rounded-xl bg-background border border-border/80 text-xs text-muted-foreground flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-primary shrink-0" />
-                      <span>
-                        {isProActive ? (
-                          <>
-                            Selecting <strong>{selectedPlan === 'yearly' ? '1 Year (+365 Days)' : '1 Month (+30 Days)'}</strong> will extend your active expiry date without losing remaining time.
-                          </>
-                        ) : (
-                          <>Your membership activates instantly upon payment confirmation.</>
-                        )}
-                      </span>
-                    </div>
-                    <span className="font-semibold text-foreground">Instant Razorpay Gateway Activation</span>
-                  </div>
-                </div>
-
-                {/* 4. GST TAX INVOICE & VIP SUPPORT ASSISTANCE */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-5 rounded-2xl border border-border bg-card space-y-3">
-                    <div className="flex items-center gap-2.5 text-primary">
-                      <Receipt className="w-5 h-5" />
-                      <h4 className="font-bold text-sm text-foreground">Official GST Tax Invoice</h4>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Every membership payment generates an authorized digital GST Tax Invoice under SAC Code <strong>998313</strong>. Your registered GSTIN and company address will be automatically populated so you can claim 100% Input Tax Credit (ITC).
-                    </p>
-                    <div className="pt-1 flex items-center gap-2 text-xs font-semibold text-emerald-600">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>100% Tax Deductible Business Expense</span>
-                    </div>
-                  </div>
-
-                  <div className="p-5 rounded-2xl border border-border bg-card space-y-3">
-                    <div className="flex items-center gap-2.5 text-emerald-600">
-                      <Headphones className="w-5 h-5" />
-                      <h4 className="font-bold text-sm text-foreground">Dedicated VIP Customer Helpline</h4>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Need custom invoices, multi-branch setups, or billing queries? Our dedicated account managers are available directly on WhatsApp and phone for immediate assistance.
-                    </p>
-                    <div className="pt-1 flex items-center gap-3">
-                      <a
-                        href="https://wa.me/919328028207?text=Hello%2C%20I%20have%20a%20query%20about%20my%20EscrowBill%20subscription."
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Chat on WhatsApp</span>
-                      </a>
-                      <span className="text-xs text-muted-foreground font-medium">Phone: +91 93280 28207</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 5. VALUE HIGHLIGHTS 4-PILLAR GRID */}
-                <div className="pt-4 space-y-4">
-                  <h4 className="text-xs font-black uppercase tracking-widest text-muted-foreground text-center">
-                    Why Leading Businesses Choose Escrow Bill Pro
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="p-4 rounded-xl border border-border bg-card space-y-2">
-                      <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-600 flex items-center justify-center">
-                        <FileText className="w-5 h-5" />
-                      </div>
-                      <p className="font-bold text-sm text-foreground">10 Invoice Templates</p>
-                      <p className="text-xs text-muted-foreground">
-                        Switch between Tally Rule 46, Corporate, Export LUT, Retail POS & Creative formats instantly.
-                      </p>
-                    </div>
-
-                    <div className="p-4 rounded-xl border border-border bg-card space-y-2">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-                        <QrCode className="w-5 h-5" />
-                      </div>
-                      <p className="font-bold text-sm text-foreground">Instant UPI Payments</p>
-                      <p className="text-xs text-muted-foreground">
-                        Dynamic scannable UPI QR codes on every invoice for 3x faster settlements via PhonePe & GPay.
-                      </p>
-                    </div>
-
-                    <div className="p-4 rounded-xl border border-border bg-card space-y-2">
-                      <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-600 flex items-center justify-center">
-                        <Users className="w-5 h-5" />
-                      </div>
-                      <p className="font-bold text-sm text-foreground">Staff & Roles</p>
-                      <p className="text-xs text-muted-foreground">
-                        Add accountants, sales reps, and billing operators with granular permission controls.
-                      </p>
-                    </div>
-
-                    <div className="p-4 rounded-xl border border-border bg-card space-y-2">
-                      <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center">
-                        <ShieldCheck className="w-5 h-5" />
-                      </div>
-                      <p className="font-bold text-sm text-foreground">Data Sovereignty</p>
-                      <p className="text-xs text-muted-foreground">
-                        Bank-grade 256-bit encryption with complete 1-click Excel financial ledger export.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 6. TRUST, ITC & GUARANTEE RIBBON */}
-                <div className="p-4 md:p-6 border rounded-2xl bg-muted/20 flex flex-wrap items-center justify-around gap-4 text-center">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span>Razorpay Verified Gateway</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <Receipt className="w-4 h-4 text-primary" />
-                    <span>100% GST ITC Tax Invoice Provided</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <CreditCard className="w-4 h-4 text-indigo-600" />
-                    <span>UPI • Cards • NetBanking • EMI</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
-                    <span>7-Day Money-Back Guarantee</span>
-                  </div>
-                </div>
-
-                {/* 7. MEMBERSHIP FAQ */}
-                <div className="p-5 md:p-8 border rounded-2xl bg-card space-y-4">
-                  <div className="flex items-center gap-2">
-                    <HelpCircle className="w-4 h-4 text-primary" />
-                    <h4 className="text-sm font-bold text-foreground uppercase tracking-wider">Frequently Asked Questions</h4>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-3.5 rounded-xl border border-border/70 bg-muted/10 space-y-1">
-                      <p className="font-bold text-xs text-foreground">Will I get a GST tax invoice for this payment?</p>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        Yes! Immediately upon payment, an official GST tax invoice with your company name, address, and GSTIN is automatically generated under SAC 998313 so you can claim full Input Tax Credit (ITC).
-                      </p>
-                    </div>
-                    <div className="p-3.5 rounded-xl border border-border/70 bg-muted/10 space-y-1">
-                      <p className="font-bold text-xs text-foreground">Does early renewal overwrite my existing days?</p>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        No! All extensions stack seamlessly. If you have 30 days left and renew for 1 year, your new validity will be 395 days. You will never lose any active days.
-                      </p>
-                    </div>
-                    <div className="p-3.5 rounded-xl border border-border/70 bg-muted/10 space-y-1">
-                      <p className="font-bold text-xs text-foreground">What happens when my subscription period ends?</p>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        Your existing invoices, clients, products, and records remain 100% safe and intact. You can renew at any time without losing any historical data.
-                      </p>
-                    </div>
-                    <div className="p-3.5 rounded-xl border border-border/70 bg-muted/10 space-y-1">
-                      <p className="font-bold text-xs text-foreground">Which payment methods are supported?</p>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        We support all major payment modes including UPI (Google Pay, PhonePe, Paytm), Credit & Debit Cards (Visa, MasterCard, RuPay), and 50+ NetBanking banks.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
+            <MembershipTab
+              isStaff={isStaff}
+              profile={profile}
+              companyProfile={companyProfile}
+              user={user}
+              effectiveUserId={effectiveUserId}
+              isTrialActive={isTrialActive}
+              isProActive={isProActive}
+              trialDaysRemaining={trialDaysRemaining}
+              countdownText={countdownText}
+              safelyToLocaleDate={safelyToLocaleDate}
+              now={now}
+              selectedPlan={selectedPlan}
+              setSelectedPlan={setSelectedPlan}
+              handleUpgrade={handleUpgrade}
+              settingsSaving={settingsSaving}
+            />
           </TabsContent>
 
           <TabsContent value="business" className="m-0 space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* PRIMARY BUSINESS RECORDS (LEFT: 8 COLS) */}
-              <div className="lg:col-span-8 space-y-6">
-                {/* 1. Company Identity & Registration */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden" id="business">
-                  <div className="p-4 md:p-6 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-muted/10">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                        <Building2 className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-bold tracking-tight text-foreground">{isStaff ? 'Staff Profile & Organization' : 'Business Identity'}</h3>
-                        <p className="text-xs text-muted-foreground font-medium mt-0.5">
-                          {isStaff ? 'Personal staff profile and organization records' : 'Company profile used on invoices, receipts & GST returns'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {!isStaff && (
-                        <Button
-                          onClick={handleToggleLock}
-                          variant="outline"
-                          size="sm"
-                          className={cn(
-                            "relative h-9 rounded-md font-bold text-xs transition-all",
-                            !profile.settings_locked
-                              ? "border-amber-500/70 bg-amber-50/50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100/70 hover:border-amber-600 shadow-sm"
-                              : "border-border text-muted-foreground hover:text-foreground"
-                          )}
-                          title={profile.settings_locked ? "Click to unlock fields" : "Action recommended: Click to lock and protect company info"}
-                        >
-                          {profile.settings_locked ? (
-                            <>
-                              <Lock className="w-3.5 h-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
-                              Unlock
-                            </>
-                          ) : (
-                            <>
-                              <ShieldAlert className="w-3.5 h-3.5 mr-1.5 text-amber-500 shrink-0" />
-                              Lock Info
-                              <span className="ml-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-black text-white shadow-sm ring-2 ring-background animate-pulse">
-                                !
-                              </span>
-                            </>
-                          )}
-                        </Button>
-                      )}
-                      <Button
-                        onClick={handleProfileSave}
-                        disabled={profileSaving}
-                        size="sm"
-                        className="h-9 rounded-md font-bold text-xs shadow-sm"
-                      >
-                        {profileSaving ? 'Saving...' : 'Save Profile'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 md:p-6 space-y-6">
-                    {/* OWNER VIEW */}
-                    {!isStaff && (
-                      <>
-                        {/* Admin Info Banner */}
-                        <div className="p-3.5 rounded-xl bg-muted/40 border border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0">
-                              <Building2 className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-foreground">Company Administrator</span>
-                                <Badge variant="outline" className="text-[10px] font-semibold py-0">Owner</Badge>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground">Login: <span className="font-medium text-foreground">{user?.email}</span></p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 bg-background border border-border px-3 py-1 rounded-lg shrink-0">
-                            <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Account ID:</span>
-                            <span className="font-mono font-bold tracking-widest text-primary text-xs">{generateAccountId(user?.id)}</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(generateAccountId(user?.id));
-                                toast({ title: "Copied", description: "Account ID copied to clipboard." });
-                              }}
-                              className="text-muted-foreground hover:text-foreground p-0.5 transition-colors"
-                              title="Copy Account ID"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Business Country & Tax System Compliance */}
-                        <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/70 via-blue-50/40 to-slate-50 dark:from-indigo-950/20 dark:via-blue-950/10 dark:to-slate-900/30 border-2 border-indigo-100 dark:border-indigo-900/50 space-y-3">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <span className="text-3xl">{businessCountry.flag}</span>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-bold text-sm text-foreground">
-                                    {businessCountry.countryName} ({businessCountry.taxSystem})
-                                  </h4>
-                                  <Badge className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2 py-0.5 rounded-full">
-                                    {businessCountry.taxName} • {businessCountry.standardTaxRate}%
-                                  </Badge>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  Currency: <strong className="text-foreground">{businessCountry.currencyCode} ({businessCountry.currencySymbol})</strong> • Tax ID: <strong className="text-foreground">{businessCountry.taxIdLabel}</strong>
-                                </p>
-                              </div>
-                            </div>
-                            <Select
-                              value={businessCountry.countryCode}
-                              onValueChange={(newCode) => {
-                                if (newCode && newCode !== businessCountry.countryCode) {
-                                  setPendingCountryCode(newCode);
-                                  setConfirmCountryCheck(false);
-                                  setIsCountryConfirmOpen(true);
-                                }
-                              }}
-                              disabled={profile.settings_locked}
-                            >
-                              <SelectTrigger className="w-full sm:w-64 h-10 rounded-xl bg-background font-bold text-xs border-indigo-200">
-                                <SelectValue placeholder="Change Business Country" />
-                              </SelectTrigger>
-                              <SelectContent className="max-h-72">
-                                {TAX_COUNTRIES.map((c) => (
-                                  <SelectItem key={c.countryCode} value={c.countryCode} className="text-xs font-medium">
-                                    <span className="mr-2 text-base">{c.flag}</span>
-                                    {c.countryName} ({c.taxSystem})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        {/* Company Fields */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <Label htmlFor="company_name" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Company Legal Name</Label>
-                            <Input
-                              id="company_name"
-                              value={profile.company_name || ''}
-                              onChange={(e) => setProfile({ ...profile, company_name: e.target.value })}
-                              placeholder="e.g. Acme Corporation Pvt Ltd"
-                              disabled={profile.settings_locked}
-                              className={cn("bg-background h-10", profile.settings_locked && "bg-muted")}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <Label htmlFor="gstin" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                {taxIdLabel}
-                              </Label>
-                              <span className="text-[10px] text-muted-foreground font-medium">
-                                {businessCountry.taxName} Rate: {businessCountry.standardTaxRate}%
-                              </span>
-                            </div>
-                            <div className="relative flex items-center">
-                              <Input
-                                id="gstin"
-                                value={profile.gstin || ''}
-                                onChange={(e) => {
-                                  const raw = e.target.value.toUpperCase();
-                                  const val = (isGst && countryCode === 'IN')
-                                    ? raw.replace(/[^0-9A-Z]/g, '').slice(0, 15)
-                                    : raw.slice(0, 24);
-                                  setProfile({ ...profile, gstin: val });
-                                  if (gstVerified) {
-                                    setGstVerified(false);
-                                    setVerifiedGstName(null);
-                                    setGstVerificationData(null);
-                                  }
-                                }}
-                                placeholder={taxIdPlaceholder}
-                                disabled={profile.settings_locked}
-                                className={cn(
-                                  "bg-background uppercase h-10 font-mono tracking-wider", 
-                                  (isGst && countryCode === 'IN') ? "pr-28" : "pr-10",
-                                  profile.settings_locked && "bg-muted",
-                                  (gstVerified || (!isGst && profile.gstin)) && "border-emerald-500/80 focus-visible:ring-emerald-500"
-                                )}
-                              />
-
-                              {/* Verify button for India GST, or Checkmark for international */}
-                              <div className="absolute right-2 flex items-center gap-1.5">
-                                {(isGst && countryCode === 'IN') ? (
-                                  gstVerifying ? (
-                                    <div className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-                                      <span>Checking...</span>
-                                    </div>
-                                  ) : gstVerified ? (
-                                    <div className="flex items-center pr-1 animate-in zoom-in-75 duration-200" title="GSTIN Verified">
-                                      <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                                    </div>
-                                  ) : (
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={handleVerifyGST}
-                                      disabled={!profile.gstin || profile.gstin.trim().length !== 15 || profile.settings_locked}
-                                      className="h-7 text-xs px-2.5 font-bold text-primary border-primary/30 hover:bg-primary/10 transition-all cursor-pointer"
-                                    >
-                                      Verify
-                                    </Button>
-                                  )
-                                ) : profile.gstin ? (
-                                  <div className="flex items-center pr-1 animate-in zoom-in-75 duration-200" title="Tax ID Active">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {/* GST Verification Result Card - Standard industry UX */}
-                            {gstVerified && verifiedGstName && (
-                              <div className="mt-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
-                                {/* Header */}
-                                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-100 dark:bg-emerald-900/60 border-b border-emerald-200 dark:border-emerald-700">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Verified — GST Portal Record</span>
-                                  <span className={`ml-auto text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                                    (gstVerificationData?.status || '').toLowerCase() === 'active'
-                                      ? 'bg-emerald-200 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200'
-                                      : 'bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200'
-                                  }`}>{gstVerificationData?.status || 'Active'}</span>
-                                </div>
-                                {/* Details */}
-                                <div className="px-3 py-2.5 space-y-1.5">
-                                  <div className="flex flex-col gap-0.5">
-                                    <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Legal Name</span>
-                                    <span className="text-xs font-bold text-foreground">{gstVerificationData?.legalName || verifiedGstName}</span>
-                                  </div>
-                                  {gstVerificationData?.tradeName && gstVerificationData.tradeName !== gstVerificationData.legalName && (
-                                    <div className="flex flex-col gap-0.5">
-                                      <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Trade Name</span>
-                                      <span className="text-xs font-medium text-foreground">{gstVerificationData.tradeName}</span>
-                                    </div>
-                                  )}
-                                  <div className="flex gap-4">
-                                    {gstVerificationData?.entityType && (
-                                      <div className="flex flex-col gap-0.5">
-                                        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Type</span>
-                                        <span className="text-xs font-medium text-foreground">{gstVerificationData.entityType}</span>
-                                      </div>
-                                    )}
-                                    {gstVerificationData?.state && (
-                                      <div className="flex flex-col gap-0.5">
-                                        <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">State</span>
-                                        <span className="text-xs font-medium text-foreground">{gstVerificationData.state}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor="phone" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Business Phone Number</Label>
-                            <Input
-                              id="phone"
-                              value={profile.phone}
-                              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                              placeholder="+91 98765 43210"
-                              disabled={profile.settings_locked}
-                              className={cn("bg-background h-10", profile.settings_locked && "bg-muted")}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor="website" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Official Website</Label>
-                            <Input
-                              id="website"
-                              value={profile.website || ''}
-                              onChange={(e) => setProfile({ ...profile, website: e.target.value })}
-                              placeholder="https://yourcompany.com"
-                              disabled={profile.settings_locked}
-                              className={cn("bg-background h-10 font-medium", profile.settings_locked && "bg-muted")}
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* STAFF VIEW */}
-                    {isStaff && (
-                      <>
-                        <div className="p-4 rounded-xl bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-transparent border border-blue-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold shrink-0">
-                              <Building2 className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-bold text-sm text-foreground">{companyProfile?.company_name || profile.company_name || 'Organization Workspace'}</h4>
-                                <Badge variant="secondary" className="text-[9px] uppercase font-bold tracking-wider">Staff Account</Badge>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Assigned Role: <strong className="text-primary">{staffRole || 'Staff Member'}</strong> • Company records are managed by administrator
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Staff Personal Profile */}
-                        <div className="space-y-4">
-                          <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold">
-                              <User className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-bold text-foreground uppercase tracking-wide">Staff Personal Profile</h4>
-                              <p className="text-[11px] text-muted-foreground">Your individual login identity & contact</p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <Label htmlFor="personal_name" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Full Name *</Label>
-                              <Input
-                                id="personal_name"
-                                value={personalName}
-                                onChange={(e) => setPersonalName(e.target.value)}
-                                placeholder="Your Full Name"
-                                required
-                                className="bg-background h-10 font-medium"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="personal_email" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Login Email Address</Label>
-                              <Input
-                                id="personal_email"
-                                value={user?.email || ''}
-                                disabled
-                                className="bg-muted/50 h-10 font-medium text-muted-foreground cursor-not-allowed"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="personal_phone" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Personal Mobile Number</Label>
-                              <CountryPhoneInput
-                                id="personal_phone"
-                                value={personalPhone}
-                                onChange={(val) => setPersonalPhone(val)}
-                                placeholder="e.g. 98765 43210"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="account_id" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Staff Account ID</Label>
-                              <div className="relative flex items-center">
-                                <Input
-                                  id="account_id"
-                                  value={generateAccountId(user?.id)}
-                                  disabled
-                                  className="bg-muted/50 h-10 font-mono font-bold tracking-widest text-primary text-sm pr-10 cursor-not-allowed"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(generateAccountId(user?.id));
-                                    toast({ title: "Copied", description: "Account ID copied to clipboard." });
-                                  }}
-                                  className="absolute right-3 text-muted-foreground hover:text-foreground p-1"
-                                  title="Copy Account ID"
-                                >
-                                  <Copy className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Read-only Organization Info */}
-                        <div className="space-y-4 pt-4 border-t border-border">
-                          <div className="flex items-center gap-2 pb-2 border-b border-border/60">
-                            <div className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600 font-bold">
-                              <Building2 className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-bold text-foreground uppercase tracking-wide">Organization Business Identity</h4>
-                              <p className="text-[11px] text-muted-foreground">Managed by company administrator (Read-only)</p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Company Name</Label>
-                              <Input value={companyProfile?.company_name || profile.company_name || ''} disabled className="bg-muted h-10 cursor-not-allowed" />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">GSTIN</Label>
-                              <Input value={companyProfile?.gstin || profile.gstin || ''} disabled className="bg-muted h-10 cursor-not-allowed uppercase" />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Company Phone</Label>
-                              <Input value={companyProfile?.phone || profile.phone || ''} disabled className="bg-muted h-10 cursor-not-allowed" />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Website</Label>
-                              <Input value={companyProfile?.website || profile.website || ''} disabled className="bg-muted h-10 cursor-not-allowed" />
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </Card>
-
-                {/* 2. Registered Business Address Card */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 md:p-5 border-b flex items-center gap-3 bg-muted/10">
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                      <MapPin className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold tracking-tight text-foreground">Registered Business Address</h4>
-                      <p className="text-xs text-muted-foreground">Official premises printed on tax invoices, delivery challans, and e-Way bills</p>
-                    </div>
-                  </div>
-                  <div className="p-4 md:p-6 space-y-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="business_address" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Street Address / Premises</Label>
-                      <Textarea
-                        id="business_address"
-                        value={profile.business_address || ''}
-                        onChange={(e) => setProfile({ ...profile, business_address: e.target.value })}
-                        placeholder="Plot/Flat No., Building Name, Street, Landmark"
-                        className={cn("min-h-[85px] bg-background font-medium", (profile.settings_locked || isStaff) && "bg-muted opacity-60")}
-                        disabled={profile.settings_locked || isStaff}
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="city" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">City</Label>
-                        <Input
-                          id="city"
-                          value={profile.city || ''}
-                          onChange={(e) => setProfile({ ...profile, city: e.target.value })}
-                          disabled={profile.settings_locked || isStaff}
-                          placeholder="e.g. Mumbai"
-                          className={cn("h-10 bg-background font-medium", (profile.settings_locked || isStaff) && "bg-muted opacity-60")}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="state" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">State</Label>
-                        <Input
-                          id="state"
-                          value={profile.state || ''}
-                          onChange={(e) => setProfile({ ...profile, state: e.target.value })}
-                          disabled={profile.settings_locked || isStaff}
-                          placeholder="e.g. Maharashtra"
-                          className={cn("h-10 bg-background font-medium", (profile.settings_locked || isStaff) && "bg-muted opacity-60")}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="pincode" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">PIN Code</Label>
-                        <Input
-                          id="pincode"
-                          value={profile.pincode || ''}
-                          onChange={(e) => setProfile({ ...profile, pincode: e.target.value })}
-                          disabled={profile.settings_locked || isStaff}
-                          placeholder="e.g. 400001"
-                          className={cn("h-10 bg-background font-medium", (profile.settings_locked || isStaff) && "bg-muted opacity-60")}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* 3. Settlement Bank Account Details */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 md:p-5 border-b flex items-center gap-3 bg-muted/10">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-                      <Landmark className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold tracking-tight text-foreground">Settlement Bank Account</h4>
-                      <p className="text-xs text-muted-foreground">Direct NEFT/RTGS/IMPS wire transfer details shown on client bills & receipts</p>
-                    </div>
-                  </div>
-                  <div className="p-4 md:p-6 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="bank_name" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bank Name</Label>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-10 w-full justify-between rounded-md bg-background border-border/70 font-medium px-3 text-xs"
-                          onClick={() => setBankSearchOpen(true)}
-                          disabled={profile.settings_locked || isStaff}
-                        >
-                          <span className="truncate">
-                            {bankSelection === CUSTOM_BANK_VALUE
-                              ? profile.bank_name || "Select bank"
-                              : bankSelection}
-                          </span>
-                          <SettingsIcon className="w-4 h-4 text-muted-foreground ml-2 shrink-0" />
-                        </Button>
-                        <CommandDialog open={bankSearchOpen} onOpenChange={setBankSearchOpen}>
-                          <div className="p-2">
-                            <CommandInput placeholder="Search over 50+ Indian banks..." className="border-none focus:ring-0" />
-                            <CommandEmpty className="py-6 text-center text-sm">No bank matches found.</CommandEmpty>
-                            <CommandList className="max-h-[300px]">
-                              <CommandGroup heading="Verified Financial Institutions">
-                                {bankOptions.map((bank) => (
-                                  <CommandItem
-                                    key={bank}
-                                    value={bank}
-                                    onSelect={(value) => {
-                                      handleBankSelection(value);
-                                      setBankSearchOpen(false);
-                                    }}
-                                    className="rounded-lg py-2.5 cursor-pointer text-xs"
-                                  >
-                                    {bank}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                              <CommandGroup heading="Manual Entry">
-                                <CommandItem
-                                  value="custom"
-                                  onSelect={() => {
-                                    handleBankSelection(CUSTOM_BANK_VALUE);
-                                    setBankSearchOpen(false);
-                                  }}
-                                  className="rounded-lg py-2.5 cursor-pointer font-bold text-primary text-xs"
-                                >
-                                  Specified Bank Not Listed
-                                </CommandItem>
-                              </CommandGroup>
-                            </CommandList>
-                          </div>
-                        </CommandDialog>
-                        {bankSelection === CUSTOM_BANK_VALUE && (
-                          <Input
-                            value={profile.bank_name || ''}
-                            onChange={(e) => setProfile({ ...profile, bank_name: e.target.value })}
-                            placeholder="Please enter your bank's full name"
-                            disabled={profile.settings_locked || isStaff}
-                            className="h-10 rounded-md bg-background border-border/70 font-medium mt-2 text-xs"
-                          />
-                        )}
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="account_type" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account Type</Label>
-                        <Select
-                          value={profile.account_type || ''}
-                          onValueChange={(value) => setProfile({ ...profile, account_type: value })}
-                          disabled={profile.settings_locked || isStaff}
-                        >
-                          <SelectTrigger id="account_type" className="h-10 rounded-md bg-background border-border/70 text-xs font-medium">
-                            <SelectValue placeholder="Current / Savings / Other" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="savings">Savings Account</SelectItem>
-                            <SelectItem value="current">Current Account</SelectItem>
-                            <SelectItem value="overdraft">Overdraft Account</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="account_holder_name" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Account Holder Name</Label>
-                        <Input
-                          id="account_holder_name"
-                          value={profile.account_holder_name || ''}
-                          onChange={(e) => setProfile({ ...profile, account_holder_name: e.target.value })}
-                          placeholder="Name on account"
-                          disabled={profile.settings_locked || isStaff}
-                          className="h-10 bg-background font-medium"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="ifsc_code" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">IFSC Code</Label>
-                        <Input
-                          id="ifsc_code"
-                          value={profile.ifsc_code || ''}
-                          onChange={(e) => setProfile({ ...profile, ifsc_code: e.target.value.toUpperCase() })}
-                          disabled={profile.settings_locked || isStaff}
-                          placeholder="e.g. HDFC0001234"
-                          className="h-10 bg-background font-mono font-bold uppercase tracking-wider"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5 sm:col-span-2">
-                        <Label htmlFor="account_number" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bank Account Number</Label>
-                        <Input
-                          id="account_number"
-                          inputMode="numeric"
-                          value={profile.account_number || ''}
-                          onChange={(e) => setProfile({ ...profile, account_number: e.target.value.replace(/\D/g, '') })}
-                          disabled={profile.settings_locked || isStaff}
-                          placeholder="e.g. 50100234567890"
-                          className="h-10 bg-background font-mono font-bold tracking-widest"
-                        />
-                      </div>
-
-                      {/* UPI ID (VPA) */}
-                      <div className="space-y-1.5 sm:col-span-2 pt-3 border-t border-border/60">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="upi_id" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                            <QrCode className="w-4 h-4 text-emerald-600" />
-                            UPI ID / VPA
-                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">
-                              Auto-generates QR on Invoices
-                            </span>
-                          </Label>
-                        </div>
-                        <Input
-                          id="upi_id"
-                          value={profile.upi_id || ''}
-                          onChange={(e) => setProfile({ ...profile, upi_id: e.target.value.trim() })}
-                          placeholder="e.g. 9876543210@paytm or yourbusiness@okaxis"
-                          disabled={profile.settings_locked || isStaff}
-                          className="h-10 bg-background font-medium border-emerald-300/80 focus:ring-emerald-500 rounded-lg text-sm"
-                        />
-                        <p className="text-xs text-muted-foreground flex items-start gap-1.5 mt-1">
-                          <span className="text-emerald-600 font-bold shrink-0">ℹ️ Note:</span>
-                          <span>Enter your UPI ID here — invoices will automatically generate a dynamic, scannable QR code using this UPI ID for instant client payments. No photo or image upload is needed.</span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-
-              {/* BRANDING, ASSETS & INVOICING CONTROLS (RIGHT: 4 COLS - STICKY) */}
-              <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-20">
-                {/* 4. Branding & Print Assets Card */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 border-b flex items-center gap-2.5 bg-muted/10">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600">
-                      <Palette className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold tracking-tight text-foreground">Branding & Print Assets</h4>
-                      <p className="text-[11px] text-muted-foreground">Rendered on invoices, receipts & thermal slips</p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 space-y-5">
-                    {/* Company Logo */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold text-foreground">Company Logo</Label>
-                        <span className="text-[10px] text-muted-foreground">PNG/JPG (Max 2MB)</span>
-                      </div>
-                      <div className="p-3 rounded-xl bg-muted/20 border border-dashed border-border text-center space-y-2.5">
-                        {profile.logo_url ? (
-                          <div className="relative group mx-auto w-24 h-20">
-                            <img src={profile.logo_url} alt="Logo" className="w-full h-full object-contain bg-white rounded-lg shadow-xs border p-1" />
-                            <button
-                              onClick={handleRemoveLogo}
-                              className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-all"
-                              title="Remove company logo"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mx-auto text-primary">
-                            <Building2 className="w-6 h-6" />
-                          </div>
-                        )}
-                        <label className="block">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleLogoUpload}
-                            disabled={profile.settings_locked || isStaff || logoUploading}
-                            className="block w-full text-xs text-muted-foreground file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-primary file:text-primary-foreground hover:file:opacity-90 cursor-pointer"
-                          />
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* Authorized Signature */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold text-foreground">Authorized Signature</Label>
-                        <span className="text-[10px] text-muted-foreground">Sign stamp</span>
-                      </div>
-                      <div className="p-3 rounded-xl bg-muted/20 border border-dashed border-border text-center space-y-2.5">
-                        {profile.signature_url ? (
-                          <div className="relative group mx-auto w-28 h-16">
-                            <img src={profile.signature_url} alt="Sign" className="w-full h-full object-contain bg-white rounded-lg shadow-xs border p-1" />
-                            {!isStaff && (
-                              <button
-                                onClick={handleRemoveSignature}
-                                className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-md opacity-0 group-hover:opacity-100 transition-all"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-indigo-500/10 flex items-center justify-center mx-auto text-indigo-600">
-                            <Palette className="w-6 h-6" />
-                          </div>
-                        )}
-                        <label className="block">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={handleSignatureUpload}
-                            disabled={profile.settings_locked || isStaff || logoUploading}
-                            className="block w-full text-xs text-muted-foreground file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-bold file:uppercase file:bg-primary file:text-primary-foreground hover:file:opacity-90 cursor-pointer"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* 5. Invoice Display Privacy */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <Label className="font-bold text-xs text-foreground flex items-center gap-1.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-primary" />
-                        Minimal Company Display
-                      </Label>
-                      <p className="text-[10px] text-muted-foreground">Hide full address/contact on invoices</p>
-                    </div>
-                    <Checkbox
-                      checked={settings.hide_company_details}
-                      onCheckedChange={(checked) => {
-                        const next = { ...settings, hide_company_details: !!checked };
-                        setSettings(next);
-                        void handleSettingsSave(next, { showToast: false });
-                      }}
-                    />
-                  </div>
-                </Card>
-
-                {/* 6. Profile Setup Completeness Overview */}
-                <Card className="rounded-xl border border-border shadow-sm bg-muted/20 p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-foreground font-bold text-xs uppercase tracking-wider">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Setup Completeness</span>
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Company & GSTIN</span>
-                      {profile.company_name && profile.gstin ? (
-                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-[11px]"><Check className="w-3 h-3" /> Ready</span>
-                      ) : (
-                        <span className="text-amber-500 font-medium text-[11px]">Incomplete</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Registered Address</span>
-                      {profile.business_address && profile.city ? (
-                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-[11px]"><Check className="w-3 h-3" /> Ready</span>
-                      ) : (
-                        <span className="text-amber-500 font-medium text-[11px]">Incomplete</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Settlement Bank</span>
-                      {profile.bank_name && profile.account_number ? (
-                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-[11px]"><Check className="w-3 h-3" /> Ready</span>
-                      ) : (
-                        <span className="text-amber-500 font-medium text-[11px]">Incomplete</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Logo & Sign Stamp</span>
-                      {profile.logo_url || profile.signature_url ? (
-                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-[11px]"><Check className="w-3 h-3" /> Ready</span>
-                      ) : (
-                        <span className="text-muted-foreground font-medium text-[11px]">Optional</span>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            </div>
+            <BusinessIdentityTab
+              isStaff={isStaff}
+              profile={profile}
+              setProfile={setProfile}
+              companyProfile={companyProfile}
+              staffRole={staffRole}
+              user={user}
+              handleToggleLock={handleToggleLock}
+              handleProfileSave={handleProfileSave}
+              profileSaving={profileSaving}
+              gstVerified={gstVerified}
+              setGstVerified={setGstVerified}
+              verifiedGstName={verifiedGstName}
+              setVerifiedGstName={setVerifiedGstName}
+              gstVerificationData={gstVerificationData}
+              setGstVerificationData={setGstVerificationData}
+              gstVerifying={gstVerifying}
+              handleVerifyGST={handleVerifyGST}
+              personalName={personalName}
+              setPersonalName={setPersonalName}
+              personalPhone={personalPhone}
+              setPersonalPhone={setPersonalPhone}
+              bankSelection={bankSelection}
+              handleBankSelection={handleBankSelection}
+              bankSearchOpen={bankSearchOpen}
+              setBankSearchOpen={setBankSearchOpen}
+              bankOptions={bankOptions}
+              CUSTOM_BANK_VALUE={CUSTOM_BANK_VALUE}
+              handleRemoveLogo={handleRemoveLogo}
+              handleLogoUpload={handleLogoUpload}
+              handleSignatureUpload={handleSignatureUpload}
+              logoUploading={logoUploading}
+              settings={settings}
+              setSettings={setSettings}
+              handleSettingsSave={handleSettingsSave}
+              toast={toast}
+            />
           </TabsContent>
 
           {/* PREFERENCES & SECURITY TAB */}
           <TabsContent value="preferences" className="m-0 space-y-6 outline-none">
-            {/* WhatsApp Billing Dispatch Option (ESCROW API vs Personal WhatsApp) */}
-            <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-              <div className="p-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/10">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-                    <MessageSquare className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-foreground">Billing WhatsApp Method</h4>
-                    <p className="text-[11px] text-muted-foreground">Select which WhatsApp channel to use when sharing invoices & payment links with clients</p>
-                  </div>
-                </div>
-                <Badge variant="outline" className={cn(
-                  "text-[10px] font-bold px-2.5 py-0.5 rounded-full self-start sm:self-auto",
-                  settings.whatsapp_provider === 'personal'
-                    ? "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/30"
-                    : "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
-                )}>
-                  {settings.whatsapp_provider === 'personal' ? 'Personal WhatsApp Selected' : 'ESCROW API Selected'}
-                </Badge>
-              </div>
-
-              <div className="p-4 md:p-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Option 1: ESCROW API */}
-                  <div
-                    onClick={() => handleInitiateWhatsAppChange('meta')}
-                    className={cn(
-                      "relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col justify-between gap-3",
-                      (settings.whatsapp_provider ?? 'meta') === 'meta'
-                        ? "border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-sm ring-1 ring-emerald-500/30"
-                        : "border-border/70 hover:border-emerald-500/50 hover:bg-muted/30"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className={cn(
-                          "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors",
-                          (settings.whatsapp_provider ?? 'meta') === 'meta'
-                            ? "bg-emerald-500 text-white shadow-xs"
-                            : "bg-muted text-muted-foreground"
-                        )}>
-                          <Zap className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-bold text-foreground">ESCROW API</span>
-                            <Badge className="text-[9px] font-extrabold uppercase px-1.5 py-0 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 border">
-                              Automated
-                            </Badge>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 font-medium">
-                            Official verified business gateway
-                          </p>
-                        </div>
-                      </div>
-                      <div className={cn(
-                        "w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all",
-                        (settings.whatsapp_provider ?? 'meta') === 'meta'
-                          ? "border-emerald-600 bg-emerald-600 text-white"
-                          : "border-muted-foreground/30 bg-background"
-                      )}>
-                        {(settings.whatsapp_provider ?? 'meta') === 'meta' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Sends automated WhatsApp messages with professional invoice template, downloadable PDF links, and payment status updates directly from ESCROW server.
-                    </p>
-                  </div>
-
-                  {/* Option 2: Personal WhatsApp */}
-                  <div
-                    onClick={() => handleInitiateWhatsAppChange('personal')}
-                    className={cn(
-                      "relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-200 flex flex-col justify-between gap-3",
-                      settings.whatsapp_provider === 'personal'
-                        ? "border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20 shadow-sm ring-1 ring-emerald-500/30"
-                        : "border-border/70 hover:border-emerald-500/50 hover:bg-muted/30"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className={cn(
-                          "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors",
-                          settings.whatsapp_provider === 'personal'
-                            ? "bg-emerald-500 text-white shadow-xs"
-                            : "bg-muted text-muted-foreground"
-                        )}>
-                          <Phone className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-bold text-foreground">Personal WhatsApp</span>
-                            <Badge variant="outline" className="text-[9px] font-extrabold uppercase px-1.5 py-0 text-blue-600 border-blue-500/30 bg-blue-500/10">
-                              App / Web
-                            </Badge>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 font-medium">
-                            Opens your own WhatsApp directly
-                          </p>
-                        </div>
-                      </div>
-                      <div className={cn(
-                        "w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all",
-                        settings.whatsapp_provider === 'personal'
-                          ? "border-emerald-600 bg-emerald-600 text-white"
-                          : "border-muted-foreground/30 bg-background"
-                      )}>
-                        {settings.whatsapp_provider === 'personal' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Opens WhatsApp Web or your phone's WhatsApp app with the client's chat and a pre-typed professional billing message containing invoice details and link.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </Card>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* LEFT COLUMN (6 COLS): SYSTEM DEFAULTS & NOTIFICATIONS */}
-              <div className="lg:col-span-6 space-y-6">
-                {/* 1. Regional & Display Defaults */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 border-b flex items-center justify-between gap-2.5 bg-muted/10">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                        <Palette className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-foreground">System & Regional Defaults</h4>
-                        <p className="text-[11px] text-muted-foreground">Default billing currency, credit terms, and invoice preferences</p>
-                      </div>
-                    </div>
-                    <Button
-                      onClick={() => handleSettingsSave(undefined, { showToast: true, isManual: true })}
-                      disabled={settingsSaving}
-                      size="sm"
-                      className="h-8 px-3.5 rounded-md font-bold text-xs uppercase tracking-wider gap-1.5 shadow-sm inline-flex items-center justify-center"
-                    >
-                      {settingsSaving ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Saving...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-3.5 h-3.5" />
-                          <span>Save</span>
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  <div className="p-4 md:p-6 space-y-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="defaultCurrency" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            Default Currency
-                          </Label>
-                          {settings.default_currency && settings.default_currency !== 'INR' && inrPerUnit > 1 && (
-                            <Badge variant="outline" className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <Sparkles className="w-2.5 h-2.5" />
-                              1 {settings.default_currency} ≈ ₹{inrPerUnit.toFixed(2)}
-                            </Badge>
-                          )}
-                        </div>
-                        <Select
-                          value={settings.default_currency}
-                          onValueChange={(value) => {
-                            const next = { ...settings, default_currency: value };
-                            setSettings(next);
-                            setCurrencyCode(value);
-                            void handleSettingsSave(next, { showToast: false });
-                          }}
-                        >
-                          <SelectTrigger id="defaultCurrency" className="h-10 rounded-md bg-background border-border/70 font-medium text-xs">
-                            <SelectValue placeholder="Select Currency" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-md border-border/50">
-                            <SelectItem value="INR">INR (₹) - Indian Rupee (Base Currency)</SelectItem>
-                            <SelectItem value="USD">USD ($) - US Dollar (Live Forex)</SelectItem>
-                            <SelectItem value="EUR">EUR (€) - Euro (Live Forex)</SelectItem>
-                            <SelectItem value="GBP">GBP (£) - British Pound (Live Forex)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {settings.default_currency && settings.default_currency !== 'INR' ? (
-                          <div className="flex items-center justify-between pt-0.5 text-[11px] text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-emerald-500" />
-                              Catalog & reports convert at 1 {settings.default_currency} = ₹{inrPerUnit.toFixed(2)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await refreshRates();
-                                toast({
-                                  title: "Live Forex Synced",
-                                  description: `Updated rate: 1 ${settings.default_currency} = ₹${inrPerUnit.toFixed(2)}`
-                                });
-                              }}
-                              className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              Refresh
-                            </button>
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-muted-foreground">
-                            Standard Indian accounting currency (all domestic GST returns & records).
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="defaultTerms" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Payment Terms
-                        </Label>
-                        <Input
-                          id="defaultTerms"
-                          value={settings.default_payment_terms}
-                          onChange={(e) => setSettings({ ...settings, default_payment_terms: e.target.value })}
-                          onBlur={() => void handleSettingsSave(settings, { showToast: false })}
-                          placeholder="e.g. Net 30, Due on Receipt"
-                          className="h-10 rounded-md bg-background border-border/70 font-medium text-xs"
-                        />
-                        <p className="text-[11px] text-muted-foreground">
-                          Number of days (e.g. 30, 15, 7) will automatically determine the due date for new invoices.
-                        </p>
-                      </div>
-
-                      <div className="space-y-1.5 md:col-span-2">
-                        <Label htmlFor="defaultTermsAndConditions" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Default Terms & Conditions
-                        </Label>
-                        <Textarea
-                          id="defaultTermsAndConditions"
-                          value={settings.default_terms}
-                          onChange={(e) => setSettings({ ...settings, default_terms: e.target.value })}
-                          onBlur={() => void handleSettingsSave(settings, { showToast: false })}
-                          placeholder="e.g. 1. Goods once sold will not be taken back.&#10;2. Interest @ 18% p.a. will be charged on overdue payments."
-                          className="min-h-[85px] text-xs rounded-md bg-background border-border/70 resize-y"
-                        />
-                        <p className="text-[11px] text-muted-foreground">
-                          Auto-filled on every new invoice. Leave blank to use default template terms.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* 2. Notification & Alert Channels */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 border-b flex items-center gap-2.5 bg-muted/10">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center text-indigo-600">
-                      <Bell className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-foreground">Notification & Alert Channels</h4>
-                      <p className="text-[11px] text-muted-foreground">Automated activity logs, invoice reminders, and payment triggers</p>
-                    </div>
-                  </div>
-                  <div className="p-4 md:p-6 space-y-3">
-                    {[
-                      {
-                        id: 'email_notifications',
-                        title: 'System Activity',
-                        desc: 'Account updates & critical system logs',
-                        icon: <Mail className="w-4 h-4" />
-                      },
-                      {
-                        id: 'invoice_reminders',
-                        title: 'Invoice Lifecycle',
-                        desc: 'Auto-reminders for overdue client bills',
-                        icon: <FileText className="w-4 h-4" />
-                      },
-                      {
-                        id: 'payment_alerts',
-                        title: 'Revenue Alerts',
-                        desc: 'Instant alerts for successful settlements',
-                        icon: <CheckCircle2 className="w-4 h-4" />
-                      }
-                    ].map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-muted/20">
-                        <div className="flex items-center gap-3">
-                          <div className="text-muted-foreground">{item.icon}</div>
-                          <div className="space-y-0.5">
-                            <Label className="text-xs font-bold text-foreground">{item.title}</Label>
-                            <p className="text-[11px] text-muted-foreground">{item.desc}</p>
-                          </div>
-                        </div>
-                        <Checkbox
-                          checked={settings[item.id as keyof typeof settings] as boolean}
-                          onCheckedChange={(checked) => {
-                            const next = { ...settings, [item.id]: !!checked };
-                            setSettings(next);
-                            void handleSettingsSave(next, { showToast: false });
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </div>
-
-              {/* RIGHT COLUMN (6 COLS): SECURITY & DATA SOVEREIGNTY */}
-              <div className="lg:col-span-6 space-y-6">
-                {/* 3. Security & Authentication */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 border-b flex items-center gap-2.5 bg-muted/10">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-                      <Shield className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-foreground">Security & Access Control</h4>
-                      <p className="text-[11px] text-muted-foreground">Manage login credentials and session persistence</p>
-                    </div>
-                  </div>
-                  <div className="p-4 md:p-6 space-y-3">
-                    {/* Change Password */}
-                    <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-muted/20">
-                      <div className="flex items-center gap-3">
-                        <Lock className="w-4 h-4 text-muted-foreground" />
-                        <div className="space-y-0.5">
-                          <Label className="text-xs font-bold text-foreground">User Authentication</Label>
-                          <p className="text-[11px] text-muted-foreground">Update account login password</p>
-                        </div>
-                      </div>
-                      <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="outline" size="sm" className="h-8 rounded-md font-bold text-[10px] uppercase tracking-wider px-3 border-border/70">
-                            Change Password
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden rounded-xl border border-border bg-card">
-                          <div className="bg-primary/5 p-4 md:p-8 text-foreground border-b border-border/50">
-                            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 mb-4 shadow-xs">
-                              <ShieldCheck className="w-6 h-6 text-primary" />
-                            </div>
-                            <DialogTitle className="text-xl font-bold uppercase tracking-tight">Access Control</DialogTitle>
-                            <DialogDescription className="text-muted-foreground text-[11px] font-medium mt-1">
-                              Protect your account with a secure, high-entropy password
-                            </DialogDescription>
-                          </div>
-                          <form onSubmit={handlePasswordChange} className="p-4 md:p-8 space-y-5">
-                            <div className="space-y-1.5">
-                              <Label htmlFor="current-password">Current Password</Label>
-                              <Input
-                                id="current-password"
-                                type="password"
-                                autoComplete="current-password"
-                                value={currentPassword}
-                                onChange={(e) => setCurrentPassword(e.target.value)}
-                                required
-                                className="h-10 rounded-md bg-background border border-input text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="new-password">New Password</Label>
-                              <Input
-                                id="new-password"
-                                type="password"
-                                autoComplete="new-password"
-                                value={newPassword}
-                                onChange={(e) => setNewPassword(e.target.value)}
-                                required
-                                minLength={8}
-                                className="h-10 rounded-md bg-background border border-input text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="confirm-password">Confirm New Password</Label>
-                              <Input
-                                id="confirm-password"
-                                type="password"
-                                autoComplete="new-password"
-                                value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
-                                required
-                                minLength={8}
-                                className="h-10 rounded-md bg-background border border-input text-xs"
-                              />
-                            </div>
-                            <DialogFooter className="pt-2">
-                              <Button type="submit" disabled={passwordChanging} className="w-full h-10 rounded-md bg-primary text-primary-foreground font-semibold uppercase tracking-wider text-xs shadow-xs">
-                                {passwordChanging ? (
-                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                ) : (
-                                  <Save className="w-4 h-4 mr-2" />
-                                )}
-                                Update Password
-                              </Button>
-                            </DialogFooter>
-                          </form>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-
-                    {/* Session Persistence */}
-                    <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-muted/20">
-                      <div className="flex items-center gap-3">
-                        <ShieldCheck className="w-4 h-4 text-muted-foreground" />
-                        <div className="space-y-0.5">
-                          <Label className="text-xs font-bold text-foreground">Session Persistence</Label>
-                          <p className="text-[11px] text-muted-foreground">Auto-save draft progress locally</p>
-                        </div>
-                      </div>
-                      <div className="flex bg-background p-1 rounded-lg border border-border">
-                        <button
-                          onClick={() => {
-                            const next = { ...settings, auto_save_enabled: false };
-                            setSettings(next);
-                            void handleSettingsSave(next, { showToast: false });
-                          }}
-                          className={cn(
-                            "px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all",
-                            !settings.auto_save_enabled ? "bg-muted text-foreground shadow-xs border border-border/60" : "text-muted-foreground hover:bg-muted"
-                          )}
-                        >
-                          Off
-                        </button>
-                        <button
-                          onClick={() => {
-                            const next = { ...settings, auto_save_enabled: true };
-                            setSettings(next);
-                            void handleSettingsSave(next, { showToast: false });
-                          }}
-                          className={cn(
-                            "px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all",
-                            settings.auto_save_enabled ? "bg-primary text-primary-foreground shadow-xs" : "text-muted-foreground hover:bg-muted"
-                          )}
-                        >
-                          On
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* 4. Data Sovereignty & Offline Ledgers */}
-                <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 border-b flex items-center gap-2.5 bg-muted/10">
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-600">
-                      <Download className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-foreground">Data Sovereignty & Ledger Backups</h4>
-                      <p className="text-[11px] text-muted-foreground">Export financial data anytime for CA compliance and offline audits</p>
-                    </div>
-                  </div>
-                  <div className="p-4 md:p-6 space-y-4">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      Download your entire accounting ledger including all invoices, line items, customer records, and payment receipts in standardized Microsoft Excel (.xlsx) format.
-                    </p>
-                    <div className="p-3.5 rounded-xl bg-muted/30 border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>Bank-grade 256-bit encrypted data export</span>
-                      </div>
-                      <Button
-                        onClick={handleExportData}
-                        variant="default"
-                        size="sm"
-                        className="h-9 rounded-md font-bold text-xs uppercase tracking-wider gap-2 shrink-0 shadow-xs"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Export Excel
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* 5. Danger Zone: Account Deletion Request */}
-                <Card className="rounded-xl border border-rose-200 dark:border-rose-900/60 shadow-sm bg-card overflow-hidden">
-                  <div className="p-4 border-b flex items-center justify-between gap-2.5 bg-rose-50/50 dark:bg-rose-950/20">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-600 dark:text-rose-400">
-                        <Trash2 className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-rose-950 dark:text-rose-100 flex items-center gap-2">
-                          Danger Zone: Account Deletion
-                        </h4>
-                        <p className="text-[11px] text-muted-foreground">Request permanent account deletion and data wipeout</p>
-                      </div>
-                    </div>
-                    {deletionRequest?.status === 'pending' && (
-                      <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 text-[10px] font-bold">
-                        Pending Review
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="p-4 md:p-6 space-y-4">
-                    {/* If request is pending */}
-                    {deletionRequest?.status === 'pending' ? (
-                      <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50/60 dark:bg-amber-950/20 space-y-3">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0 mt-0.5">
-                            <Clock className="w-4 h-4" />
-                          </div>
-                          <div className="space-y-1">
-                            <h5 className="font-bold text-xs text-amber-900 dark:text-amber-200">
-                              Deletion Request Under Administrator Review
-                            </h5>
-                            <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
-                              You submitted an account deletion request on <strong>{safelyToLocaleDate(deletionRequest.created_at)}</strong>. An administrator has been alerted and will process the request.
-                            </p>
-                            <div className="mt-2 text-[11px] text-amber-900/80 dark:text-amber-300/80 space-y-0.5 pt-1 border-t border-amber-200 dark:border-amber-900/50">
-                              <p><strong>Reason:</strong> {deletionRequest.reason}</p>
-                              {deletionRequest.feedback && (
-                                <p><strong>Feedback:</strong> {deletionRequest.feedback}</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="pt-2 flex justify-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled={cancellingDeletionRequest}
-                            onClick={handleCancelDeletionRequest}
-                            className="h-8 text-xs font-semibold border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-                          >
-                            {cancellingDeletionRequest ? 'Cancelling...' : 'Cancel Deletion Request'}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : deletionRequest?.status === 'rejected' ? (
-                      <div className="p-4 rounded-xl border border-rose-300 dark:border-rose-800/60 bg-rose-50/40 dark:bg-rose-950/20 space-y-3">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-700 dark:text-rose-300 flex items-center justify-center shrink-0 mt-0.5">
-                            <AlertTriangle className="w-4 h-4" />
-                          </div>
-                          <div className="space-y-1">
-                            <h5 className="font-bold text-xs text-rose-900 dark:text-rose-200">
-                              Previous Deletion Request Was Declined
-                            </h5>
-                            <p className="text-[11px] text-rose-800/90 dark:text-rose-300/90 leading-relaxed">
-                              Your request submitted on {safelyToLocaleDate(deletionRequest.created_at)} was reviewed and declined by administrator.
-                            </p>
-                            {deletionRequest.admin_notes && (
-                              <div className="mt-2 p-2 rounded-lg bg-background/80 border border-border text-[11px] text-foreground">
-                                <span className="font-bold">Admin Note:</span> {deletionRequest.admin_notes}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="pt-1 flex justify-end">
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            disabled={isStaff}
-                            onClick={() => setIsDeleteModalOpen(true)}
-                            className="h-8 text-xs font-bold"
-                          >
-                            Submit New Request
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-xs text-muted-foreground leading-relaxed">
-                          Requesting account deletion initiates a permanent wipeout protocol. Once approved by our administration team, all your company invoices, customer directories, inventory records, and login access will be irreversibly erased.
-                        </p>
-                        
-                        <div className="p-3.5 rounded-xl bg-rose-500/5 border border-rose-200 dark:border-rose-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 text-xs text-rose-700 dark:text-rose-400">
-                            <AlertTriangle className="w-4 h-4 shrink-0" />
-                            <span>Action irreversible once approved by platform admin</span>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            disabled={isStaff || loadingDeletionRequest}
-                            onClick={() => setIsDeleteModalOpen(true)}
-                            className="h-9 font-bold text-xs uppercase tracking-wider shrink-0 shadow-xs"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                            Request Account Deletion
-                          </Button>
-                        </div>
-                        {isStaff && (
-                          <p className="text-[11px] text-muted-foreground italic">
-                            * Staff accounts cannot request organization deletion. Only company owners can manage account lifecycle.
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </Card>
-              </div>
-            </div>
+            <SystemPreferencesTab
+              settings={settings}
+              setSettings={setSettings}
+              handleInitiateWhatsAppChange={handleInitiateWhatsAppChange}
+              handleSettingsSave={handleSettingsSave}
+              settingsSaving={settingsSaving}
+              inrPerUnit={inrPerUnit}
+              setCurrencyCode={setCurrencyCode}
+              refreshRates={refreshRates}
+              isPasswordModalOpen={isPasswordModalOpen}
+              setIsPasswordModalOpen={setIsPasswordModalOpen}
+              handlePasswordChange={handlePasswordChange}
+              currentPassword={currentPassword}
+              setCurrentPassword={setCurrentPassword}
+              newPassword={newPassword}
+              setNewPassword={setNewPassword}
+              confirmPassword={confirmPassword}
+              setConfirmPassword={setConfirmPassword}
+              passwordChanging={passwordChanging}
+              handleExportData={handleExportData}
+              deletionRequest={deletionRequest}
+              safelyToLocaleDate={safelyToLocaleDate}
+              cancellingDeletionRequest={cancellingDeletionRequest}
+              handleCancelDeletionRequest={handleCancelDeletionRequest}
+              setIsDeleteModalOpen={setIsDeleteModalOpen}
+              isStaff={isStaff}
+              loadingDeletionRequest={loadingDeletionRequest}
+              toast={toast}
+            />
           </TabsContent>
 
           {/* DEDICATED INVOICE TEMPLATES TAB (SEPARATED SALES & PURCHASE) */}
           <TabsContent value="templates" className="m-0 space-y-5 outline-none">
-            {/* Top Category Division / Segmented Switcher */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-2.5 bg-muted/40 rounded-2xl border border-border">
-              <div className="flex flex-wrap items-center gap-1.5 p-1 bg-background rounded-xl border border-border/70 shadow-xs">
-                <button
-                  type="button"
-                  onClick={() => setTemplateCategory('sales')}
-                  className={cn(
-                    "flex items-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all",
-                    templateCategory === 'sales'
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Sales Invoice Templates</span>
-                  <Badge variant={templateCategory === 'sales' ? "outline" : "secondary"} className="ml-1 text-[10px] py-0 px-1.5 font-mono">
-                    10
-                  </Badge>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTemplateCategory('purchase')}
-                  className={cn(
-                    "flex items-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all",
-                    templateCategory === 'purchase'
-                      ? "bg-indigo-600 text-white shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <ShoppingBag className="w-4 h-4" />
-                  <span>Purchase Bill Templates</span>
-                  <Badge variant={templateCategory === 'purchase' ? "outline" : "secondary"} className="ml-1 text-[10px] py-0 px-1.5 font-mono">
-                    5
-                  </Badge>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTemplateCategory('automobile')}
-                  className={cn(
-                    "flex items-center gap-2 py-2 px-4 rounded-lg text-xs font-bold transition-all",
-                    templateCategory === 'automobile'
-                      ? "bg-amber-600 text-white shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <Car className="w-4 h-4" />
-                  <span>Automobile / Downpayment</span>
-                  <Badge variant={templateCategory === 'automobile' ? "outline" : "secondary"} className="ml-1 text-[10px] py-0 px-1.5 font-mono">
-                    5
-                  </Badge>
-                </button>
-              </div>
-
-              <div className="text-xs text-muted-foreground px-2 font-medium">
-                {templateCategory === 'sales'
-                  ? 'Outward Customer Invoices & Cash Memos'
-                  : templateCategory === 'purchase'
-                  ? 'Inward Supplier Bills & Physical Stock Vouchers'
-                  : 'Vehicle Booking Tokens, Advance Downpayments & RTO Delivery Receipts'}
-              </div>
-            </div>
-
-            {/* SECTION 1: SALES INVOICE TEMPLATES */}
-            {templateCategory === 'sales' && (
-              <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-blue-500/5 via-indigo-500/5 to-transparent">
-                  <div className="flex items-start sm:items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-bold text-foreground tracking-tight">Sales Invoice Templates</h3>
-                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-[10px] font-bold uppercase tracking-wider py-0.5 px-2.5 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          Active: {
-                            settings.invoice_template === 'modern' ? 'Modern UPI' :
-                            settings.invoice_template === 'corporate' ? 'Corporate' :
-                            settings.invoice_template === 'professional' ? 'Professional' :
-                            settings.invoice_template === 'elegant' ? 'Elegant' :
-                            settings.invoice_template === 'classic' ? 'Classic GST' :
-                            settings.invoice_template === 'creative' ? 'Creative Studio' :
-                            settings.invoice_template === 'retail' ? 'Retail Superstore' :
-                            settings.invoice_template === 'thermal' ? 'Thermal POS' :
-                            settings.invoice_template === 'export' ? 'Global Export' :
-                            settings.invoice_template === 'minimal' ? 'Minimal' :
-                            'Corporate'
-                          }
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Choose from 10 GST compliant formats designed for Indian customer sales, agencies, retail, and international trade.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPreviewTemplate((settings.invoice_template as InvoiceTemplateId) || 'corporate')}
-                      className="h-8 gap-1.5 font-bold text-xs uppercase tracking-wider border-primary/30 text-primary hover:bg-primary/10"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      Preview Active
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Sales Template Cards Grid */}
-                <div className="p-4 sm:p-6 space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                    {[
-                      {
-                        id: 'classic' as const,
-                        name: 'Classic GST',
-                        formatTag: 'Rule 46 Grid',
-                        description: 'Ruled boxed layout with detailed HSN/SAC summary tax table.',
-                      },
-                      {
-                        id: 'corporate' as const,
-                        name: 'Corporate',
-                        formatTag: 'Navy Ribbon',
-                        description: 'Formal layout with dark navy ribbon, serif typography, and dual sign boxes.',
-                      },
-                      {
-                        id: 'creative' as const,
-                        name: 'Creative Studio',
-                        formatTag: 'Agency & Tech',
-                        description: 'Violet accent studio layout with deliverable milestones, project notes, and UPI.',
-                      },
-                      {
-                        id: 'retail' as const,
-                        name: 'Retail Superstore',
-                        formatTag: 'Cash Memo & POS',
-                        description: 'Emerald retail layout with Savings callout, return policy, and itemized GST.',
-                      },
-                      {
-                        id: 'professional' as const,
-                        name: 'Professional',
-                        formatTag: 'Gradient Header',
-                        description: 'Clean business invoice with gradient banner, accent borders, and bank card.',
-                      },
-                      {
-                        id: 'modern' as const,
-                        name: 'Modern UPI',
-                        formatTag: 'Scan & Pay QR',
-                        description: 'Contemporary invoice with dynamic UPI QR code for fast mobile payments.',
-                      },
-                      {
-                        id: 'elegant' as const,
-                        name: 'Elegant',
-                        formatTag: 'Tax Split Grid',
-                        description: 'Refined layout with Sold By vs Billing columns and itemized tax breakdown.',
-                      },
-                      {
-                        id: 'export' as const,
-                        name: 'Global Export',
-                        formatTag: 'International LUT',
-                        description: 'Cross-border invoice under LUT with Port details, USD currency, and SWIFT box.',
-                      },
-                      {
-                        id: 'minimal' as const,
-                        name: 'Minimal',
-                        formatTag: 'Clean Editorial',
-                        description: 'Distraction-free typographic layout with generous whitespace and fine dividers.',
-                      },
-                      {
-                        id: 'thermal' as const,
-                        name: 'Thermal POS',
-                        formatTag: '58mm / 80mm',
-                        description: 'Compact monospace receipt designed for POS thermal roll printers with barcode.',
-                      }
-                    ].map((tpl) => {
-                      const isActive = settings.invoice_template === tpl.id;
-                      return (
-                        <div
-                          key={tpl.id}
-                          className={cn(
-                            "group relative rounded-xl border p-3.5 flex flex-col justify-between transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer bg-card",
-                            isActive
-                              ? "border-primary bg-primary/[0.02] ring-2 ring-primary/25 shadow-md"
-                              : "border-border hover:border-primary/40"
-                          )}
-                          onClick={() => handleTemplateSelect(tpl.id)}
-                        >
-                          {/* Active Indicator Badge */}
-                          {isActive && (
-                            <div className="absolute -top-2.5 -right-2 bg-primary text-primary-foreground text-[9px] font-black uppercase tracking-wider py-0.5 px-2.5 rounded-full shadow-sm flex items-center gap-1 z-10">
-                              <Check className="w-3 h-3 stroke-[3]" />
-                              Active
-                            </div>
-                          )}
-
-                          <div className="space-y-3">
-                            {/* Live Miniature Preview */}
-                            <div 
-                              className="h-52 w-full rounded-lg border border-slate-200/90 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-900/90 overflow-hidden relative flex justify-center items-start pt-2 px-2 shadow-inner select-none group-hover:border-primary/50 transition-all"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewTemplate(tpl.id);
-                              }}
-                            >
-                              <div
-                                className="origin-top transition-transform duration-300 pointer-events-none"
-                                style={{
-                                  width: tpl.id === 'thermal' ? '340px' : '794px',
-                                  transform: tpl.id === 'thermal' ? 'scale(0.56)' : 'scale(0.26)',
-                                  transformOrigin: 'top center',
-                                }}
-                              >
-                                <div className="bg-white text-slate-900 shadow-md border border-slate-300 rounded-sm pointer-events-none overflow-hidden">
-                                  <InvoiceTemplate
-                                    template={tpl.id}
-                                    invoice={tpl.id === 'export' ? { ...sampleInvoiceData.invoice, currency: 'USD', tax_amount: 0, total_amount: 12000 } : sampleInvoiceData.invoice}
-                                    client={tpl.id === 'export' ? { ...sampleInvoiceData.client, country: 'United States' } : sampleInvoiceData.client}
-                                    items={sampleInvoiceData.items}
-                                    company={sampleInvoiceData.company}
-                                  />
-                                </div>
-                              </div>
-                              <div className="absolute inset-x-0 bottom-0 py-2 bg-gradient-to-t from-slate-950/70 via-slate-950/30 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span className="text-[10px] font-bold text-white flex items-center gap-1 drop-shadow">
-                                  <Eye className="w-3 h-3 text-white" /> Click to preview full size
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Info */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <h4 className="font-bold text-sm text-foreground tracking-tight leading-none group-hover:text-primary transition-colors">{tpl.name}</h4>
-                                <span className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 shrink-0">
-                                  {tpl.formatTag}
-                                </span>
-                              </div>
-                              <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                                {tpl.description}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="pt-3 mt-3 border-t border-border flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1 h-8 text-xs font-semibold gap-1.5 rounded-lg border-border hover:bg-muted"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewTemplate(tpl.id);
-                              }}
-                            >
-                              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                              Preview
-                            </Button>
-                            <Button
-                              variant={isActive ? "secondary" : "default"}
-                              size="sm"
-                              disabled={isActive}
-                              className={cn(
-                                "flex-1 h-8 text-xs font-bold uppercase tracking-wider rounded-lg transition-all",
-                                isActive
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-default opacity-100"
-                                  : "shadow-sm hover:opacity-95"
-                              )}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleTemplateSelect(tpl.id);
-                              }}
-                            >
-                              {isActive ? (
-                                <span className="flex items-center gap-1">
-                                  <Check className="w-3 h-3" /> Active
-                                </span>
-                              ) : "Apply"}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Print Stationary & Letterhead Preferences Card */}
-                  <div className="mt-4 pt-4 border-t border-border space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Printer className="w-4 h-4 text-primary" />
-                      <h4 className="text-sm font-bold text-foreground">Print & Business Defaults</h4>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {/* Letterhead Toggle */}
-                      <div className="p-3 rounded-lg border border-border bg-muted/20 flex items-start gap-3">
-                        <Checkbox
-                          id="hideCompanyDetails"
-                          checked={settings.hide_company_details}
-                          onCheckedChange={(checked) => {
-                            const next = { ...settings, hide_company_details: !!checked };
-                            setSettings(next);
-                            void handleSettingsSave(next, { showToast: true });
-                          }}
-                          className="mt-0.5"
-                        />
-                        <div>
-                          <Label htmlFor="hideCompanyDetails" className="text-xs font-bold text-foreground cursor-pointer">
-                            Pre-printed Letterhead Mode
-                          </Label>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                            Hides company header on PDFs. Use when printing on letterhead stationary.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Branding Assets Readiness */}
-                      <div className="p-3 rounded-lg border border-border bg-muted/20 flex items-center justify-between gap-3">
-                        <div>
-                          <h5 className="text-xs font-bold text-foreground">Branding Assets</h5>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            {profile.logo_url ? "✓ Logo" : "⚠️ No logo"} • {profile.signature_url ? "✓ Signature" : "⚠️ No signature"} • {profile.upi_id ? "✓ UPI QR (Active)" : "⚠️ No UPI ID"}
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setActiveSection('business')}
-                          className="shrink-0 h-7 text-[11px] font-bold"
-                        >
-                          Manage
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            )}
-
-            {/* SECTION 2: PURCHASE BILL TEMPLATES (DEDICATED PROCUREMENT & INWARD VOUCHERS) */}
-            {templateCategory === 'purchase' && (
-              <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent">
-                  <div className="flex items-start sm:items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-600/10 border border-indigo-600/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
-                      <ShoppingBag className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-bold text-foreground tracking-tight">Purchase Bill Templates</h3>
-                        <Badge variant="outline" className="bg-indigo-600/10 text-indigo-700 dark:text-indigo-300 border-indigo-600/30 text-[10px] font-bold uppercase tracking-wider py-0.5 px-2.5 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                          Active: {
-                            purchaseBillTemplate === 'classic-blue' ? 'Classic Blue (Image 1)' :
-                            purchaseBillTemplate === 'commercial-erp' ? 'Commercial ERP (Image 2)' :
-                            purchaseBillTemplate === 'tax-itc' ? 'GST ITC Voucher' :
-                            purchaseBillTemplate === 'grn' ? 'GRN Note' :
-                            'Standard Procurement'
-                          }
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Professional inward procurement layouts tailored for vendor bills, stock receipt verification, and GST Input Tax Credit (ITC) audits.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPreviewPurchaseTemplate(purchaseBillTemplate)}
-                      className="h-8 gap-1.5 font-bold text-xs uppercase tracking-wider border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      Preview Active
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Purchase Template Cards Grid */}
-                <div className="p-4 sm:p-6 space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {[
-                      {
-                        id: 'classic-blue' as const,
-                        name: 'Classic Blue',
-                        formatTag: 'Vertex42 Style • Ref Image 1',
-                        description: 'Clean corporate procurement bill with solid blue BILL TO / SHIP TO banners, P.O. logistics strip, ruled item table, and comments box.',
-                      },
-                      {
-                        id: 'commercial-erp' as const,
-                        name: 'Commercial ERP Invoice',
-                        formatTag: 'Enterprise ERP • Ref Image 2',
-                        description: 'Commercial purchase layout with prominent dark header banner, yellow supplier info box, full lined grid, bank details, and stock verification box.',
-                      },
-                      {
-                        id: 'tax-itc' as const,
-                        name: 'GST ITC Audit Voucher',
-                        formatTag: 'Section 16 CGST • CA Audit',
-                        description: 'Auditor-grade voucher with CGST, SGST, IGST tax credit split, supplier GSTIN verification, and legal ITC claim certification.',
-                      },
-                      {
-                        id: 'grn' as const,
-                        name: 'Goods Receipt Note (GRN)',
-                        formatTag: 'Warehouse Stock Inward',
-                        description: 'Physical inventory inward stock entry voucher with billed qty vs received qty inspection and store keeper signatures.',
-                      },
-                      {
-                        id: 'standard' as const,
-                        name: 'Standard Procurement',
-                        formatTag: 'Voucher Format',
-                        description: 'Clean modern inward procurement voucher with dual party cards, HSN breakdown, and stock approved verification.',
-                      }
-                    ].map((tpl) => {
-                      const isActive = purchaseBillTemplate === tpl.id;
-                      return (
-                        <div
-                          key={tpl.id}
-                          className={cn(
-                            "group relative rounded-xl border p-3.5 flex flex-col justify-between transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer bg-card",
-                            isActive
-                              ? "border-indigo-600 bg-indigo-50/10 dark:bg-indigo-950/20 ring-2 ring-indigo-500/25 shadow-md"
-                              : "border-border hover:border-indigo-500/40"
-                          )}
-                          onClick={() => handlePurchaseTemplateSelect(tpl.id)}
-                        >
-                          {/* Active Indicator Badge */}
-                          {isActive && (
-                            <div className="absolute -top-2.5 -right-2 bg-indigo-600 text-white text-[9px] font-black uppercase tracking-wider py-0.5 px-2.5 rounded-full shadow-sm flex items-center gap-1 z-10">
-                              <Check className="w-3 h-3 stroke-[3]" />
-                              Active Default
-                            </div>
-                          )}
-
-                          <div className="space-y-3">
-                            {/* Live Miniature Preview of Purchase Template */}
-                            <div 
-                              className="h-56 w-full rounded-lg border border-slate-200/90 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-900/90 overflow-hidden relative flex justify-center items-start pt-2 px-2 shadow-inner select-none group-hover:border-indigo-500/50 transition-all"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewPurchaseTemplate(tpl.id);
-                              }}
-                            >
-                              <div
-                                className="origin-top transition-transform duration-300 pointer-events-none"
-                                style={{
-                                  width: '794px',
-                                  transform: 'scale(0.26)',
-                                  transformOrigin: 'top center',
-                                }}
-                              >
-                                <div className="bg-white text-slate-900 shadow-md border border-slate-300 rounded-sm pointer-events-none overflow-hidden">
-                                  <PurchaseBillTemplate
-                                    template={tpl.id}
-                                    invoice={samplePurchaseData.invoice}
-                                    vendor={samplePurchaseData.vendor}
-                                    items={samplePurchaseData.items}
-                                    company={samplePurchaseData.company}
-                                  />
-                                </div>
-                              </div>
-                              <div className="absolute inset-x-0 bottom-0 py-2 bg-gradient-to-t from-slate-950/70 via-slate-950/30 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span className="text-[10px] font-bold text-white flex items-center gap-1 drop-shadow">
-                                  <Eye className="w-3 h-3 text-white" /> Click to preview full size
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Info */}
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <h4 className="font-bold text-sm text-foreground tracking-tight leading-none group-hover:text-indigo-600 transition-colors">{tpl.name}</h4>
-                                <span className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 shrink-0">
-                                  {tpl.formatTag}
-                                </span>
-                              </div>
-                              <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                                {tpl.description}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="pt-3 mt-3 border-t border-border flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1 h-8 text-xs font-semibold gap-1.5 rounded-lg border-border hover:bg-muted"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewPurchaseTemplate(tpl.id);
-                              }}
-                            >
-                              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                              Preview
-                            </Button>
-                            <Button
-                              variant={isActive ? "secondary" : "default"}
-                              size="sm"
-                              disabled={isActive}
-                              className={cn(
-                                "flex-1 h-8 text-xs font-bold uppercase tracking-wider rounded-lg transition-all",
-                                isActive
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-default opacity-100"
-                                  : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
-                              )}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePurchaseTemplateSelect(tpl.id);
-                              }}
-                            >
-                              {isActive ? (
-                                <span className="flex items-center gap-1">
-                                  <Check className="w-3 h-3" /> Active
-                                </span>
-                              ) : "Apply"}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Stock Integration & ITC Guarantee Banner */}
-                  <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 flex items-start gap-3">
-                      <PackageCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h5 className="text-xs font-bold text-foreground">Automatic Inward Stock Linking</h5>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                          Items created in purchase bills automatically update your inventory stock count and are fully tracked in stock adjustment history.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-start gap-3">
-                      <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h5 className="text-xs font-bold text-foreground">100% Tax Credit (ITC) Compliance</h5>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                          All purchase bill formats strictly separate vendor GSTIN, CGST, SGST, and IGST to ensure seamless monthly GSTR-2B reconciliation.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            )}
-
-            {/* SECTION 3: AUTOMOBILE & DOWNPAYMENT TEMPLATES */}
-            {templateCategory === 'automobile' && (
-              <Card className="rounded-xl border border-border shadow-sm bg-card overflow-hidden">
-                <div className="p-4 sm:p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-amber-500/10 via-orange-500/5 to-transparent">
-                  <div className="flex items-start sm:items-center gap-3.5">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 shrink-0">
-                      <Car className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-bold text-foreground tracking-tight">Automobile & Downpayment Templates</h3>
-                        <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] font-bold uppercase tracking-wider py-0.5 px-2.5 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                          Active: {
-                            downpaymentTemplate === 'auto_dealership' ? 'Dealership Slip' :
-                            downpaymentTemplate === 'auto_modern' ? 'Modern Drive Voucher' :
-                            downpaymentTemplate === 'auto_classic' ? 'Classic RTO Form' :
-                            downpaymentTemplate === 'auto_executive' ? 'Executive Luxury Allotment' :
-                            downpaymentTemplate === 'auto_compact' ? 'Compact Token Counter Slip' :
-                            'Dealership Slip'
-                          }
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        5 dedicated vehicle templates featuring Model, Chassis/VIN, Engine No, Color, Booking No, and Financer Hypothecation.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPreviewTemplate(downpaymentTemplate as InvoiceTemplateId)}
-                      className="h-8 gap-1.5 font-bold text-xs uppercase tracking-wider border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      Preview Active
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Automobile Template Cards Grid */}
-                <div className="p-4 sm:p-6 space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
-                    {[
-                      {
-                        id: 'auto_dealership' as const,
-                        name: 'Dealership Slip',
-                        formatTag: 'Showroom Official',
-                        description: 'Red & Slate dual-tone dealership header with vehicle specs box, Form 21 compliance, and dual sign.',
-                      },
-                      {
-                        id: 'auto_modern' as const,
-                        name: 'Modern Drive',
-                        formatTag: 'Digital VIN Card',
-                        description: 'Dark-gradient hero voucher with vehicle badge card, financial allotment breakdown, and UPI QR.',
-                      },
-                      {
-                        id: 'auto_classic' as const,
-                        name: 'Classic RTO Order',
-                        formatTag: 'Vehicle Particulars',
-                        description: 'Traditional automotive grid with boxed vehicle particulars table, booking terms, and cashier seal.',
-                      },
-                      {
-                        id: 'auto_executive' as const,
-                        name: 'Executive Luxury',
-                        formatTag: 'Luxury Navy/Gold',
-                        description: 'Premium dealership certificate with vehicle allocation table, loan hypothecation details, and manager sign.',
-                      },
-                      {
-                        id: 'auto_compact' as const,
-                        name: 'Compact Counter',
-                        formatTag: 'Quick Token Slip',
-                        description: 'Monospace quick counter slip designed for 2W & 4W instant booking token and advance advance deposits.',
-                      }
-                    ].map((tpl) => {
-                      const isActive = downpaymentTemplate === tpl.id;
-                      return (
-                        <div
-                          key={tpl.id}
-                          className={cn(
-                            "group relative rounded-xl border p-3.5 flex flex-col justify-between transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer bg-card",
-                            isActive
-                              ? "border-amber-600 bg-amber-500/[0.02] ring-2 ring-amber-500/25 shadow-md"
-                              : "border-border hover:border-amber-500/40"
-                          )}
-                          onClick={() => handleDownpaymentTemplateSelect(tpl.id)}
-                        >
-                          {isActive && (
-                            <div className="absolute -top-2.5 -right-2 bg-amber-600 text-white text-[9px] font-black uppercase tracking-wider py-0.5 px-2.5 rounded-full shadow-sm flex items-center gap-1 z-10">
-                              <Check className="w-3 h-3 stroke-[3]" />
-                              Active
-                            </div>
-                          )}
-
-                          <div className="space-y-3">
-                            <div 
-                              className="h-52 w-full rounded-lg border border-slate-200/90 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-900/90 overflow-hidden relative flex justify-center items-start pt-2 px-2 shadow-inner select-none group-hover:border-amber-500/50 transition-all"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewTemplate(tpl.id);
-                              }}
-                            >
-                              <div
-                                className="origin-top transition-transform duration-300 pointer-events-none"
-                                style={{
-                                  width: tpl.id === 'auto_compact' ? '440px' : '794px',
-                                  transform: tpl.id === 'auto_compact' ? 'scale(0.48)' : 'scale(0.26)',
-                                  transformOrigin: 'top center',
-                                }}
-                              >
-                                <div className="bg-white text-slate-900 shadow-md border border-slate-300 rounded-sm pointer-events-none overflow-hidden">
-                                  <InvoiceTemplate
-                                    template={tpl.id}
-                                    invoice={sampleAutoData.invoice}
-                                    client={sampleAutoData.client}
-                                    items={sampleAutoData.items}
-                                    company={sampleAutoData.company}
-                                  />
-                                </div>
-                              </div>
-                              <div className="absolute inset-x-0 bottom-0 py-2 bg-gradient-to-t from-slate-950/70 via-slate-950/30 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span className="text-[10px] font-bold text-white flex items-center gap-1 drop-shadow">
-                                  <Eye className="w-3 h-3 text-white" /> Click to preview full size
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <h4 className="font-bold text-sm text-foreground tracking-tight leading-none group-hover:text-amber-600 transition-colors">{tpl.name}</h4>
-                                <span className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 shrink-0">
-                                  {tpl.formatTag}
-                                </span>
-                              </div>
-                              <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                                {tpl.description}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="pt-3 mt-3 border-t border-border flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="flex-1 h-8 text-xs font-semibold gap-1.5 rounded-lg border-border hover:bg-muted"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPreviewTemplate(tpl.id);
-                              }}
-                            >
-                              <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                              Preview
-                            </Button>
-                            <Button
-                              variant={isActive ? "secondary" : "default"}
-                              size="sm"
-                              disabled={isActive}
-                              className={cn(
-                                "flex-1 h-8 text-xs font-bold uppercase tracking-wider rounded-lg transition-all",
-                                isActive
-                                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 cursor-default opacity-100"
-                                  : "bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
-                              )}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownpaymentTemplateSelect(tpl.id);
-                              }}
-                            >
-                              {isActive ? (
-                                <span className="flex items-center gap-1">
-                                  <Check className="w-3 h-3" /> Active
-                                </span>
-                              ) : "Apply"}
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Automobile Compliance Banner */}
-                  <div className="mt-4 pt-4 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/20 flex items-start gap-3">
-                      <Car className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h5 className="text-xs font-bold text-foreground">Complete Vehicle Specifications Capture</h5>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                          Captures Vehicle Model, Chassis/VIN, Engine No, Color, Booking No, and Financer Hypothecation directly on the invoice receipt.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 flex items-start gap-3">
-                      <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h5 className="text-xs font-bold text-foreground">RTO / Dealership Booking Compliance</h5>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                          Fully formatted for vehicle dealership booking advance receipts, Form 21 sale certificates, and bank hypothecation clearance.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            )}
+            <InvoiceTemplatesTab
+              isAutomobile={isAutomobile}
+              templateCategory={templateCategory}
+              setTemplateCategory={setTemplateCategory}
+              settings={settings}
+              setSettings={setSettings}
+              handleSettingsSave={handleSettingsSave}
+              setPreviewTemplate={setPreviewTemplate}
+              handleTemplateSelect={handleTemplateSelect}
+              profile={profile}
+              setActiveSection={setActiveSection}
+              purchaseBillTemplate={purchaseBillTemplate}
+              handlePurchaseTemplateSelect={handlePurchaseTemplateSelect}
+              setPreviewPurchaseTemplate={setPreviewPurchaseTemplate}
+              downpaymentTemplate={downpaymentTemplate}
+              handleDownpaymentTemplateSelect={handleDownpaymentTemplateSelect}
+              sampleInvoiceData={sampleInvoiceData}
+              samplePurchaseData={samplePurchaseData}
+              sampleAutoData={sampleAutoData}
+            />
           </TabsContent>
+
+{/* 5. BACKUP & DATA VAULT TAB (COMPANY OWNERS ONLY) */}
+          {!isStaff && (
+            <TabsContent value="backup" className="m-0 space-y-6 outline-none">
+              <CloudBackupTab
+                user={user}
+                isStaff={isStaff}
+                effectiveUserId={effectiveUserId}
+                profile={profile}
+                serviceSupabase={serviceSupabase}
+                toast={toast}
+              />
+            </TabsContent>
+          )}
         </div>
       </Tabs>
 
@@ -4540,21 +2616,21 @@ const SettingsPage = () => {
               <div>
                 <DialogTitle className="text-xl font-bold uppercase tracking-tight text-slate-900 dark:text-slate-100">
                   {previewTemplate === 'classic' ? 'Classic GST' :
-                   previewTemplate === 'corporate' ? 'Corporate' :
-                   previewTemplate === 'creative' ? 'Creative Studio' :
-                   previewTemplate === 'retail' ? 'Retail Superstore' :
-                   previewTemplate === 'professional' ? 'Professional' :
-                   previewTemplate === 'modern' ? 'Modern UPI' :
-                   previewTemplate === 'elegant' ? 'Elegant' :
-                   previewTemplate === 'thermal' ? 'Thermal POS' :
-                   previewTemplate === 'export' ? 'Global Export' :
-                   previewTemplate === 'minimal' ? 'Minimal' :
-                   previewTemplate === 'auto_dealership' ? 'Dealership Booking Slip' :
-                   previewTemplate === 'auto_modern' ? 'Modern Drive Voucher' :
-                   previewTemplate === 'auto_classic' ? 'Classic RTO Vehicle Form' :
-                   previewTemplate === 'auto_executive' ? 'Executive Luxury Allotment' :
-                   previewTemplate === 'auto_compact' ? 'Compact Token Counter Slip' :
-                   'Template Preview'}
+                    previewTemplate === 'corporate' ? 'Corporate' :
+                      previewTemplate === 'creative' ? 'Creative Studio' :
+                        previewTemplate === 'retail' ? 'Retail Superstore' :
+                          previewTemplate === 'professional' ? 'Professional' :
+                            previewTemplate === 'modern' ? 'Modern UPI' :
+                              previewTemplate === 'elegant' ? 'Elegant' :
+                                previewTemplate === 'thermal' ? 'Thermal POS' :
+                                  previewTemplate === 'export' ? 'Global Export' :
+                                    previewTemplate === 'minimal' ? 'Minimal' :
+                                      previewTemplate === 'auto_dealership' ? 'Dealership Booking Slip' :
+                                        previewTemplate === 'auto_modern' ? 'Modern Drive Voucher' :
+                                          previewTemplate === 'auto_classic' ? 'Classic RTO Vehicle Form' :
+                                            previewTemplate === 'auto_executive' ? 'Executive Luxury Allotment' :
+                                              previewTemplate === 'auto_compact' ? 'Compact Token Counter Slip' :
+                                                'Template Preview'}
                 </DialogTitle>
                 <DialogDescription className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                   Full Document Preview • Rendered with Sample Data & Company Details
@@ -4575,21 +2651,21 @@ const SettingsPage = () => {
                       template={previewTemplate}
                       invoice={
                         previewTemplate.startsWith('auto_') ? sampleAutoData.invoice :
-                        previewTemplate === 'export' ? { ...sampleInvoiceData.invoice, currency: 'USD', tax_amount: 0, total_amount: 12000 } :
-                        sampleInvoiceData.invoice
+                          previewTemplate === 'export' ? { ...sampleInvoiceData.invoice, currency: 'USD', tax_amount: 0, total_amount: 12000 } :
+                            sampleInvoiceData.invoice
                       }
                       client={
                         previewTemplate.startsWith('auto_') ? sampleAutoData.client :
-                        previewTemplate === 'export' ? { ...sampleInvoiceData.client, country: 'United States' } :
-                        sampleInvoiceData.client
+                          previewTemplate === 'export' ? { ...sampleInvoiceData.client, country: 'United States' } :
+                            sampleInvoiceData.client
                       }
                       items={
                         previewTemplate.startsWith('auto_') ? sampleAutoData.items :
-                        sampleInvoiceData.items
+                          sampleInvoiceData.items
                       }
                       company={
                         previewTemplate.startsWith('auto_') ? sampleAutoData.company :
-                        sampleInvoiceData.company
+                          sampleInvoiceData.company
                       }
                     />
                   )}
@@ -4602,7 +2678,19 @@ const SettingsPage = () => {
             <Button variant="outline" className="flex-1 h-11 rounded-xl font-bold uppercase tracking-widest text-[10px]" onClick={() => setPreviewTemplate(null)}>
               Dismiss
             </Button>
-            <Button className="flex-1 h-11 rounded-xl bg-primary hover:opacity-90 font-bold uppercase tracking-widest text-[10px] shadow-sm" onClick={() => { handleTemplateSelect(previewTemplate!); setPreviewTemplate(null); }}>
+            <Button
+              className="flex-1 h-11 rounded-xl bg-primary hover:opacity-90 font-bold uppercase tracking-widest text-[10px] shadow-sm"
+              onClick={() => {
+                if (previewTemplate) {
+                  if (previewTemplate.startsWith('auto_')) {
+                    handleDownpaymentTemplateSelect(previewTemplate as any);
+                  } else {
+                    handleTemplateSelect(previewTemplate);
+                  }
+                }
+                setPreviewTemplate(null);
+              }}
+            >
               Adopt This Style
             </Button>
           </div>
@@ -4620,10 +2708,10 @@ const SettingsPage = () => {
               <div>
                 <DialogTitle className="text-xl font-bold uppercase tracking-tight text-slate-900 dark:text-slate-100">
                   {previewPurchaseTemplate === 'classic-blue' ? 'Classic Blue (Vertex42 Style)' :
-                   previewPurchaseTemplate === 'commercial-erp' ? 'Commercial ERP Purchase Invoice' :
-                   previewPurchaseTemplate === 'tax-itc' ? 'GST ITC Audit Voucher' :
-                   previewPurchaseTemplate === 'grn' ? 'Goods Receipt Note (GRN)' :
-                   'Standard Procurement Voucher'}
+                    previewPurchaseTemplate === 'commercial-erp' ? 'Commercial ERP Purchase Invoice' :
+                      previewPurchaseTemplate === 'tax-itc' ? 'GST ITC Audit Voucher' :
+                        previewPurchaseTemplate === 'grn' ? 'Goods Receipt Note (GRN)' :
+                          'Standard Procurement Voucher'}
                 </DialogTitle>
                 <DialogDescription className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
                   Inward Procurement Preview • Rendered with Sample Supplier & Stock Details
@@ -4635,19 +2723,21 @@ const SettingsPage = () => {
             </Button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-100/50 dark:bg-slate-950/50 flex justify-center">
-            <div className="w-full max-w-[820px]">
-              <div className="shadow-xl ring-1 ring-slate-200 dark:ring-slate-800 bg-white dark:bg-slate-900 rounded-sm mb-6 overflow-hidden">
-                {previewPurchaseTemplate && (
-                  <PurchaseBillTemplate
-                    template={previewPurchaseTemplate}
-                    invoice={samplePurchaseData.invoice}
-                    vendor={samplePurchaseData.vendor}
-                    items={samplePurchaseData.items}
-                    company={samplePurchaseData.company}
-                  />
-                )}
-              </div>
+          <div className="flex-1 overflow-y-auto p-2 sm:p-6 bg-slate-100/50 dark:bg-slate-950/50 flex justify-center">
+            <div className="w-full flex justify-center">
+              <ResponsiveInvoiceWrapper maxWidth={800}>
+                <div className="shadow-2xl ring-1 ring-slate-900/10 rounded-sm bg-white dark:bg-slate-900 overflow-hidden pointer-events-none">
+                  {previewPurchaseTemplate && (
+                    <PurchaseBillTemplate
+                      template={previewPurchaseTemplate}
+                      invoice={samplePurchaseData.invoice}
+                      vendor={samplePurchaseData.vendor}
+                      items={samplePurchaseData.items}
+                      company={samplePurchaseData.company}
+                    />
+                  )}
+                </div>
+              </ResponsiveInvoiceWrapper>
             </div>
           </div>
 
@@ -4674,15 +2764,15 @@ const SettingsPage = () => {
               This will update the visual layout for all future invoices and previews.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          
+
           <div className="flex items-center space-x-2 py-4 px-1">
-            <Checkbox 
-              id="confirm-template" 
-              checked={confirmTemplateCheck} 
-              onCheckedChange={(checked) => setConfirmTemplateCheck(!!checked)} 
+            <Checkbox
+              id="confirm-template"
+              checked={confirmTemplateCheck}
+              onCheckedChange={(checked) => setConfirmTemplateCheck(!!checked)}
             />
-            <Label 
-              htmlFor="confirm-template" 
+            <Label
+              htmlFor="confirm-template"
               className="text-xs font-semibold text-muted-foreground cursor-pointer select-none"
             >
               I want to apply this new template to my business
@@ -4690,13 +2780,13 @@ const SettingsPage = () => {
           </div>
 
           <AlertDialogFooter className="mt-4 gap-3">
-            <AlertDialogCancel 
+            <AlertDialogCancel
               className="rounded-xl border-2 font-bold uppercase tracking-widest text-[10px]"
               onClick={() => setConfirmTemplateCheck(false)}
             >
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmTemplateChange}
               disabled={!confirmTemplateCheck}
               className={cn(
@@ -4723,42 +2813,44 @@ const SettingsPage = () => {
                 Double Verification
               </Badge>
             </AlertDialogTitle>
-            <div className="text-muted-foreground font-medium text-xs leading-relaxed space-y-3 pt-1">
-              <p>
-                You are switching the billing WhatsApp dispatch method from{" "}
-                <span className="font-bold text-foreground">
-                  {settings.whatsapp_provider === 'personal' ? 'Personal WhatsApp' : 'ESCROW API'}
-                </span>{" "}
-                to{" "}
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                  {pendingWhatsAppProvider === 'personal' ? 'Personal WhatsApp (App/Web)' : 'ESCROW API (Automated)'}
-                </span>.
-              </p>
-              <div className="p-3 rounded-lg bg-muted/40 border border-border/60 text-[11px] text-muted-foreground">
-                {pendingWhatsAppProvider === 'personal' ? (
-                  <>
-                    <strong className="text-foreground block mb-1">📱 Personal WhatsApp:</strong>
-                    When sharing invoices, your personal WhatsApp or WhatsApp Web will open with a pre-formatted message and invoice link ready to send to your client.
-                  </>
-                ) : (
-                  <>
-                    <strong className="text-foreground block mb-1">⚡ ESCROW API (Automated):</strong>
-                    Invoices, PDF downloads, and payment links will be dispatched automatically to your client's WhatsApp directly from ESCROW's verified server gateway.
-                  </>
-                )}
+            <AlertDialogDescription asChild>
+              <div className="text-muted-foreground font-medium text-xs leading-relaxed space-y-3 pt-1">
+                <p>
+                  You are switching the billing WhatsApp dispatch method from{" "}
+                  <span className="font-bold text-foreground">
+                    {(settings.whatsapp_provider ?? 'personal') === 'personal' ? 'Personal WhatsApp' : 'ESCROW API'}
+                  </span>{" "}
+                  to{" "}
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                    {pendingWhatsAppProvider === 'personal' ? 'Personal WhatsApp (App/Web)' : 'ESCROW API (Automated)'}
+                  </span>.
+                </p>
+                <div className="p-3 rounded-lg bg-muted/40 border border-border/60 text-[11px] text-muted-foreground">
+                  {pendingWhatsAppProvider === 'personal' ? (
+                    <>
+                      <strong className="text-foreground block mb-1">📱 Personal WhatsApp:</strong>
+                      When sharing invoices, your personal WhatsApp or WhatsApp Web will open with a pre-formatted message and invoice link ready to send to your client.
+                    </>
+                  ) : (
+                    <>
+                      <strong className="text-foreground block mb-1">⚡ ESCROW API (Automated):</strong>
+                      Invoices, PDF downloads, and payment links will be dispatched automatically to your client's WhatsApp directly from ESCROW's verified server gateway.
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
+            </AlertDialogDescription>
           </AlertDialogHeader>
-          
+
           <div className="flex items-start space-x-2 py-3 px-1">
-            <Checkbox 
-              id="confirm-whatsapp" 
-              checked={confirmWhatsAppCheck} 
-              onCheckedChange={(checked) => setConfirmWhatsAppCheck(!!checked)} 
+            <Checkbox
+              id="confirm-whatsapp"
+              checked={confirmWhatsAppCheck}
+              onCheckedChange={(checked) => setConfirmWhatsAppCheck(!!checked)}
               className="mt-0.5"
             />
-            <Label 
-              htmlFor="confirm-whatsapp" 
+            <Label
+              htmlFor="confirm-whatsapp"
               className="text-xs font-semibold text-foreground cursor-pointer select-none leading-tight"
             >
               I confirm that I want to switch the billing WhatsApp dispatch method
@@ -4766,7 +2858,7 @@ const SettingsPage = () => {
           </div>
 
           <AlertDialogFooter className="mt-2 gap-2 sm:gap-3">
-            <AlertDialogCancel 
+            <AlertDialogCancel
               className="rounded-xl border-2 font-bold uppercase tracking-widest text-[10px]"
               onClick={() => {
                 setConfirmWhatsAppCheck(false);
@@ -4776,7 +2868,7 @@ const SettingsPage = () => {
             >
               Cancel
             </AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
                 void handleConfirmWhatsAppChange();
@@ -4785,7 +2877,7 @@ const SettingsPage = () => {
               className={cn(
                 "rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-sm px-6 transition-all gap-1.5",
                 confirmWhatsAppCheck && !whatsAppSaving
-                  ? "bg-emerald-600 hover:bg-emerald-700 text-white" 
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                   : "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
               )}
             >
@@ -4802,134 +2894,9 @@ const SettingsPage = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Business Country & Tax Regime Double Confirmation Dialog */}
-      <AlertDialog
-        open={isCountryConfirmOpen}
-        onOpenChange={(open) => {
-          if (!open && !countryUpdating) {
-            setIsCountryConfirmOpen(false);
-            setPendingCountryCode(null);
-            setConfirmCountryCheck(false);
-          }
-        }}
-      >
-        <AlertDialogContent className="rounded-2xl border-border/60 max-w-lg p-6 shadow-2xl">
-          <AlertDialogHeader>
-            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 mb-1">
-              <ShieldAlert className="w-5 h-5 shrink-0" />
-              <Badge variant="outline" className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30">
-                Double Confirmation Required
-              </Badge>
-            </div>
-            <AlertDialogTitle className="text-xl font-black text-foreground tracking-tight">
-              Change Business Country & Tax Regime?
-            </AlertDialogTitle>
-            <div className="text-xs sm:text-sm text-muted-foreground space-y-3 pt-2 text-left">
-              <p>
-                Are you sure you want to change your operating business jurisdiction? This is a system-wide setting that updates your entire workspace.
-              </p>
-              {pendingCountryCode && (() => {
-                const pendingCfg = getCountryTaxConfig(pendingCountryCode);
-                return (
-                  <div className="rounded-xl border border-border/80 bg-muted/40 p-3.5 space-y-2.5 text-xs text-foreground font-medium">
-                    <div className="flex items-center justify-between pb-2 border-b border-border/60">
-                      <span className="text-muted-foreground font-semibold">Current Setup:</span>
-                      <span className="font-bold">{businessCountry.flag} {businessCountry.countryName} ({businessCountry.taxSystem} • {businessCountry.currencyCode} {businessCountry.currencySymbol})</span>
-                    </div>
-                    <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400">
-                      <span className="font-semibold">New Selection:</span>
-                      <span className="font-black text-sm">{pendingCfg.flag} {pendingCfg.countryName} ({pendingCfg.taxSystem} • {pendingCfg.currencyCode} {pendingCfg.currencySymbol})</span>
-                    </div>
-                    <div className="text-[11px] text-muted-foreground bg-background/80 p-2.5 rounded-lg border border-border/40 space-y-1">
-                      <p>• <strong>Tax System:</strong> {pendingCfg.taxName} (Standard Rate: {pendingCfg.standardTaxRate}%)</p>
-                      <p>• <strong>Currency Symbol:</strong> {pendingCfg.currencyCode} ({pendingCfg.currencySymbol})</p>
-                      <p>• <strong>Compliance ID Label:</strong> {pendingCfg.taxIdLabel}</p>
-                    </div>
-                  </div>
-                );
-              })()}
-              <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200 dark:border-amber-800/40">
-                ⚠️ Once confirmed, tax calculations, invoice templates, payroll reports, and currency symbols across all modules will permanently stick to this country until changed again.
-              </p>
-            </div>
-          </AlertDialogHeader>
 
-          <div className="flex items-start space-x-2 py-3 px-1">
-            <Checkbox
-              id="confirm-country-bill"
-              checked={confirmCountryCheck}
-              onCheckedChange={(checked) => setConfirmCountryCheck(!!checked)}
-              className="mt-0.5"
-            />
-            <Label
-              htmlFor="confirm-country-bill"
-              className="text-xs font-semibold text-foreground cursor-pointer select-none leading-tight"
-            >
-              I understand and confirm that I want to apply this operating country across my entire business.
-            </Label>
-          </div>
 
-          <AlertDialogFooter className="mt-2 gap-2 sm:gap-3">
-            <AlertDialogCancel
-              disabled={countryUpdating}
-              onClick={() => {
-                setIsCountryConfirmOpen(false);
-                setPendingCountryCode(null);
-                setConfirmCountryCheck(false);
-              }}
-              className="rounded-xl border-2 font-bold uppercase tracking-widest text-[10px]"
-            >
-              Cancel (रद्द करें)
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!confirmCountryCheck || countryUpdating || !pendingCountryCode}
-              onClick={async (e) => {
-                e.preventDefault();
-                if (!pendingCountryCode) return;
-                setCountryUpdating(true);
-                try {
-                  const res = await updateBusinessCountry(pendingCountryCode);
-                  if (res.success) {
-                    const cfg = getCountryTaxConfig(pendingCountryCode);
-                    setSettings((prev) => ({ ...prev, default_currency: cfg.currencyCode }));
-                    toast({
-                      title: "Business Country & Tax Regime Updated",
-                      description: `Workspace set to ${cfg.countryName} (${cfg.taxSystem} - ${cfg.taxName}). Currency: ${cfg.currencyCode} (${cfg.currencySymbol}).`,
-                    });
-                  }
-                } catch (err: any) {
-                  console.error('Failed to change business country:', err);
-                  toast({
-                    variant: "destructive",
-                    title: "Failed to Update Country",
-                    description: err?.message || "An error occurred while saving."
-                  });
-                } finally {
-                  setCountryUpdating(false);
-                  setIsCountryConfirmOpen(false);
-                  setPendingCountryCode(null);
-                  setConfirmCountryCheck(false);
-                }
-              }}
-              className={cn(
-                "rounded-xl font-bold uppercase tracking-widest text-[10px] shadow-sm px-6 transition-all gap-1.5",
-                confirmCountryCheck && !countryUpdating
-                  ? "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
-                  : "bg-muted text-muted-foreground opacity-50 cursor-not-allowed"
-              )}
-            >
-              {countryUpdating ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Applying Setup...
-                </>
-              ) : (
-                "Confirm & Apply Setup (लागू करें)"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Account Deletion Request Dialog Modal */}
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
         <DialogContent className="sm:max-w-lg p-0 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
           <div className="bg-rose-50 dark:bg-rose-950/40 p-5 md:p-6 border-b border-rose-200 dark:border-rose-900/50 flex items-start gap-4">
@@ -5048,6 +3015,124 @@ const SettingsPage = () => {
                     <span>Submit Deletion Request</span>
                   </>
                 )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Business Type Change Request Dialog Modal */}
+      <Dialog open={isTypeRequestModalOpen} onOpenChange={setIsTypeRequestModalOpen}>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+          <div className="bg-primary/5 p-5 md:p-6 border-b border-border/80 flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <ArrowRightLeft className="w-6 h-6" />
+            </div>
+            <div>
+              <DialogTitle className="text-base font-bold text-foreground">
+                Request Business Category Switch
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-1">
+                Selected category will unlock relevant industry features (e.g. Downpayment invoices for Automobile).
+              </DialogDescription>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmitTypeRequest} className="p-5 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-foreground">Select New Business Category</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRequestedType('normal')}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    requestedType === 'normal'
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold shadow-xs"
+                      : "border-border/70 hover:border-border text-muted-foreground bg-muted/20"
+                  )}
+                >
+                  <span className="text-xl mb-1">🛍️</span>
+                  <span className="text-xs font-bold leading-tight">Retail</span>
+                  <span className="text-[9px] text-muted-foreground mt-0.5">Shop / Trading</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRequestedType('automobile')}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    requestedType === 'automobile'
+                      ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-bold shadow-xs"
+                      : "border-border/70 hover:border-border text-muted-foreground bg-muted/20"
+                  )}
+                >
+                  <span className="text-xl mb-1">🚗</span>
+                  <span className="text-xs font-bold leading-tight">Automobile</span>
+                  <span className="text-[9px] text-muted-foreground mt-0.5">Dealers / Garage</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRequestedType('food_kitchen')}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    requestedType === 'food_kitchen'
+                      ? "border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-400 font-bold shadow-xs"
+                      : "border-border/70 hover:border-border text-muted-foreground bg-muted/20"
+                  )}
+                >
+                  <span className="text-xl mb-1">🍛</span>
+                  <span className="text-xs font-bold leading-tight">Food / Kitchen</span>
+                  <span className="text-[9px] text-muted-foreground mt-0.5">Restaurant / Cloud</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRequestedType('cafe')}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all cursor-pointer",
+                    requestedType === 'cafe'
+                      ? "border-amber-600 bg-amber-500/10 text-amber-800 dark:text-amber-300 font-bold shadow-xs"
+                      : "border-border/70 hover:border-border text-muted-foreground bg-muted/20"
+                  )}
+                >
+                  <span className="text-xl mb-1">☕</span>
+                  <span className="text-xs font-bold leading-tight">Cafe</span>
+                  <span className="text-[9px] text-muted-foreground mt-0.5">Coffee / POS</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="type-reason" className="text-xs font-semibold text-foreground">
+                Reason / Note for Admin (Optional)
+              </Label>
+              <Textarea
+                id="type-reason"
+                value={typeRequestReason}
+                onChange={(e) => setTypeRequestReason(e.target.value)}
+                placeholder="e.g. Registered with wrong category by mistake, we run an automobile workshop/dealership..."
+                className="min-h-[70px] text-xs resize-y"
+              />
+            </div>
+
+            <DialogFooter className="pt-2 gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsTypeRequestModalOpen(false)}
+                disabled={isSubmittingTypeRequest}
+                className="text-xs font-semibold"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmittingTypeRequest || requestedType === userType}
+                className="text-xs font-bold gap-1.5"
+              >
+                {isSubmittingTypeRequest ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Submit Request
               </Button>
             </DialogFooter>
           </form>

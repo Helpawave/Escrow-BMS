@@ -53,6 +53,7 @@ const BillScanProduct = React.lazy(() => import('../bill/ScanProduct'));
 const BillAdminLogin = React.lazy(() => import('../bill/AdminLogin'));
 const BillAdminDashboard = React.lazy(() => import('../bill/AdminDashboard'));
 const BillBusinessSetup = React.lazy(() => import('../bill/BusinessSetup'));
+const BillKitchen = React.lazy(() => import('../bill/Kitchen'));
 
 // 4. Hisab Pages
 const HisabHistory = React.lazy(() => import('../daily-hisab/user/History').then(m => ({ default: m.History })));
@@ -149,6 +150,7 @@ export function BillingModule() {
         <Route path="/admin" element={<BillAdminLogin />} />
         <Route path="/admin/dashboard" element={<BillAdminDashboard />} />
         <Route path="/setup-business" element={<BillBusinessSetup />} />
+        <Route path="/kitchen" element={<BillKitchen />} />
         <Route path="*" element={<Navigate to="invoices" replace />} />
       </Routes>
     </Suspense>

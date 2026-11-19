@@ -49,6 +49,8 @@ const AddStaffPage = React.lazy(() => import('@/pages/users/AddStaffPage'));
 const MyProfilePage = React.lazy(() => import('@/pages/MyProfilePage'));
 const ReportsPage = React.lazy(() => import('@/pages/ReportsPage'));
 const ViewStatement = React.lazy(() => import('@/pages/ledger/ViewStatement'));
+const PublicViewer = React.lazy(() => import('@/pages/bill/PublicViewer').then(m => ({ default: m.PublicViewer })));
+const TemplateViewer = React.lazy(() => import('@/pages/bill/TemplateViewer').then(m => ({ default: m.TemplateViewer })));
 const AutoBackupManager = React.lazy(() => import('@/components/backup/AutoBackupManager').then(m => ({ default: m.AutoBackupManager })));
 
 function AdminOrManagerGuard({ children }: { children: React.ReactNode }) {
@@ -302,6 +304,12 @@ export default function App() {
                           {/* Public View Statement */}
                           <Route path="/view-statement" element={<ViewStatement />} />
 
+                          {/* Public Invoice & Template Viewers */}
+                          <Route path="/v/:code" element={<PublicViewer />} />
+                          <Route path="/public-viewer/:code" element={<PublicViewer />} />
+                          <Route path="/view-template/:userId/:templateId" element={<TemplateViewer />} />
+                          <Route path="/template-viewer/:userId/:templateId" element={<TemplateViewer />} />
+
                           {/* Auth */}
                           <Route
                             path="/auth"
@@ -428,6 +436,7 @@ export default function App() {
                           <Route path="/expenses" element={<Navigate to="/billing/expenses" replace />} />
                           <Route path="/payments" element={<Navigate to="/billing/payments" replace />} />
                           <Route path="/e-invoice" element={<Navigate to="/billing/e-invoice" replace />} />
+                          <Route path="/kitchen" element={<Navigate to="/billing/kitchen" replace />} />
 
                           <Route path="/products" element={<Navigate to="/inventory/products" replace />} />
                           <Route path="/products/new" element={<Navigate to="/inventory/products/new" replace />} />

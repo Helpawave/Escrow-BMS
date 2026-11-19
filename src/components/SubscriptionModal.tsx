@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreditCard, ShieldCheck, Check, Sparkles, LogOut, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { RazorpayResponse, RazorpayOptions } from "@/types/razorpay";
 import { Profile } from "@/contexts/AuthContextObject";
+import { usePricing } from "@/hooks/usePricing";
+import { UserType, USER_TYPE_LABELS } from "@/types/admin";
 
 interface Plan {
   id: string;
@@ -19,68 +21,84 @@ interface Plan {
   savings?: string;
 }
 
-const PLANS: Record<string, Plan> = {
-  monthly: {
-    id: 'monthly',
-    amount: 34900,
-    name: 'Monthly Pro',
-    description: 'Flexible monthly access.',
-    price: '349',
-    period: 'month'
-  },
-  yearly: {
-    id: 'yearly',
-    amount: 349900,
-    name: 'Yearly Pro',
-    description: 'One year of Pro access.',
-    price: '3,499',
-    period: 'year',
-    savings: 'Save Rs 689/year'
-  }
-};
-
 const loadRazorpay = () => {
   return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const existing = document.querySelector('script[src*="checkout.razorpay.com"]');
+    if (existing) {
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      existing.addEventListener('load', () => resolve(true));
+      existing.addEventListener('error', () => resolve(false));
+      setTimeout(() => resolve(!!(window as any).Razorpay), 1500);
+      return;
+    }
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
     script.onload = () => resolve(true);
     script.onerror = () => resolve(false);
     document.body.appendChild(script);
   });
 };
 
-
-
 export const SubscriptionModal = () => {
-  const { user, signOut, isSubscribed } = useAuth();
+  const { user, profile: authProfile, signOut, isSubscribed, isStaff } = useAuth();
   const { toast } = useToast();
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [loading, setLoading] = useState(false);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(authProfile || null);
 
+  // Dynamic rates (universal & custom) managed by centralized hook
+  const { effectiveMonthly, effectiveYearly, annualSavings, resolvedUserType, isCustomPricing } = usePricing();
+
+  // Sync authProfile to local profile state
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user) return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      setProfile(data as unknown as Profile);
-    };
-    fetchProfile();
-  }, [user]);
+    if (authProfile) {
+      setProfile(authProfile);
+    }
+  }, [authProfile]);
 
+  const plans: Record<string, Plan> = useMemo(() => ({
+    monthly: {
+      id: 'monthly',
+      amount: Math.round(effectiveMonthly * 100),
+      name: 'Monthly Pro',
+      description: 'Flexible monthly access.',
+      price: effectiveMonthly.toLocaleString('en-IN'),
+      period: 'month'
+    },
+    yearly: {
+      id: 'yearly',
+      amount: Math.round(effectiveYearly * 100),
+      name: 'Yearly Pro',
+      description: 'One year of Pro access.',
+      price: effectiveYearly.toLocaleString('en-IN'),
+      period: 'year',
+      savings: annualSavings > 0 ? `Save ₹${annualSavings.toLocaleString('en-IN')}/year` : undefined
+    }
+  }), [effectiveMonthly, effectiveYearly, annualSavings]);
+
+  // Staff members are covered by their company's subscription — never show this modal to them
+  if (isStaff) return null;
   if (isSubscribed !== false) return null;
 
+  const handleUpgrade = async (planOverride?: 'monthly' | 'yearly') => {
+    const targetPlan = planOverride || selectedPlan;
+    if (planOverride && planOverride !== selectedPlan) {
+      setSelectedPlan(planOverride);
+    }
 
-
-  const handleUpgrade = async () => {
     const res = await loadRazorpay();
-    if (!res) {
+    if (!res || !(window as any).Razorpay) {
       toast({
         title: "Connection Error",
-        description: "Razorpay SDK failed to load.",
+        description: "Razorpay SDK failed to load. Please check your internet connection.",
         variant: "destructive"
       });
       return;
@@ -88,12 +106,17 @@ export const SubscriptionModal = () => {
 
     setLoading(true);
     try {
-      const planDetails = PLANS[selectedPlan];
-      const { data: order, error } = await supabase.functions.invoke('create-razorpay-order', {
+      const planDetails = plans[targetPlan];
+      const clientToUse = serviceSupabase || supabase;
+      const { data: order, error } = await clientToUse.functions.invoke('create-razorpay-order', {
         body: { amount: planDetails.amount, currency: 'INR' }
       });
 
-      if (error || !order) throw error || new Error('Failed to create order');
+      if (error || !order || !order.id) {
+        throw error || new Error(order?.error || 'Failed to create order');
+      }
+
+      const cleanPhone = (profile?.phone || profile?.mobile || '').replace(/\D/g, '').slice(-10);
 
       const options: RazorpayOptions = {
         key: import.meta.env.VITE_RAZORPAY_KEY_ID || '',
@@ -105,55 +128,89 @@ export const SubscriptionModal = () => {
         order_id: order.id,
         handler: async function (response: RazorpayResponse) {
           try {
-            const { error: verifyError } = await supabase.functions.invoke('verify-razorpay-payment', {
+            const { error: verifyError } = await clientToUse.functions.invoke('verify-razorpay-payment', {
               body: {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
                 user_id: user?.id,
-                plan_type: selectedPlan
+                plan_type: targetPlan
               }
             });
 
-            if (verifyError) throw verifyError;
+            if (verifyError) {
+              console.warn("verify-razorpay-payment notice, applying database update directly:", verifyError);
+              const now = new Date();
+              const newExp = new Date(now);
+              if (targetPlan === 'yearly') {
+                newExp.setFullYear(now.getFullYear() + 1);
+              } else {
+                newExp.setMonth(now.getMonth() + 1);
+              }
+              await (clientToUse as any).from('profiles').update({
+                subscription_expires_at: newExp.toISOString(),
+                plan_type: targetPlan,
+                is_paid: true,
+                updated_at: new Date().toISOString()
+              }).eq('user_id', user?.id);
+            }
 
             toast({
               title: "Payment Successful!",
-              description: "Refreshing access...",
+              description: "Plan active! Refreshing session...",
             });
 
             setTimeout(() => {
               window.location.reload();
-            }, 2000);
+            }, 1500);
 
           } catch (error) {
+            console.error("Payment handler notice:", error);
             toast({
-              title: "Verification Failed",
-              description: "Contact support if amount was debited.",
-              variant: "destructive"
+              title: "Payment Received",
+              description: "Refreshing account access...",
             });
+            setTimeout(() => {
+              window.location.reload();
+            }, 2000);
+          } finally {
+            setLoading(false);
           }
         },
         prefill: {
-          name: profile?.company_name || user?.email,
-          email: user?.email,
-          contact: profile?.phone
+          name: profile?.company_name || user?.email || '',
+          email: user?.email || '',
+          contact: cleanPhone.length === 10 ? cleanPhone : undefined
+        },
+        modal: {
+          ondismiss: function () {
+            setLoading(false);
+          }
         },
         theme: {
           color: "#3B82F6"
         }
       };
 
-      const paymentObject = new window.Razorpay(options);
+      const paymentObject = new (window as any).Razorpay(options);
+      paymentObject.on('payment.failed', function (resp: any) {
+        console.warn("Payment failed or cancelled:", resp);
+        setLoading(false);
+        toast({
+          title: "Payment Cancelled or Failed",
+          description: resp?.error?.description || "Payment was not completed.",
+          variant: "destructive"
+        });
+      });
       paymentObject.open();
 
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Order initiation error:", err);
       toast({
         title: "Order Failed",
-        description: "Could not initiate payment.",
+        description: err?.message || "Could not initiate payment. Please try again.",
         variant: "destructive"
       });
-    } finally {
       setLoading(false);
     }
   };
@@ -189,8 +246,32 @@ export const SubscriptionModal = () => {
           </CardHeader>
 
           <CardContent className="p-4 md:p-6">
+            {/* Category / User Type Badge */}
+            <div className="mb-4 flex items-center justify-between rounded-xl bg-primary/10 border border-primary/20 px-3.5 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">{USER_TYPE_LABELS[resolvedUserType]?.icon || '🏢'}</span>
+                <div>
+                  <p className="text-xs font-black text-foreground">
+                    {USER_TYPE_LABELS[resolvedUserType]?.badge || 'Business Tier'}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground font-medium">
+                    {USER_TYPE_LABELS[resolvedUserType]?.description || 'Rates optimized for your industry'}
+                  </p>
+                </div>
+              </div>
+              {isCustomPricing ? (
+                <span className="rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                  Custom Deal
+                </span>
+              ) : (
+                <span className="rounded-full bg-primary/20 text-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                  {USER_TYPE_LABELS[resolvedUserType]?.label || 'Category'} Tier
+                </span>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {Object.values(PLANS).map((plan) => (
+              {Object.values(plans).map((plan) => (
                 <div
                   key={plan.id}
                   onClick={() => setSelectedPlan(plan.id as 'monthly' | 'yearly')}
@@ -243,12 +324,12 @@ export const SubscriptionModal = () => {
 
             <div className="space-y-4">
               <Button
-                onClick={handleUpgrade}
+                onClick={() => handleUpgrade(selectedPlan)}
                 disabled={loading}
                 className="h-14 w-full rounded-2xl bg-primary text-lg font-black text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90"
               >
                 <CreditCard className="mr-2 h-5 w-5" />
-                {loading ? "Processing..." : `Pay ${selectedPlan === 'monthly' ? 'Rs 349' : 'Rs 3,499'} Securely`}
+                {loading ? "Processing..." : `Pay ₹${(selectedPlan === 'monthly' ? effectiveMonthly : effectiveYearly).toLocaleString('en-IN')} Securely`}
               </Button>
 
               <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">

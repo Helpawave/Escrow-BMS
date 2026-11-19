@@ -26,7 +26,8 @@ interface PartyBalance {
 }
 
 const BalanceSheet = () => {
-  const { user } = useAuth();
+  const { user, isRegularUser } = useAuth();
+  const isLofferUser = isRegularUser;
   const navigate = useNavigate();
   const [parties, setParties] = useState<PartyBalance[]>(() => {
     try {
@@ -68,57 +69,41 @@ const BalanceSheet = () => {
   const fetchData = async () => {
     if (!user) return;
     try {
-      // Step 1: Fetch all parties for this user
+      // Fetch parties and their latest transaction in a single query using nested limits
       const { data: partiesData, error: partiesError } = await supabase
         .from('parties')
-        .select('id, party_name, sr_no, status, system_type')
+        .select(`
+          id,
+          party_name,
+          sr_no,
+          status,
+          system_type,
+          transactions (
+            balance,
+            transaction_date,
+            created_at
+          )
+        `)
         .eq('user_id', user.id)
-        .order('party_name', { ascending: true });
+        .order('transaction_date', { foreignTable: 'transactions', ascending: false })
+        .order('created_at', { foreignTable: 'transactions', ascending: false })
+        .limit(1, { foreignTable: 'transactions' });
 
       if (partiesError) throw partiesError;
 
-      if (!partiesData || partiesData.length === 0) {
-        setParties([]);
-        setLoading(false);
-        return;
-      }
-
-      // Step 2: Fetch latest balance per party using a separate query
-      const partyIds = partiesData.map(p => p.id);
-      const balanceMap = new Map<string, number>();
-      partiesData.forEach(p => {
-        balanceMap.set(p.id, Number((p as any).balance) || 0);
-      });
-
-      try {
-        const { data: allTxns } = await supabase
-          .from('transactions')
-          .select('party_id, credit, debit')
-          .in('party_id', partyIds);
-
-        if (allTxns && allTxns.length > 0) {
-          const sumMap = new Map<string, number>();
-          allTxns.forEach((txn: any) => {
-            const prev = sumMap.get(txn.party_id) || 0;
-            sumMap.set(txn.party_id, prev + (Number(txn.credit) || 0) - (Number(txn.debit) || 0));
-          });
-          sumMap.forEach((val, pId) => {
-            balanceMap.set(pId, val);
-          });
-        }
-      } catch (txnErr) {
-        console.warn("Could not aggregate party transactions in BalanceSheet:", txnErr);
-      }
-
       // Combine parties with their latest balance
-      const mappedParties: PartyBalance[] = partiesData.map(p => ({
-        id: p.id,
-        party_name: p.party_name,
-        sr_no: p.sr_no,
-        status: p.status as 'take' | 'give',
-        system_type: p.system_type as 'normal' | 'commission' | 'escrow',
-        balance: balanceMap.get(p.id) ?? 0
-      }));
+      const mappedParties: PartyBalance[] = (partiesData || []).map(p => {
+        const tns = p.transactions as any[];
+        const bal = tns && tns.length > 0 ? tns[0].balance : 0;
+        return {
+          id: p.id,
+          party_name: p.party_name,
+          sr_no: p.sr_no,
+          status: p.status as 'take' | 'give',
+          system_type: p.system_type as 'normal' | 'commission' | 'escrow',
+          balance: bal
+        };
+      });
 
       // Sort by sr_no numerically, then alphabetically
       mappedParties.sort((a, b) => {
@@ -127,7 +112,7 @@ const BalanceSheet = () => {
         return numA - numB || a.party_name.localeCompare(b.party_name);
       });
 
-      setParties(mappedParties);
+      setParties(isLofferUser ? mappedParties.filter(p => p.system_type === 'normal') : mappedParties);
       try {
         localStorage.setItem('cached_balance_sheet', JSON.stringify(mappedParties));
       } catch {

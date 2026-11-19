@@ -5,10 +5,10 @@ import { syncClientsAndLedgerParties } from "@/utils/erpPosting";
 
 export interface Client {
   id: string;
-  user_id: string;
+  user_id?: string;
   name: string;
-  email: string;
-  phone: string;
+  email?: string;
+  phone?: string;
   company_name?: string;
   address?: string;
   city?: string;
@@ -18,8 +18,9 @@ export interface Client {
   gstin?: string;
   hide_contact_details?: boolean;
   pending_amount?: number;
-  created_at: string;
+  created_at?: string;
   updated_at?: string;
+  [key: string]: any;
 }
 
 interface UseClientsProps {
@@ -178,9 +179,11 @@ export function clientMutations(userId: string) {
   return {
     add: async (data: Omit<Client, 'id' | 'created_at' | 'user_id'>) => {
       const clientRecord: Client = {
+        name: data.name || '',
+        email: data.email || '',
+        ...data,
         id: crypto.randomUUID(),
         user_id: userId,
-        ...data,
         created_at: new Date().toISOString()
       };
       saveClientToCache(userId, clientRecord);

@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Package, AlertTriangle, CheckCircle2, Barcode as BarcodeIcon, Loader2, Info } from "lucide-react";
-import { useTaxConfig } from "@/contexts/TaxContext";
 
 export interface UncatalogedProductItem {
   index: number;
@@ -21,6 +20,7 @@ export interface UncatalogedProductItem {
   tax_rate: number;
   sku: string;
   unit: string;
+  sales_price?: number;
 }
 
 export interface IncompleteItem {
@@ -36,6 +36,7 @@ interface UncatalogedProductsModalProps {
   incompleteItems: IncompleteItem[];
   currencySymbol: string;
   saving?: boolean;
+  onUpdateSalesPrice?: (index: number, salesPrice: number) => void;
 }
 
 export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> = ({
@@ -45,9 +46,9 @@ export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> =
   uncatalogedItems,
   incompleteItems,
   currencySymbol,
-  saving = false
+  saving = false,
+  onUpdateSalesPrice
 }) => {
-  const { taxName } = useTaxConfig();
   const hasIncomplete = incompleteItems.length > 0;
 
   return (
@@ -118,6 +119,7 @@ export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> =
                       <TableHead className="text-[10px] font-black uppercase tracking-wider">Product Name</TableHead>
                       <TableHead className="text-[10px] font-black uppercase tracking-wider text-center">Opening Stock</TableHead>
                       <TableHead className="text-[10px] font-black uppercase tracking-wider text-right">Purchase Cost</TableHead>
+                      <TableHead className="text-[10px] font-black uppercase tracking-wider text-right text-indigo-600 dark:text-indigo-400">Sales / Selling Price</TableHead>
                       <TableHead className="text-[10px] font-black uppercase tracking-wider text-center">Auto SKU / Barcode</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -127,7 +129,7 @@ export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> =
                         <TableCell className="font-bold text-xs">
                           <div>{item.name}</div>
                           {item.tax_rate > 0 && (
-                            <span className="text-[10px] text-muted-foreground font-medium">{taxName}: {item.tax_rate}%</span>
+                            <span className="text-[10px] text-muted-foreground font-medium">GST: {item.tax_rate}%</span>
                           )}
                         </TableCell>
                         <TableCell className="text-center font-bold text-xs tabular-nums text-emerald-600">
@@ -135,6 +137,20 @@ export const UncatalogedProductsModal: React.FC<UncatalogedProductsModalProps> =
                         </TableCell>
                         <TableCell className="text-right font-black text-xs tabular-nums text-foreground">
                           {currencySymbol} {Number(item.rate || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-xs font-bold text-muted-foreground">{currencySymbol}</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={item.sales_price !== undefined ? item.sales_price : (item.rate || 0)}
+                              onChange={(e) => onUpdateSalesPrice?.(item.index, parseFloat(e.target.value) || 0)}
+                              className="w-24 h-8 px-2 text-right text-xs font-black rounded-lg border border-border bg-background focus:ring-2 focus:ring-indigo-500/30 text-foreground"
+                              placeholder={String(item.rate || 0)}
+                            />
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 font-mono font-bold text-[10px]">

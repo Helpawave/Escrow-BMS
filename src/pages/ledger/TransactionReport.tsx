@@ -44,7 +44,9 @@ interface PartyOption {
 }
 
 const TransactionReport = () => {
-  const { user } = useAuth();
+  const { user, isRegularUser } = useAuth();
+
+  const isLofferUser = isRegularUser;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -79,20 +81,16 @@ const TransactionReport = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const buildFilteredQuery = (partyIdsList: string[], selectFields = '*', options?: { count?: 'exact' | 'planned' | 'estimated' }) => {
+  const buildFilteredQuery = (selectFields = '*', options?: { count?: 'exact' | 'planned' | 'estimated' }) => {
     if (!user) return null;
     let q = supabase
       .from('transactions')
-      .select(selectFields, options);
+      .select(selectFields, options)
+      .eq('user_id', user.id);
 
     if (selectedPartyId !== 'all') {
       q = q.eq('party_id', selectedPartyId);
-    } else if (partyIdsList.length > 0) {
-      q = q.in('party_id', partyIdsList);
-    } else {
-      return null;
     }
-
     if (tnsTypeFilter === 'CR') {
       q = q.gt('credit', 0);
     } else if (tnsTypeFilter === 'DR') {
@@ -104,12 +102,12 @@ const TransactionReport = () => {
       q = q.eq('is_finalized', true);
     }
     if (startDate) {
-      q = q.gte('created_at', startDate);
+      q = q.gte('transaction_date', startDate);
     }
     if (endDate) {
       const adjustedEndDate = new Date(endDate);
       adjustedEndDate.setHours(23, 59, 59, 999);
-      q = q.lte('created_at', adjustedEndDate.toISOString());
+      q = q.lte('transaction_date', adjustedEndDate.toISOString());
     }
     if (debouncedSearch) {
       q = q.ilike('remarks', `%${debouncedSearch}%`);
@@ -118,20 +116,20 @@ const TransactionReport = () => {
   };
 
   const fetchParties = async () => {
-    if (!user) return [];
+    if (!user) return;
     try {
       const { data, error } = await supabase
         .from('parties')
-        .select('id, party_name, sr_no')
+        .select('id, party_name, sr_no, system_type')
         .eq('user_id', user.id)
         .order('party_name', { ascending: true });
       if (error) throw error;
-      const res = data || [];
-      setParties(res);
-      return res;
+      const cleanData = isLofferUser
+        ? (data || []).filter((p: any) => p.system_type === 'normal')
+        : (data || []);
+      setParties(cleanData);
     } catch (err) {
       console.error('Error fetching parties dropdown:', err);
-      return [];
     }
   };
 
@@ -141,30 +139,18 @@ const TransactionReport = () => {
     else setRefreshing(true);
 
     try {
-      let currentParties = parties;
-      if (currentParties.length === 0) {
-        currentParties = await fetchParties();
-      }
-      const partyIdsList = currentParties.map(p => p.id);
-
-      const pageQ = buildFilteredQuery(partyIdsList, '*, parties(party_name, system_type, status, sr_no)', { count: 'exact' });
-      if (!pageQ) {
-        setTransactions([]);
-        setTotalEntries(0);
-        return;
-      }
+      const pageQ = buildFilteredQuery('*, parties(party_name, system_type, status, sr_no)', { count: 'exact' });
+      if (!pageQ) return;
 
       // 1. Fetch current page transactions & count
       const { data, count, error } = await pageQ
+        .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
         .range((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE - 1);
 
       if (error) throw error;
 
-      const rawTns = (data || []).map((t: any) => ({
-        ...t,
-        transaction_date: t.created_at || t.transaction_date || new Date().toISOString()
-      })) as any as Transaction[];
+      const rawTns = (data || []) as any as Transaction[];
       setTotalEntries(count || 0);
 
       // 2. Resolve counterpart names for the current page transactions
@@ -209,7 +195,7 @@ const TransactionReport = () => {
       setTransactions(processedTns);
 
       // 3. Fetch stats aggregates for the entire filtered set in background
-      const statsQ = buildFilteredQuery(partyIdsList, 'credit, debit');
+      const statsQ = buildFilteredQuery('credit, debit');
       if (statsQ) {
         const { data: statsData, error: statsErr } = await statsQ;
         if (!statsErr && statsData) {

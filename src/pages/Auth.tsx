@@ -62,7 +62,8 @@ export default function Auth({ defaultTab }: AuthProps) {
     companyName: "",
     mobile: "",
     email: "",
-    password: ""
+    password: "",
+    accountType: "regular" as "regular" | "ca"
   });
 
   // Password Reset / Update inputs
@@ -306,18 +307,29 @@ export default function Auth({ defaultTab }: AuthProps) {
       if (!loginErr) {
         const { data: userSession } = await supabase.auth.getSession();
         if (userSession?.session?.user) {
+          const uid = userSession.session.user.id;
           try {
             await supabase
               .from("profiles")
               .update({
                 plan_type: targetPlan,
                 company_name: form.companyName.trim(),
-                phone: form.mobile.trim() || undefined
+                phone: form.mobile.trim() || undefined,
+                account_type: form.accountType
               } as any)
-              .eq("id", userSession.session.user.id);
+              .eq("id", uid);
           } catch (err) {
             console.warn("Could not sync profile attributes:", err);
           }
+          try {
+            const { data: curSt } = await supabase.from('system_settings').select('value').eq('key', 'user_account_types').maybeSingle();
+            const curMap = curSt?.value ? (typeof curSt.value === 'string' ? JSON.parse(curSt.value) : curSt.value) : {};
+            curMap[uid] = form.accountType;
+            await supabase.from('system_settings').upsert({ key: 'user_account_types', value: curMap });
+          } catch {}
+          try {
+            localStorage.setItem('escrow_cached_user_account_type', form.accountType);
+          } catch {}
         }
         toast.success("Account created successfully!");
         navigate("/dashboard");
@@ -727,6 +739,49 @@ export default function Auth({ defaultTab }: AuthProps) {
                         </p>
                       </div>
                     )}
+                  </div>
+
+                  {/* Ledger User Type Selection */}
+                  <div className="space-y-1.5 pt-1">
+                    <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Ledger User Type
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, accountType: "regular" }))}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          form.accountType === "regular"
+                            ? "border-primary bg-primary/5 text-primary ring-1 ring-primary"
+                            : "border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="font-bold text-xs flex items-center justify-between">
+                          <span>Regular Mode</span>
+                          {form.accountType === "regular" && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                          Single transfer, Qty × Rate, Direct business
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, accountType: "ca" }))}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          form.accountType === "ca"
+                            ? "border-primary bg-primary/5 text-primary ring-1 ring-primary"
+                            : "border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="font-bold text-xs flex items-center justify-between">
+                          <span>CA / Broker</span>
+                          {form.accountType === "ca" && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                          Double entry, Commission %, Monday Final
+                        </p>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Submit Button */}

@@ -4,12 +4,20 @@ export const checkIsRegularUser = (user?: any, profile?: any): boolean => {
   // 1. Explicit account_type check
   const explicitType = 
     profile?.account_type || 
-    user?.user_metadata?.account_type;
+    user?.user_metadata?.account_type ||
+    user?.account_type;
 
   if (explicitType === 'regular') return true;
   if (explicitType === 'ca') return false;
 
-  // 2. Default fallback check for Loffers DTF account
+  // 2. Check cached localStorage override
+  try {
+    const cachedType = localStorage.getItem('escrow_cached_user_account_type');
+    if (cachedType === 'regular') return true;
+    if (cachedType === 'ca') return false;
+  } catch {}
+
+  // 3. Default fallback check for Loffers DTF account
   return (
     user?.id === '7c30d63e-7bc3-44cf-bbe0-eb463f8b86a7' ||
     user?.email?.toLowerCase() === 'dtfsurat@gmail.com' ||

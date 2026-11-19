@@ -7,8 +7,9 @@ import { numberToWords } from '@/utils/numberUtils';
 import { InvoiceTemplateId } from '@/types/invoice';
 import { QrCode, Globe, Shield } from 'lucide-react';
 import QRCode from 'react-qr-code';
+import { normalizeUpiId } from '@/utils/upi';
 import { getInvoiceEffectiveStatus } from './StatusBadge';
-import { AutoInvoiceTemplate, AutoTemplateId } from './AutoInvoiceTemplate';
+import { AutoInvoiceTemplate, AutoTemplateId, extractVehicleDetails } from './AutoInvoiceTemplate';
 
 interface InvoiceItem {
   description: string;
@@ -100,11 +101,13 @@ interface CompanyProfile {
 
 interface InvoiceTemplateProps {
   invoice: {
+    id?: string;
     invoice_number: string;
     issue_date: string;
     due_date?: string;
     payment_date?: string | null;
     paid_at?: string | null;
+    created_at?: string | null;
     updated_at?: string | null;
     status: string;
     subtotal: number;
@@ -145,13 +148,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   template = 'corporate',
   currencySymbol: propCurrencySymbol
 }) => {
-  const currencyCtx = useCurrency();
-  const taxCtx = useTaxConfig();
-  const currencySymbol = propCurrencySymbol || currencyCtx?.currencySymbol || '₹';
-  const taxName = taxCtx?.taxName || 'GST';
-  const taxIdLabel = taxCtx?.taxIdLabel || 'GSTIN';
-  const isVat = taxCtx?.isVat ?? false;
-  const isGst = taxCtx?.isGst ?? true;
+  const { currencySymbol: contextCurrencySymbol } = useCurrency();
+  const { taxName = 'GST', taxIdLabel = 'GSTIN', isVat = false, isGst = true } = useTaxConfig();
+  const currencySymbol = propCurrencySymbol || contextCurrencySymbol || '₹';
+
   const effectiveStatus = getInvoiceEffectiveStatus(invoice.status, invoice.due_date);
   const isPaid = effectiveStatus === 'paid';
   const isOverdue = effectiveStatus === 'overdue';
@@ -216,39 +216,43 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
     </div>
   );
 
+  const hasUpiDetails = Boolean(
+    (company.upi_id && company.upi_id.trim()) ||
+    (company.upi_qr_url && company.upi_qr_url.trim())
+  );
+
   const hasBankDetails = Boolean(
     (company.bank_name && company.bank_name.trim()) ||
     (company.account_number && company.account_number.trim()) ||
     (company.ifsc_code && company.ifsc_code.trim())
   );
 
-  // Real scannable UPI URI — Priority: upi_id > phone@upi > invoice verify link
+  const hasPaymentDetails = hasUpiDetails || hasBankDetails;
+
+  // Verified scannable bill link uniquely scoped by invoice UUID (or cleaned invoice number)
+  const verifyInvoiceUri = React.useMemo(() => {
+    const rawInv = invoice.id || (invoice.invoice_number || '').trim().replace(/^#+/, '');
+    return `https://bill.escrowbms.in/v/${encodeURIComponent(rawInv)}`;
+  }, [invoice.id, invoice.invoice_number]);
+
+  // Real scannable UPI URI — Priority: valid upi_id > digital bill link
+  // If paid, ALWAYS returns verifyInvoiceUri to prevent duplicate payments
   const upiPayUri = React.useMemo(() => {
+    if (isPaid) return verifyInvoiceUri;
+
     const payeeName = company.account_holder_name || company.company_name || 'Business';
     const note = `Invoice ${invoice.invoice_number}`;
     const amt = invoice.total_amount.toFixed(2);
 
-    // Priority 1: Registered UPI ID from Settings
-    if (company.upi_id && company.upi_id.trim()) {
-      const pa = encodeURIComponent(company.upi_id.trim());
+    const validUpi = normalizeUpiId(company.upi_id);
+    if (validUpi) {
+      const pa = encodeURIComponent(validUpi);
       return `upi://pay?pa=${pa}&pn=${encodeURIComponent(payeeName)}&am=${amt}&cu=INR&tn=${encodeURIComponent(note)}`;
     }
 
-    // Priority 2: Mobile/phone number as UPI ID (e.g. 9876543210@upi)
-    const rawPhone = (company.phone || company.mobile || '').replace(/[^0-9]/g, '');
-    const cleanPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : '';
-    if (cleanPhone) {
-      const pa = encodeURIComponent(`${cleanPhone}@upi`);
-      return `upi://pay?pa=${pa}&pn=${encodeURIComponent(payeeName)}&am=${amt}&cu=INR&tn=${encodeURIComponent(note)}`;
-    }
-
-    // Fallback: invoice verify URL so QR is still scannable
-    return `https://escrow-bill.web.app/invoices?verify=${encodeURIComponent(invoice.invoice_number)}&amt=${amt}`;
-  }, [company.upi_id, company.phone, company.mobile, company.account_holder_name, company.company_name, invoice.invoice_number, invoice.total_amount]);
-
-  const verifyInvoiceUri = React.useMemo(() => {
-    return `https://escrow-bill.web.app/invoices?verify=${encodeURIComponent(invoice.invoice_number)}&amt=${invoice.total_amount.toFixed(2)}`;
-  }, [invoice.invoice_number, invoice.total_amount]);
+    // Fallback: verified digital receipt link where client can view bill and pay
+    return verifyInvoiceUri;
+  }, [isPaid, verifyInvoiceUri, company.upi_id, company.account_holder_name, company.company_name, invoice.invoice_number, invoice.total_amount]);
 
   // Unified, high-contrast, perfectly scannable QR Code renderer for all invoice styles
   const InvoicePaymentQR = ({ 
@@ -256,8 +260,8 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
     className = "", 
     isExport = false, 
     showAppsBadge = true,
-    title = "Scan & Pay via UPI",
-    subtitle = "PhonePe • GPay • Paytm • BHIM" 
+    title,
+    subtitle
   }: { 
     size?: number; 
     className?: string; 
@@ -266,11 +270,29 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
     title?: string;
     subtitle?: string;
   }) => {
-    const qrValue = isExport ? verifyInvoiceUri : upiPayUri;
-    // Priority: if upi_id is set → always generate dynamic QR from it
-    //           else if uploaded image exists → show it
-    //           else → generate QR from phone/fallback
-    const showUploadedImage = !company.upi_id?.trim() && !!company.upi_qr_url && !isExport;
+    // If invoice is already settled or this is a PDF export, show verification link
+    const qrValue = (isPaid || isExport) ? verifyInvoiceUri : upiPayUri;
+
+    // Show uploaded QR only if invoice is UNPAID, not in export mode, and has no valid dynamic UPI ID
+    const validUpi = normalizeUpiId(company.upi_id);
+    const showUploadedImage = !isPaid && !isExport && !validUpi && Boolean(company.upi_qr_url?.trim());
+    const isUpiAction = !isPaid && !isExport && Boolean(validUpi || showUploadedImage);
+
+    const defaultTitle = isPaid 
+      ? "PAYMENT SETTLED" 
+      : isExport
+      ? "VERIFIED INVOICE"
+      : (isUpiAction ? "Scan & Pay via UPI" : "Digital Bill & Pay");
+
+    const defaultSubtitle = isPaid 
+      ? "Verified Receipt" 
+      : isExport
+      ? "Scan to verify online"
+      : (isUpiAction ? "PhonePe • GPay • Paytm • BHIM" : "Scan to view & settle online");
+
+    const effectiveTitle = title ?? defaultTitle;
+    const effectiveSubtitle = subtitle ?? defaultSubtitle;
+
     return (
       <div className={`flex flex-col items-center justify-center shrink-0 ${className}`}>
         <div 
@@ -288,21 +310,138 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               <QRCode 
                 value={qrValue} 
                 size={size}
-                style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                style={{ height: `${size}px`, width: `${size}px`, maxWidth: "100%" }}
                 viewBox="0 0 256 256"
               />
             </div>
           )}
         </div>
-        <div className="text-center mt-1 space-y-0.5 max-w-[140px]">
+        <div className="text-center mt-1 space-y-0.5 max-w-[130px]">
           <p className="text-[9px] font-black uppercase tracking-wider text-slate-900 leading-tight">
-            {title}
+            {effectiveTitle}
           </p>
           {showAppsBadge && (
-            <p className="text-[7.5px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/80 leading-tight whitespace-nowrap">
-              {subtitle}
+            <p className="text-[7.5px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/80 leading-tight">
+              {effectiveSubtitle}
             </p>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  // Extract vehicle & service details if present in invoice
+  const vehicle = extractVehicleDetails(invoice);
+  const hasVehicleInfo = Boolean(
+    vehicle.vehicleNo || 
+    vehicle.regNo || 
+    vehicle.totalKm ||
+    vehicle.serviceType ||
+    vehicle.nextServiceKm ||
+    (vehicle.model && vehicle.model !== 'Hero Splendor+ / Swift VXI' && !invoice.invoice_number?.includes('DP-2026-0042'))
+  );
+
+  // Extract Cafe Table / Dining Mode if present in notes (e.g. "[Order: Table 1]" or "[Order: Takeaway]")
+  const cafeOrderMatch = (invoice.notes || '').match(/\[Order:\s*([^\]]+)\]/i);
+  const cafeDiningInfo = cafeOrderMatch ? cafeOrderMatch[1].trim() : null;
+  const isCafeInvoice = Boolean(cafeDiningInfo || (company as any).user_type === 'cafe');
+
+  const cleanNotes = React.useMemo(() => {
+    if (!invoice.notes) return '';
+    return invoice.notes
+      .replace(/\[META:.*?\]\s*/g, '')
+      .replace(/\[Order:.*?\]\s*/g, '')
+      .replace(/(?:Booking\s*\/\s*Reg\s*No|Vehicle\s*Reg\s*No|Reg\s*No)[^|\n]*(?:\|\s*(?:Model|Chassis|VIN|Color|Financer|Delivery)[^|\n]*)+/gi, '')
+      .replace(/(?:Booking\s*\/\s*Reg\s*No|Vehicle\s*(?:Reg\s*)?No|Model|Total\s*KM|Service|Next\s*Service\s*(?:KM|Date)|Chassis(?:\/VIN)?|Color|Financer|Delivery(?:\s*Date)?):[^\n|]*/gi, '')
+      .replace(/\|\s*\|/g, '')
+      .replace(/^[|\s\n-]+|[|\s\n-]+$/g, '')
+      .trim();
+  }, [invoice.notes]);
+
+  const VehicleServiceBanner = () => {
+    if (!hasVehicleInfo) return null;
+
+    const isFreeService = vehicle.serviceType?.toLowerCase().includes('free') || vehicle.freeServiceNo;
+    const freeServiceNo = vehicle.freeServiceNo || (vehicle.serviceType?.match(/(\d+)(?:st|nd|rd)?/)?.[1] || '1');
+    const totalFreeServices = vehicle.totalFreeServices || 3;
+
+    return (
+      <div className="mb-6 rounded-xl border border-amber-300/80 bg-gradient-to-r from-amber-50/80 via-orange-50/40 to-amber-50/80 p-3.5 shadow-2xs avoid-break">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/90 pb-2 mb-2.5">
+          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-950">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-amber-600 text-white text-[10px]">🚗</span>
+            <span>Vehicle & Workshop Service Record</span>
+          </div>
+          {isFreeService ? (
+            <div className="flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-0.5 text-[10px] font-extrabold text-emerald-900 border border-emerald-300 shadow-2xs">
+              <span>🛠 Free Service: {freeServiceNo} of {totalFreeServices}</span>
+              <span className="text-emerald-700 font-bold">(Total: {totalFreeServices} Free Services)</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-0.5 text-[10px] font-bold text-blue-900 border border-blue-200 shadow-2xs">
+              <span>🔧 {vehicle.serviceType || 'Periodic Service'}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          {/* Vehicle Number */}
+          <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 shadow-2xs">
+            <span className="text-[9px] uppercase font-bold text-slate-500 block">Vehicle Number</span>
+            <span className="font-mono font-black text-slate-950 text-sm tracking-wider uppercase block mt-0.5">
+              {vehicle.vehicleNo || vehicle.regNo || '-'}
+            </span>
+          </div>
+
+          {/* Vehicle Model & Chassis */}
+          <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 shadow-2xs">
+            <span className="text-[9px] uppercase font-bold text-slate-500 block">Model / Variant</span>
+            <span className="font-bold text-slate-900 block truncate mt-0.5">
+              {vehicle.model || 'Standard Vehicle'}
+            </span>
+            {vehicle.chassisNo && (
+              <span className="text-[9px] font-mono text-slate-500 block mt-0.5 truncate">
+                VIN: {vehicle.chassisNo}
+              </span>
+            )}
+          </div>
+
+          {/* Total KM (Odometer) & Service */}
+          <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 shadow-2xs">
+            <span className="text-[9px] uppercase font-bold text-slate-500 block">Total KM (Current)</span>
+            <div className="flex items-baseline gap-1 mt-0.5">
+              <span className="font-mono font-black text-slate-950 text-sm">
+                {vehicle.totalKm ? vehicle.totalKm : '-'}
+              </span>
+              {vehicle.totalKm && <span className="text-[10px] font-bold text-slate-600">KM</span>}
+            </div>
+            <span className="text-[9.5px] font-semibold text-amber-900 block mt-0.5 truncate">
+              {vehicle.serviceType || `${freeServiceNo} Free Service`}
+            </span>
+          </div>
+
+          {/* Next Service Due (Auto Calculated) */}
+          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 p-2.5 rounded-lg border border-emerald-300 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] uppercase font-black text-emerald-900 block">Next Service Auto Due</span>
+              <span className="text-[8px] font-bold text-emerald-800 bg-emerald-200/70 px-1 rounded">+2.5K KM / 1M</span>
+            </div>
+            <div className="mt-0.5 space-y-0.5">
+              {vehicle.nextServiceKm && (
+                <div className="font-mono font-black text-emerald-950 text-xs">
+                  At: {vehicle.nextServiceKm} KM
+                </div>
+              )}
+              {vehicle.nextServiceDate && (
+                <div className="font-bold text-emerald-800 text-[10px]">
+                  Date: {vehicle.nextServiceDate}
+                </div>
+              )}
+              {!vehicle.nextServiceKm && !vehicle.nextServiceDate && (
+                <span className="text-[10px] text-emerald-700 italic">As per regular schedule</span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -330,124 +469,188 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   if (template === 'thermal') {
     return (
       <div 
-        className="invoice-template bg-white text-black p-4 sm:p-6 mx-auto font-mono border border-dashed border-gray-400 shadow-sm" 
+        className="invoice-template bg-white text-black p-5 sm:p-7 mx-auto font-mono border border-dashed border-gray-400 shadow-sm" 
         style={{ 
-          maxWidth: '380px', 
+          maxWidth: '460px', 
           width: '100%', 
           fontSize: '12px', 
-          lineHeight: '1.4',
-          fontFamily: "'Courier New', Courier, monospace, sans-serif"
+          lineHeight: '1.5',
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
         }}
       >
         {/* Store Header */}
-        <div className="text-center space-y-1 pb-3 border-b-2 border-dashed border-black">
+        <div className="text-center space-y-1.5 pb-3 border-b-2 border-dashed border-black">
           {company.logo_url && (
             <div className="flex justify-center mb-2">
               <img src={company.logo_url} alt="Logo" className="h-10 max-w-[120px] object-contain grayscale" />
             </div>
           )}
-          <h1 className="text-base font-black uppercase tracking-wider">{company.company_name || 'STORE / BUSINESS NAME'}</h1>
-          {company.business_address && <p className="text-[11px] leading-tight">{company.business_address}</p>}
+          <h1 className="text-base font-black uppercase tracking-wider leading-normal">{company.company_name || 'STORE / BUSINESS NAME'}</h1>
+          {company.business_address && <p className="text-[11px] leading-normal">{company.business_address}</p>}
           {(company.city || company.state || company.pincode) && (
-            <p className="text-[11px]">
+            <p className="text-[11px] leading-normal">
               {[company.city, company.state, company.pincode].filter(Boolean).join(', ')}
             </p>
           )}
-          {company.phone && <p className="text-[11px]">Tel: {company.phone}</p>}
-          {company.gstin && <p className="text-[11px] font-bold">{taxIdLabel}: {company.gstin}</p>}
+          {company.phone && <p className="text-[11px] leading-normal">Tel: {company.phone}</p>}
+          {company.gstin && <p className="text-[11px] font-bold leading-normal">GSTIN: {company.gstin}</p>}
         </div>
 
-        {/* Invoice Meta */}
-        <div className="py-2.5 space-y-1 text-[11px] border-b border-dashed border-black">
-          <div className="flex justify-between font-bold text-xs uppercase">
-            <span>*** RETAIL INVOICE ***</span>
+        {/* Invoice / Order Meta */}
+        <div className="py-2.5 space-y-1.5 text-[11px] leading-normal border-b border-dashed border-black">
+          <div className="flex justify-between font-bold text-xs uppercase py-0.5">
+            <span>*** {isCafeInvoice ? 'ORDER RECEIPT' : 'RETAIL INVOICE'} ***</span>
             <span className="uppercase">{invoice.status}</span>
           </div>
-          <div className="flex justify-between">
-            <span>Bill No:</span>
-            <span className="font-bold">{invoice.invoice_number}</span>
+
+          {/* McD / Burger King Style Order Number Banner */}
+          <div className="flex justify-between items-center py-1.5 px-2.5 bg-black/5 rounded my-1 border border-black/15">
+            <span className="font-black text-xs uppercase tracking-wide">
+              {isCafeInvoice ? 'Order No:' : 'Order / Bill No:'}
+            </span>
+            <span className="font-mono font-black text-sm sm:text-base tracking-wider text-black">
+              #{invoice.invoice_number}
+            </span>
           </div>
-          <div className="flex justify-between">
-            <span>Date:</span>
-            <span>{safelyFormatDate(invoice.issue_date, 'dd/MM/yyyy HH:mm')}</span>
+
+          {cafeDiningInfo && (
+            <div className="flex justify-between py-0.5 font-bold text-[11px]">
+              <span>Order Type:</span>
+              <span className="font-black uppercase">
+                {cafeDiningInfo === 'Takeaway' ? '🥡 Takeaway / Parcel' : `🍽️ Dine-In (${cafeDiningInfo})`}
+              </span>
+            </div>
+          )}
+
+          <div className="flex justify-between py-0.5">
+            <span>Date &amp; Time:</span>
+            <span>{(() => {
+              const dateVal = invoice.created_at || invoice.issue_date;
+              if (!dateVal) return '';
+              const dateStr = String(dateVal);
+              const hasTime = dateStr.includes('T') || dateStr.includes(' ');
+              return safelyFormatDate(dateVal, hasTime ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy');
+            })()}</span>
           </div>
           {isPaid && (
-            <div className="flex justify-between font-bold text-black">
+            <div className="flex justify-between font-bold text-black py-0.5">
               <span>Payment Date:</span>
               <span>{safelyFormatDate(invoice.paid_at || invoice.payment_date || invoice.updated_at || invoice.issue_date, 'dd/MM/yyyy')}</span>
             </div>
           )}
           {client.name && (
-            <div className="flex justify-between">
+            <div className="flex justify-between py-0.5">
               <span>Customer:</span>
-              <span className="font-semibold truncate max-w-[180px]">{client.name}</span>
+              <span className="font-semibold break-words max-w-[240px] text-right">{client.name}</span>
             </div>
           )}
           {client.phone && (
-            <div className="flex justify-between">
+            <div className="flex justify-between py-0.5">
               <span>Phone:</span>
               <span>{client.phone}</span>
             </div>
           )}
           {client.gstin && (
-            <div className="flex justify-between">
-              <span>Cust {taxIdLabel}:</span>
+            <div className="flex justify-between py-0.5">
+              <span>Cust GSTIN:</span>
               <span className="font-bold">{client.gstin}</span>
             </div>
           )}
         </div>
 
-        {/* Items Table Header */}
-        <div className="py-2 border-b border-dashed border-black">
-          <div className="flex justify-between text-[11px] font-bold uppercase pb-1 border-b border-black">
-            <span className="flex-1">Item</span>
-            <span className="w-20 text-center">Qty x Rate</span>
-            <span className="w-16 text-right">Amt</span>
+        {/* Automobile & Vehicle Service Details Strip */}
+        {hasVehicleInfo && (
+          <div className="py-2.5 space-y-1 text-[11px] leading-normal border-b border-dashed border-black">
+            <div className="flex justify-between font-bold text-xs uppercase py-0.5">
+              <span>*** VEHICLE & SERVICE ***</span>
+              <span>{vehicle.serviceType || 'Free Service'}</span>
+            </div>
+            {(vehicle.vehicleNo || vehicle.regNo) && (
+              <div className="flex justify-between py-0.5">
+                <span>Vehicle No:</span>
+                <span className="font-mono font-bold text-xs">{vehicle.vehicleNo || vehicle.regNo}</span>
+              </div>
+            )}
+            {vehicle.model && (
+              <div className="flex justify-between py-0.5">
+                <span>Model:</span>
+                <span className="font-semibold">{vehicle.model}</span>
+              </div>
+            )}
+            {vehicle.totalKm && (
+              <div className="flex justify-between py-0.5">
+                <span>Total KM:</span>
+                <span className="font-mono">{vehicle.totalKm} KM</span>
+              </div>
+            )}
+            {(vehicle.nextServiceKm || vehicle.nextServiceDate) && (
+              <div className="flex justify-between pt-1 border-t border-dotted border-gray-400 font-bold text-black py-0.5">
+                <span>Next Service:</span>
+                <span>
+                  {vehicle.nextServiceKm ? `${vehicle.nextServiceKm} KM` : ''}
+                  {vehicle.nextServiceKm && vehicle.nextServiceDate ? ' or ' : ''}
+                  {vehicle.nextServiceDate || ''}
+                </span>
+              </div>
+            )}
           </div>
+        )}
 
-          {/* Items Rows */}
-          <div className="divide-y divide-dotted divide-gray-300 pt-1">
-            {items.map((item, idx) => {
-              const name = getItemDisplayName(item);
-              const desc = getItemDescription(item, 70);
-              const hsn = getItemHSN(item);
-              return (
-                <div key={idx} className="py-1 text-[11px]">
-                  <div className="font-bold leading-tight truncate">{name}</div>
-                  {desc && <div className="text-[9px] text-gray-500 line-clamp-1 truncate">{desc}</div>}
-                  <div className="flex justify-between text-gray-700">
-                    <span>
+        {/* Items Table */}
+        <div className="py-2.5 border-b border-dashed border-black">
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="border-b border-black font-bold uppercase text-[10px] leading-normal">
+                <th className="text-left pb-1 font-bold">Item</th>
+                <th className="text-center pb-1 font-bold w-28">Qty x Rate</th>
+                <th className="text-right pb-1 font-bold w-20">Amt</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-dotted divide-gray-300">
+              {items.map((item, idx) => {
+                const name = getItemDisplayName(item);
+                const desc = getItemDescription(item, 70);
+                const hsn = getItemHSN(item);
+                return (
+                  <tr key={idx} className="align-top">
+                    <td className="py-1.5 pr-2">
+                      <div className="font-bold leading-normal break-words">{name}</div>
+                      {desc && <div className="text-[9.5px] text-gray-500 leading-normal">{desc}</div>}
+                      {hsn !== '-' && <div className="text-[9px] text-gray-500 font-mono">[HSN: {hsn}]</div>}
+                    </td>
+                    <td className="py-1.5 text-center text-gray-700 leading-normal whitespace-nowrap">
                       {item.quantity} {item.product?.unit || 'Nos'} @ {currencySymbol}{item.rate.toFixed(2)}
                       {item.discount ? ` (-${item.discount}%)` : ''}
-                      {hsn !== '-' && <span className="ml-1 text-[9px] text-gray-500 font-mono">[HSN: {hsn}]</span>}
-                    </span>
-                    <span className="font-bold text-black">{currencySymbol}{item.amount.toFixed(2)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                    </td>
+                    <td className="py-1.5 text-right font-bold text-black leading-normal whitespace-nowrap">
+                      {currencySymbol}{item.amount.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
 
         {/* Totals Section */}
-        <div className="py-2 space-y-1 text-[11px] border-b-2 border-dashed border-black">
-          <div className="flex justify-between">
+        <div className="py-2.5 space-y-1.5 text-[11px] leading-normal border-b-2 border-dashed border-black">
+          <div className="flex justify-between py-0.5">
             <span>Subtotal:</span>
             <span>{currencySymbol}{invoice.subtotal.toFixed(2)}</span>
           </div>
           {(invoice.discount_amount || 0) > 0 && (
-            <div className="flex justify-between">
+            <div className="flex justify-between py-0.5">
               <span>Discount:</span>
-              <span>-{currencySymbol}{invoice.discount_amount?.toFixed(2)}</span>
+              <span className="text-rose-700">-{currencySymbol}{invoice.discount_amount?.toFixed(2)}</span>
             </div>
           )}
           {invoice.tax_amount > 0 && (
-            <div className="flex justify-between">
-              <span>Tax ({taxName}):</span>
+            <div className="flex justify-between py-0.5">
+              <span>Tax (GST):</span>
               <span>{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
             </div>
           )}
-          <div className="flex justify-between text-sm font-black pt-1 border-t border-dashed border-black">
+          <div className="flex justify-between text-sm font-black pt-1.5 border-t border-dashed border-black">
             <span>TOTAL:</span>
             <span>{currencySymbol}{invoice.total_amount.toFixed(2)}</span>
           </div>
@@ -456,37 +659,37 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
 
-        {/* UPI QR & Bank — hidden when invoice is paid */}
-        {!isPaid ? (
+        {/* UPI QR & Bank */}
+        {hasPaymentDetails && !isPaid && (
           <div className="py-3 text-center border-b border-dashed border-black space-y-2 flex flex-col items-center">
             <InvoicePaymentQR 
               size={112} 
-              title="SCAN & PAY VIA ANY UPI APP"
-              subtitle="GPay • PhonePe • Paytm • BHIM"
+              title={isPaid ? "PAYMENT SETTLED VIA UPI" : "SCAN & PAY VIA ANY UPI APP"}
+              subtitle={isPaid ? "Official Verified Receipt" : "GPay • PhonePe • Paytm • BHIM"}
             />
             {company.bank_name && (
-              <p className="text-[10px] text-gray-800 font-mono font-bold">
+              <p className="text-[10px] text-gray-800 font-mono font-bold leading-normal">
                 A/C: {company.account_number} • IFSC: {company.ifsc_code}
               </p>
             )}
-          </div>
-        ) : (
-          <div className="py-3 text-center border-b border-dashed border-black">
-            <p className="text-sm font-black uppercase tracking-widest">*** PAID IN FULL ***</p>
-            <p className="text-[9px] text-gray-600 mt-0.5">Payment received. Thank you!</p>
+            {company.upi_id && (
+              <p className="text-[10px] text-gray-800 font-mono font-bold leading-normal">
+                UPI: {company.upi_id}
+              </p>
+            )}
           </div>
         )}
 
         {/* Notes & Terms */}
-        <div className="py-2 text-[10px] border-b border-dashed border-black space-y-0.5">
-          {invoice.notes && <div><strong>Note:</strong> {invoice.notes}</div>}
+        <div className="py-2.5 text-[10px] leading-normal border-b border-dashed border-black space-y-1">
+          {cleanNotes && <div><strong>Note:</strong> {cleanNotes}</div>}
           <div>
             <strong>Terms:</strong>{" "}
             {isPaid ? (
               hasCustomTerms ? (
                 <div>
-                  <p className="whitespace-pre-line">{invoice.terms}</p>
-                  <p className="font-bold mt-1">Thanks for your business!</p>
+                  <p className="whitespace-pre-line leading-normal">{invoice.terms}</p>
+                  <p className="font-bold mt-1 leading-normal">Thanks for your business!</p>
                 </div>
               ) : (
                 <span className="font-bold">Thanks for your business!</span>
@@ -498,7 +701,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         </div>
 
         {/* Thermal Footer */}
-        <div className="pt-3 text-center space-y-1 text-[11px]">
+        <div className="pt-3 text-center space-y-1 text-[11px] leading-normal">
           <p className="font-bold tracking-widest uppercase">*** THANK YOU ***</p>
           <p className="text-[10px]">PLEASE VISIT AGAIN</p>
           <p className="text-[9px] text-gray-500">Printed on {safelyFormatDate(new Date().toISOString(), 'dd/MM/yyyy HH:mm')}</p>
@@ -522,7 +725,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               {!company.hide_company_details && (company.city || company.state || company.pincode) && (
                 <p>{[company.city, company.state, company.pincode].filter(Boolean).join(', ')}</p>
               )}
-              {company.gstin && <p className="text-black font-semibold mt-1">{taxIdLabel}: {company.gstin}</p>}
+              {company.gstin && <p className="text-black font-semibold mt-1">GSTIN: {company.gstin}</p>}
             </div>
           </div>
           <div className="text-right">
@@ -546,7 +749,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               {!client.hide_contact_details && (client.city || client.state || client.postal_code) && (
                 <p>{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
               )}
-              {client.gstin && <p className="mt-1 text-black font-semibold">{taxIdLabel}: {client.gstin}</p>}
+              {client.gstin && <p className="mt-1 text-black font-semibold">GSTIN: {client.gstin}</p>}
             </div>
           </div>
 
@@ -571,6 +774,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             )}
           </div>
         </div>
+
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
 
         {/* Items Table */}
         <table className="w-full text-left border-collapse mb-8 text-[11px]">
@@ -623,7 +829,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         </div>
 
         {/* Payment / QR Section */}
-        {!isPaid ? (
+        {hasPaymentDetails && !isPaid ? (
           <div className="mt-8 pt-6 border-t border-slate-200 flex items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <InvoicePaymentQR size={88} />
@@ -633,6 +839,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 )}
                 {company.account_holder_name && (
                   <p><span className="font-bold text-slate-800">Beneficiary:</span> {company.account_holder_name}</p>
+                )}
+                {company.upi_id && (
+                  <p><span className="font-bold text-emerald-800">UPI ID:</span> <span className="font-mono font-bold text-emerald-700">{company.upi_id}</span></p>
                 )}
                 <p className="text-emerald-700 font-semibold text-[9px]">Scan QR with any UPI app to transfer payment instantly</p>
               </div>
@@ -674,7 +883,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 </span>
                 <h1 className="text-xl font-black tracking-tight">{company.company_name}</h1>
                 <p className="text-[10px] text-blue-100 font-mono mt-0.5">
-                  {taxIdLabel}: {company.gstin || '24AADCS9081J1ZP'} {company.state && `• State: ${company.state}`}
+                  GSTIN: {company.gstin || '24AADCS9081J1ZP'} {company.state && `• State: ${company.state}`}
                 </p>
               </div>
             </div>
@@ -703,7 +912,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             {!client.hide_contact_details && (client.city || client.state || client.postal_code) && (
               <p className="text-slate-600">{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
             )}
-            {client.gstin && <p className="font-mono font-bold text-slate-700 pt-0.5">{taxIdLabel}: {client.gstin}</p>}
+            {client.gstin && <p className="font-mono font-bold text-slate-700 pt-0.5">GSTIN: {client.gstin}</p>}
           </div>
 
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 sm:text-right flex flex-col justify-between">
@@ -716,6 +925,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
 
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
+
         {/* Modern Line Items Table */}
         <div className="overflow-x-auto mb-6">
           <table className="w-full text-left border-collapse text-[10px]">
@@ -725,7 +937,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="py-2 px-2 text-center">HSN/SAC</th>
                 <th className="py-2 px-2 text-center">Qty</th>
                 <th className="py-2 px-3 text-right">Rate</th>
-                <th className="py-2 px-3 text-right">{taxName}</th>
+                <th className="py-2 px-3 text-right">Tax (GST)</th>
                 <th className="py-2 px-3 text-right">Amount</th>
               </tr>
             </thead>
@@ -758,12 +970,12 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         <div className="pt-4 border-t-2 border-slate-200 grid sm:grid-cols-12 gap-6 items-end">
           {/* Left Column: Bank + UPI QR Code — hidden when paid */}
           <div className="sm:col-span-7 space-y-2.5">
-            {!isPaid ? (
+            {hasPaymentDetails && !isPaid ? (
               <div className="flex items-center gap-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200 shadow-xs">
                 <InvoicePaymentQR size={96} />
                 <div className="min-w-0 text-[10px] space-y-1">
                   <p className="font-black text-slate-900 text-xs">
-                    {company.company_name || 'Business'} Bank Details
+                    {company.company_name || 'Business'} Payment Details
                   </p>
                   {company.bank_name && (
                     <p className="text-slate-700">
@@ -778,6 +990,11 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {company.ifsc_code && (
                     <p className="text-slate-700 font-mono">
                       <strong>IFSC:</strong> <span className="font-bold text-slate-900">{company.ifsc_code}</span>
+                    </p>
+                  )}
+                  {company.upi_id && (
+                    <p className="text-emerald-800 font-mono">
+                      <strong>UPI ID:</strong> <span className="font-bold text-emerald-700">{company.upi_id}</span>
                     </p>
                   )}
                   <p className="text-[8.5px] text-emerald-700 font-bold pt-0.5">
@@ -872,7 +1089,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="font-black text-xs text-slate-900">{company.company_name}</p>
             {company.business_address && <p className="text-slate-600">{company.business_address}</p>}
             <p className="text-slate-600">{[company.city, company.state, company.pincode, 'INDIA'].filter(Boolean).join(', ')}</p>
-            <p className="font-mono text-slate-700 font-bold pt-0.5">IEC No: 0519823489 • {taxIdLabel}: {company.gstin || '24AADCS9081J1ZP'}</p>
+            <p className="font-mono text-slate-700 font-bold pt-0.5">IEC No: 0519823489 • GSTIN: {company.gstin || '24AADCS9081J1ZP'}</p>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-0.5">
@@ -903,6 +1120,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <strong className="text-blue-700 font-bold">CIF {client.city || 'Overseas'} ({currencySymbol})</strong>
           </div>
         </div>
+ 
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
 
         {/* Export Items Table */}
         <table className="w-full text-left border-collapse text-[9.5px] mb-6">
@@ -941,11 +1161,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         {/* Export Totals & SWIFT Block */}
         <div className="pt-4 border-t-2 border-slate-900 grid sm:grid-cols-12 gap-6 items-start">
           <div className="sm:col-span-7 space-y-2">
-            {!isPaid && hasBankDetails ? (
+            {hasPaymentDetails && !isPaid ? (
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-[9.5px] flex items-start gap-4">
                 <InvoicePaymentQR 
                   size={88} 
-                  isExport={true} 
                   title="Verify / Wire QR"
                   subtitle="Digital Invoice Remittance"
                 />
@@ -1020,7 +1239,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {[company.phone, company.email].filter(Boolean).join(' | ')}
                 </p>
               )}
-              {!company.hide_company_details && company.gstin && <p className="text-xs font-bold mt-1 text-slate-800">{taxIdLabel}: {company.gstin}</p>}
+              {!company.hide_company_details && company.gstin && <p className="text-xs font-bold mt-1 text-slate-800">GSTIN: {company.gstin}</p>}
             </div>
           </div>
           <div className="text-right flex flex-col items-end pt-1">
@@ -1045,7 +1264,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               )}
               {!client.hide_contact_details && client.phone && <p className="text-gray-600 text-xs">Ph: {client.phone}</p>}
               {!client.hide_contact_details && client.email && <p className="text-gray-600 text-xs">{client.email}</p>}
-              {!client.hide_contact_details && client.gstin && <p className="font-bold text-xs mt-2 text-slate-800">{taxIdLabel}: {client.gstin}</p>}
+              {!client.hide_contact_details && client.gstin && <p className="font-bold text-xs mt-2 text-slate-800">GSTIN: {client.gstin}</p>}
             </div>
           </div>
 
@@ -1066,6 +1285,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
 
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
+
         {/* Main Table Wrapper */}
         <div className="mb-6 border-2 border-blue-900 rounded overflow-hidden bg-white">
           <table className="w-full">
@@ -1076,7 +1298,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="py-2.5 px-3 text-center font-semibold tracking-wider uppercase w-20">Qty</th>
                 <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-24">Rate</th>
                 {hasDiscount && <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-20">Disc%</th>}
-                {hasGST && <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-20">{taxName}%</th>}
+                {hasGST && <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-20">GST%</th>}
                 <th className="py-2.5 px-3 text-right font-semibold tracking-wider uppercase w-28">Amount</th>
               </tr>
             </thead>
@@ -1106,48 +1328,72 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
           {/* Totals Section */}
           <div className="flex border-t-2 border-blue-900 bg-gray-50">
-            <div className="w-1/2 border-r-2 border-blue-900">
+            <div className="w-[64%] border-r-2 border-blue-900 flex flex-col justify-between">
               <div className="p-3 border-b border-gray-200">
                 <p className="font-bold text-blue-900 text-[10px] uppercase tracking-wider mb-1">Amount in Words</p>
                 <p className="text-gray-700 font-bold italic border-b border-dashed border-gray-400 pb-1 text-xs">{numberToWords(invoice.total_amount)}</p>
               </div>
-              {!isPaid && hasBankDetails && (
-                <div className="p-3 bg-white">
+              {hasPaymentDetails && !isPaid && (
+                <div className="p-3 bg-white flex-1 flex flex-col justify-center">
                   <h4 className="font-bold text-gray-800 uppercase text-[10px] tracking-wider mb-2">Payment & Bank Details</h4>
-                  <div className="flex items-center gap-4">
-                    <InvoicePaymentQR size={88} />
-                    <div className="text-xs text-gray-600 grid grid-cols-[70px_1fr] gap-x-2 gap-y-1 font-sans">
-                      {company.bank_name && (<><span className="font-semibold text-gray-500">Bank:</span> <span className="text-gray-800 font-medium">{company.bank_name}</span></>)}
-                      <span className="font-semibold text-gray-500">A/C Name:</span> <span className="text-gray-800 font-medium">{company.account_holder_name || company.company_name}</span>
-                      {company.account_number && (<><span className="font-semibold text-gray-500">A/C No:</span> <span className="text-gray-800 font-medium font-mono font-bold">{company.account_number}</span></>)}
-                      {company.ifsc_code && (<><span className="font-semibold text-gray-500">IFSC:</span> <span className="text-gray-800 font-medium font-mono font-bold">{company.ifsc_code}</span></>)}
+                  <div className="flex items-center gap-3">
+                    <div className="shrink-0">
+                      <InvoicePaymentQR size={76} />
+                    </div>
+                    <div className="min-w-0 flex-1 text-[11px] text-gray-600 grid grid-cols-[64px_minmax(0,1fr)] gap-x-2 gap-y-1 font-sans">
+                      {company.bank_name && (
+                        <>
+                          <span className="font-semibold text-gray-500">Bank:</span>
+                          <span className="text-gray-800 font-medium break-words leading-tight">{company.bank_name}</span>
+                        </>
+                      )}
+                      <span className="font-semibold text-gray-500">A/C Name:</span>
+                      <span className="text-gray-800 font-medium break-words leading-tight">{company.account_holder_name || company.company_name}</span>
+                      {company.account_number && (
+                        <>
+                          <span className="font-semibold text-gray-500">A/C No:</span>
+                          <span className="text-gray-800 font-medium font-mono font-bold tracking-wide break-all">{company.account_number}</span>
+                        </>
+                      )}
+                      {company.ifsc_code && (
+                        <>
+                          <span className="font-semibold text-gray-500">IFSC:</span>
+                          <span className="text-gray-800 font-medium font-mono font-bold tracking-wider break-all">{company.ifsc_code}</span>
+                        </>
+                      )}
+                      {company.upi_id && (
+                        <>
+                          <span className="font-semibold text-emerald-600">UPI ID:</span>
+                          <span className="text-emerald-700 font-medium font-mono font-bold break-all">{company.upi_id}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
             </div>
-            <div className="w-1/2">
+            <div className="w-[36%]">
               <table className="w-full h-full text-xs">
                 <tbody className="divide-y divide-gray-200">
                   <tr>
-                    <td className="py-2 px-4 font-semibold text-right w-2/3">Taxable Value</td>
-                    <td className="py-2 px-4 text-right font-mono">{currencySymbol}{invoice.subtotal.toFixed(2)}</td>
+                    <td className="py-2 px-3 font-semibold text-right w-1/2">Taxable Value</td>
+                    <td className="py-2 px-3 text-right font-mono">{currencySymbol}{invoice.subtotal.toFixed(2)}</td>
                   </tr>
                   {(invoice.discount_amount || 0) > 0 ? (
                     <tr>
-                      <td className="py-2 px-4 font-semibold text-right text-emerald-600">Discount</td>
-                      <td className="py-2 px-4 text-right text-emerald-600 font-mono">-{currencySymbol}{invoice.discount_amount!.toFixed(2)}</td>
+                      <td className="py-2 px-3 font-semibold text-right text-emerald-600">Discount</td>
+                      <td className="py-2 px-3 text-right text-emerald-600 font-mono">-{currencySymbol}{invoice.discount_amount!.toFixed(2)}</td>
                     </tr>
                   ) : null}
                   {invoice.tax_amount > 0 && (
                     <tr>
-                      <td className="py-2 px-4 font-semibold text-right">Total Tax Amount ({taxName})</td>
-                      <td className="py-2 px-4 text-right font-mono">{currencySymbol}{invoice.tax_amount.toFixed(2)}</td>
+                      <td className="py-2 px-3 font-semibold text-right">Total Tax Amount (GST)</td>
+                      <td className="py-2 px-3 text-right font-mono">{currencySymbol}{invoice.tax_amount.toFixed(2)}</td>
                     </tr>
                   )}
                   <tr className="bg-blue-100">
-                    <td className="py-2.5 px-4 font-bold text-blue-900 text-right uppercase tracking-wider">Grand Total</td>
-                    <td className="py-2.5 px-4 text-right font-bold text-blue-900 text-base font-mono border-l-2 border-blue-900">{currencySymbol}{invoice.total_amount.toFixed(2)}</td>
+                    <td className="py-2.5 px-3 font-bold text-blue-900 text-right uppercase tracking-wider">Grand Total</td>
+                    <td className="py-2.5 px-3 text-right font-bold text-blue-900 text-base font-mono border-l-2 border-blue-900">{currencySymbol}{invoice.total_amount.toFixed(2)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1158,10 +1404,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         {/* Bottom Section */}
         <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-3 border-t border-gray-200">
-            {invoice.notes && (
+            {cleanNotes && (
               <div className="space-y-1">
                 <h4 className="text-[10px] font-bold text-blue-900 uppercase tracking-widest">Notes</h4>
-                <p className="text-xs text-gray-600 leading-relaxed italic border-l-2 border-gray-200 pl-3">{invoice.notes}</p>
+                <p className="text-xs text-gray-600 leading-relaxed italic border-l-2 border-gray-200 pl-3">{cleanNotes}</p>
               </div>
             )}
             <div className="space-y-1">
@@ -1268,7 +1514,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {[company.city, company.state, company.pincode].filter(Boolean).join(', ')}
                 </p>
               )}
-              {company.gstin && <p className="mt-1"><span className="font-bold text-slate-900">{taxIdLabel}:</span> {company.gstin}</p>}
+              {company.gstin && <p className="mt-1"><span className="font-bold text-slate-900">GSTIN:</span> {company.gstin}</p>}
               <p><span className="font-bold text-slate-900">PAN:</span> {company.gstin?.substring(2, 12) || 'N/A'}</p>
             </div>
           </div>
@@ -1282,7 +1528,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 {!client.hide_contact_details && (client.city || client.state || client.postal_code) && (
                   <p>{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
                 )}
-                {client.gstin && <p className="mt-1"><span className="font-bold text-slate-900">{taxIdLabel}:</span> {client.gstin}</p>}
+                {client.gstin && <p className="mt-1"><span className="font-bold text-slate-900">GSTIN:</span> {client.gstin}</p>}
               </div>
             </div>
             <div>
@@ -1313,6 +1559,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             </div>
           )}
         </div>
+
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
 
         {/* Items Table */}
         <div className="mb-6 border border-slate-200 rounded-sm overflow-hidden">
@@ -1433,24 +1682,27 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         </div>
 
         {/* Footer: Bank & Sign */}
-        <div className="mt-auto pt-6 border-t border-slate-100 grid grid-cols-2 gap-8">
-          <div>
-            {!isPaid && hasBankDetails && (
+        <div className="mt-auto pt-6 border-t border-slate-100 grid grid-cols-12 gap-6">
+          <div className="col-span-7">
+            {hasPaymentDetails && !isPaid && (
               <div className="space-y-1 text-[10px] text-slate-600 p-3 bg-slate-50 rounded border border-slate-200">
                 <p className="font-bold text-slate-900 uppercase text-[9px] mb-2 tracking-widest">Payment Information</p>
-                <div className="flex items-center gap-4">
-                  <InvoicePaymentQR size={88} />
-                  <div className="grid grid-cols-[70px_1fr] gap-x-2 gap-y-1">
-                    {company.bank_name && (<><span className="font-bold">Bank Name:</span> <span>{company.bank_name}</span></>)}
-                    <span className="font-bold">A/C Name:</span> <span>{company.account_holder_name || company.company_name}</span>
-                    {company.account_number && (<><span className="font-bold">A/C No:</span> <span className="font-mono font-bold tracking-wider">{company.account_number}</span></>)}
-                    {company.ifsc_code && (<><span className="font-bold">IFSC Code:</span> <span className="font-mono font-bold tracking-widest">{company.ifsc_code}</span></>)}
+                <div className="flex items-center gap-3">
+                  <div className="shrink-0">
+                    <InvoicePaymentQR size={76} />
+                  </div>
+                  <div className="min-w-0 flex-1 grid grid-cols-[64px_minmax(0,1fr)] gap-x-2 gap-y-1 text-[10.5px]">
+                    {company.bank_name && (<><span className="font-bold">Bank Name:</span> <span className="break-words leading-tight">{company.bank_name}</span></>)}
+                    <span className="font-bold">A/C Name:</span> <span className="break-words leading-tight">{company.account_holder_name || company.company_name}</span>
+                    {company.account_number && (<><span className="font-bold">A/C No:</span> <span className="font-mono font-bold tracking-wider break-all">{company.account_number}</span></>)}
+                    {company.ifsc_code && (<><span className="font-bold">IFSC Code:</span> <span className="font-mono font-bold tracking-widest break-all">{company.ifsc_code}</span></>)}
+                    {company.upi_id && (<><span className="font-bold text-emerald-700">UPI ID:</span> <span className="font-mono font-bold text-emerald-800 break-all">{company.upi_id}</span></>)}
                   </div>
                 </div>
               </div>
             )}
           </div>
-          <div className="text-right flex flex-col items-end">
+          <div className="col-span-5 text-right flex flex-col items-end">
             <p className="font-bold text-slate-900 italic text-[10px] mb-3">For {company.company_name}:</p>
             {company.signature_url ? (
               <img src={company.signature_url} alt="Signature" className="h-10 w-32 object-contain mb-1 mix-blend-multiply" />
@@ -1508,7 +1760,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                     </div>
                   )}
                   {!company.hide_company_details && company.website && <div>🌐 {company.website}</div>}
-                  {!company.hide_company_details && company.gstin && <div className="mt-1 font-bold">{taxIdLabel}: {company.gstin}</div>}
+                  {!company.hide_company_details && company.gstin && <div className="mt-1 font-bold">GSTIN: {company.gstin}</div>}
                 </div>
               </div>
             </div>
@@ -1544,7 +1796,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {client.country && <div>{client.country}</div>}
                 </div>
               )}
-              {!client.hide_contact_details && client.gstin && <div className="mt-1 text-xs font-bold text-gray-800">{taxIdLabel}: {client.gstin}</div>}
+              {!client.hide_contact_details && client.gstin && <div className="mt-1 text-xs font-bold text-gray-800">GSTIN: {client.gstin}</div>}
             </div>
           </div>
           <div>
@@ -1574,6 +1826,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
 
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
+
         {/* Items Table */}
         <div className="mb-8">
           <h3 className={`font-bold text-base ${styles.accentColor} mb-3`}>Items &amp; Services:</h3>
@@ -1584,7 +1839,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="border border-gray-300 p-2.5 text-center font-bold w-16">Qty</th>
                 <th className="border border-gray-300 p-2.5 text-right font-bold w-24">Rate</th>
                 {hasDiscount && <th className="border border-gray-300 p-2.5 text-right font-bold w-20">Discount %</th>}
-                {hasGST && <th className="border border-gray-300 p-2.5 text-right font-bold w-20">{taxName} %</th>}
+                {hasGST && <th className="border border-gray-300 p-2.5 text-right font-bold w-20">GST %</th>}
                 <th className="border border-gray-300 p-2.5 text-right font-bold w-28">Amount</th>
               </tr>
             </thead>
@@ -1616,9 +1871,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
         <div className="flex justify-between items-start mb-8 gap-6 avoid-break">
           {/* Bank Details - Hidden if paid */}
           <div className="flex-1">
-            {!isPaid && hasBankDetails && (
+            {hasPaymentDetails && !isPaid && (
               <div>
-                <h3 className={`font-bold text-base ${styles.accentColor} mb-2`}>Bank Transfer Details:</h3>
+                <h3 className={`font-bold text-base ${styles.accentColor} mb-2`}>Bank & UPI Payment Details:</h3>
                 <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                   <div className="flex items-center gap-4">
                     <InvoicePaymentQR size={88} />
@@ -1643,6 +1898,12 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                         <div>
                           <div className="text-gray-500 text-[10px] uppercase tracking-wider">IFSC Code</div>
                           <div className="font-semibold text-xs font-mono font-bold">{company.ifsc_code}</div>
+                        </div>
+                      )}
+                      {company.upi_id && (
+                        <div>
+                          <div className="text-emerald-600 text-[10px] uppercase tracking-wider font-bold">UPI ID</div>
+                          <div className="font-semibold text-xs font-mono font-bold text-emerald-700">{company.upi_id}</div>
                         </div>
                       )}
                       {company.account_type && (
@@ -1673,7 +1934,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               ) : null}
               {invoice.tax_amount > 0 && (
                 <div className="flex justify-between">
-                  <span>Total Tax ({taxName}):</span>
+                  <span>Total Tax (GST):</span>
                   <span className="font-mono">{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
                 </div>
               )}
@@ -1800,7 +2061,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <p className="text-xs text-slate-500">{[company.city, company.state, company.pincode].filter(Boolean).join(', ')}</p>
               )}
               {!company.hide_company_details && company.gstin && (
-                <p className="text-xs font-mono font-semibold text-violet-700 mt-1">{taxIdLabel}: {company.gstin}</p>
+                <p className="text-xs font-mono font-semibold text-violet-700 mt-1">GSTIN: {company.gstin}</p>
               )}
             </div>
           </div>
@@ -1831,7 +2092,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             )}
             {!client.hide_contact_details && client.phone && <p className="text-xs text-slate-500">Tel: {client.phone}</p>}
             {!client.hide_contact_details && client.email && <p className="text-xs text-slate-500">{client.email}</p>}
-            {client.gstin && <p className="text-xs font-mono font-semibold text-slate-700 mt-1">{taxIdLabel}: {client.gstin}</p>}
+            {client.gstin && <p className="text-xs font-mono font-semibold text-slate-700 mt-1">GSTIN: {client.gstin}</p>}
           </div>
 
           <div className="p-4 rounded-xl bg-violet-50/40 border border-violet-100/60 flex flex-col justify-between">
@@ -1858,6 +2119,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
 
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
+
         {/* Deliverables / Items Table */}
         <div className="border border-slate-200 rounded-xl overflow-hidden mb-6">
           <table className="w-full text-left">
@@ -1869,7 +2133,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="py-2.5 px-3 text-right">Qty</th>
                 <th className="py-2.5 px-3 text-right">Rate</th>
                 {hasDiscount && <th className="py-2.5 px-3 text-right">Disc</th>}
-                <th className="py-2.5 px-3 text-right">{taxName}</th>
+                <th className="py-2.5 px-3 text-right">GST</th>
                 <th className="py-2.5 px-3 text-right">Amount</th>
               </tr>
             </thead>
@@ -1927,10 +2191,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               </div>
             )}
 
-            {invoice.notes && (
+            {cleanNotes && (
               <div className="text-xs text-slate-600 p-3 rounded-lg bg-slate-50 border border-slate-100">
                 <p className="font-bold text-slate-800 text-[10px] uppercase tracking-wider mb-0.5">Project Notes:</p>
-                <p>{invoice.notes}</p>
+                <p>{cleanNotes}</p>
               </div>
             )}
             <p className="text-[11px] text-slate-500 italic">
@@ -1952,7 +2216,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               )}
               {hasGST && (
                 <div className="flex justify-between text-slate-600">
-                  <span>{taxName} Total:</span>
+                  <span>GST Total:</span>
                   <span className="font-mono font-semibold">{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
                 </div>
               )}
@@ -2009,7 +2273,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 {!company.hide_company_details && (company.phone || company.mobile) && (
                   <p className="text-xs text-slate-600">Helpline: {company.phone || company.mobile}</p>
                 )}
-                <p className="text-xs font-mono font-black text-emerald-800 mt-0.5">{taxIdLabel}: {company.gstin || '24AAACC1206D1ZH'}</p>
+                <p className="text-xs font-mono font-black text-emerald-800 mt-0.5">GSTIN: {company.gstin || '24AAACC1206D1ZH'}</p>
               </div>
             </div>
 
@@ -2036,7 +2300,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="font-mono text-slate-800">{client.phone || client.email || 'Retail Walk-in'}</p>
           </div>
           <div>
-            <span className="text-[9px] font-black uppercase text-emerald-800">Customer {taxIdLabel}:</span>
+            <span className="text-[9px] font-black uppercase text-emerald-800">Customer GSTIN:</span>
             <p className="font-mono text-slate-800">{client.gstin || 'Unregistered / B2C'}</p>
           </div>
           <div>
@@ -2044,6 +2308,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="font-bold text-emerald-800">{isPaid ? 'PAID (UPI/Card)' : 'PENDING / CREDIT'}</p>
           </div>
         </div>
+
+        {/* Vehicle & Service Info */}
+        <VehicleServiceBanner />
 
         {/* Retail Items Table */}
         <div className="border border-slate-300 rounded overflow-hidden mb-4">
@@ -2057,7 +2324,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                 <th className="p-2 text-right">MRP / Rate</th>
                 <th className="p-2 text-right">Disc</th>
                 <th className="p-2 text-right">Taxable</th>
-                <th className="p-2 text-right">{taxName}</th>
+                <th className="p-2 text-right">GST</th>
                 <th className="p-2 text-right">Net Amount</th>
               </tr>
             </thead>
@@ -2150,7 +2417,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               )}
               {hasGST && (
                 <div className="flex justify-between text-slate-600">
-                  <span>Total {taxName} {isGst ? `(${company.state?.toLowerCase() === client.state?.toLowerCase() ? 'CGST+SGST' : 'IGST'})` : ''}:</span>
+                  <span>Total GST ({company.state?.toLowerCase() === client.state?.toLowerCase() ? 'CGST+SGST' : 'IGST'}):</span>
                   <span className="font-mono font-semibold">{currencySymbol}{invoice.tax_amount.toFixed(2)}</span>
                 </div>
               )}
@@ -2181,10 +2448,10 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           TAX INVOICE
         </h3>
         <p className="text-[9px] text-slate-600 font-semibold uppercase">
-          {isGst ? '(Issued under Section 31 of CGST Act, 2017 & Rule 46 of CGST Rules, 2017)' : `(Issued in compliance with ${taxName} regulations)`}
+          (Issued under Section 31 of CGST Act, 2017 & Rule 46 of CGST Rules, 2017)
         </p>
         <div className="flex justify-between items-center text-[8.5px] font-bold text-slate-700 mt-1 px-1">
-          <span>{taxIdLabel}: {company.gstin || '24AADCS9081J1ZP'}</span>
+          <span>GSTIN: {company.gstin || '24AADCS9081J1ZP'}</span>
           <span className="border border-slate-800 px-2 py-0.5 uppercase bg-slate-100 font-black">ORIGINAL FOR RECIPIENT</span>
           <span>STATE: {company.state?.toUpperCase() || 'GUJARAT (24)'}</span>
         </div>
@@ -2198,7 +2465,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           <p className="font-black text-xs text-slate-950">{company.company_name}</p>
           {company.business_address && <p className="text-slate-700">{company.business_address}</p>}
           <p className="text-slate-700">{[company.city, company.state, company.pincode].filter(Boolean).join(', ')}</p>
-          <p className="text-slate-700 font-mono font-bold">{taxIdLabel}: {company.gstin || 'N/A'}</p>
+          <p className="text-slate-700 font-mono font-bold">GSTIN: {company.gstin || 'N/A'}</p>
           <p className="text-slate-700">{company.email} • {company.phone}</p>
         </div>
 
@@ -2241,12 +2508,15 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <p className="text-slate-700">{[client.city, client.state, client.postal_code].filter(Boolean).join(', ')}</p>
           </div>
           <div className="sm:text-right space-y-0.5">
-            <p><strong className="text-slate-700">{taxIdLabel} / Tax ID:</strong> <span className="font-mono font-bold">{client.gstin || 'Unregistered'}</span></p>
+            <p><strong className="text-slate-700">GSTIN / UIN:</strong> <span className="font-mono font-bold">{client.gstin || 'Unregistered'}</span></p>
             <p><strong className="text-slate-700">State:</strong> {client.state || 'N/A'}</p>
             <p><strong className="text-slate-700">Payment Due:</strong> {invoice.due_date ? safelyFormatDate(invoice.due_date, 'dd-MMM-yyyy') : 'On Receipt'}</p>
           </div>
         </div>
       </div>
+
+      {/* Vehicle & Service Info */}
+      <VehicleServiceBanner />
 
       {/* Tally Classic Ruled Items Table */}
       <table className="w-full border-collapse border-b-2 border-slate-900 text-[9.5px]">
@@ -2292,7 +2562,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           {invoice.tax_amount > 0 && (
             <tr className="divide-x-2 divide-slate-900">
               <td colSpan={6} className="py-1 px-3 text-right text-slate-700">
-                {taxName} Tax Amount:
+                GST Tax Amount:
               </td>
               <td className="py-1 px-3 text-right font-mono font-bold">{currencySymbol}{invoice.tax_amount.toFixed(2)}</td>
             </tr>
@@ -2333,7 +2603,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
               <tr className="bg-slate-200/80 font-black border-b border-slate-900 divide-x divide-slate-900">
                 <th className="py-1 px-1">HSN/SAC</th>
                 <th className="py-1 px-1 text-right">Taxable Value</th>
-                <th className="py-1 px-1">{taxName} Rate</th>
+                <th className="py-1 px-1">GST Rate</th>
                 <th className="py-1 px-1 text-right">Tax Amount</th>
                 <th className="py-1 px-1 text-right">Total Tax</th>
               </tr>
@@ -2363,7 +2633,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
       {/* Tally Bottom Grid: Bank Details + Declaration | Signatory */}
       <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x-2 divide-slate-900">
         <div className="md:col-span-7 p-2.5 space-y-1.5">
-          {!isPaid && hasBankDetails ? (
+          {hasPaymentDetails && !isPaid ? (
             <>
               <p className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Company's Bank &amp; Payment Details:</p>
               <div className="flex items-center gap-4">
@@ -2372,6 +2642,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
                   {company.bank_name && <p><strong>Bank Name:</strong> {company.bank_name}</p>}
                   {company.account_number && <p><strong>A/C No:</strong> <span className="font-bold">{company.account_number}</span> ({company.account_type || 'Current'})</p>}
                   {company.ifsc_code && <p><strong>Branch &amp; IFSC:</strong> <span className="font-bold">{company.ifsc_code}</span></p>}
+                  {company.upi_id && <p><strong>UPI ID:</strong> <span className="font-bold text-emerald-700">{company.upi_id}</span></p>}
                   <p className="text-[8.5px] text-emerald-700 font-sans font-bold">Scan QR code for instant UPI payment settlement</p>
                 </div>
               </div>

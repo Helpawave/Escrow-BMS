@@ -1,4 +1,18 @@
-import type { Party, Transaction } from '../../hooks/useLedgerTransactions';
+import type { Party, Transaction } from '@/hooks/useLedgerTransactions';
+
+const formatTime = (dateStr?: string) => {
+  if (!dateStr) return '-';
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '-';
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  } catch {
+    return '-';
+  }
+};
 
 interface LedgerPrintLayoutProps {
   selectedParty: Party;
@@ -10,6 +24,7 @@ interface LedgerPrintLayoutProps {
   printStartDate: string;
   printEndDate: string;
   printOpeningBalance: number;
+  isLofferUser?: boolean;
 }
 
 export const LedgerPrintLayout = ({
@@ -21,29 +36,35 @@ export const LedgerPrintLayout = ({
   printFilterType,
   printStartDate,
   printEndDate,
-  printOpeningBalance
+  printOpeningBalance,
+  isLofferUser = false
 }: LedgerPrintLayoutProps) => {
   return (
-    <div className="hidden print:block bg-white text-black p-4 min-h-screen">
+    <div className="hidden print:block bg-white text-black p-0 h-auto">
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          nav, footer, header, .navbar, .footer {
+          nav, footer, header, .navbar, .footer, .print\\:hidden, [class*="print:hidden"] {
             display: none !important;
           }
-          body {
+          html, body {
             background: white !important;
             color: black !important;
             font-family: 'Inter', system-ui, sans-serif !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
           @page {
             size: A4 portrait;
-            margin: 1.2cm 1.5cm;
+            margin: 1cm 1.2cm;
           }
           .print-container {
             max-width: 100% !important;
             width: 100% !important;
+            height: auto !important;
           }
           .no-page-break {
             page-break-inside: avoid !important;
@@ -51,13 +72,13 @@ export const LedgerPrintLayout = ({
           table {
             width: 100% !important;
             border-collapse: collapse !important;
-            margin-top: 15px !important;
+            margin-top: 10px !important;
           }
           th {
             background-color: #f1f5f9 !important;
             color: #0f172a !important;
             border: 1px solid #cbd5e1 !important;
-            padding: 10px 12px !important;
+            padding: 8px 10px !important;
             font-size: 10px !important;
             font-weight: 800 !important;
             text-transform: uppercase !important;
@@ -65,7 +86,7 @@ export const LedgerPrintLayout = ({
           }
           td {
             border: 1px solid #e2e8f0 !important;
-            padding: 8px 12px !important;
+            padding: 6px 10px !important;
             font-size: 10px !important;
           }
           tr:nth-child(even) {
@@ -143,9 +164,10 @@ export const LedgerPrintLayout = ({
             <tr>
               <th className="w-24 text-center">Date</th>
               <th>Particulars / Remarks</th>
-              <th className="w-36 text-right">Credit (₹)</th>
-              <th className="w-36 text-right">Debit (₹)</th>
-              <th className="w-40 text-right">Balance (₹)</th>
+              <th className="w-28 text-right">Credit (₹)</th>
+              <th className="w-28 text-right">Debit (₹)</th>
+              <th className="w-32 text-right">Balance (₹)</th>
+              <th className="w-28 text-right">Time</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 font-medium">
@@ -162,12 +184,13 @@ export const LedgerPrintLayout = ({
                 <td className={`text-right font-black ${printOpeningBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                   ₹ {Math.round(Math.abs(printOpeningBalance)).toLocaleString('en-IN')} {printOpeningBalance >= 0 ? 'Cr' : 'Dr'}
                 </td>
+                <td className="text-right text-slate-400 font-bold">-</td>
               </tr>
             )}
             {printTransactions.map((t) => (
               <tr key={t.id} className="no-page-break">
                 <td className="text-center text-slate-500 font-mono text-[9px]">
-                  {new Date(t.created_at || t.transaction_date || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {new Date(t.transaction_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </td>
                 <td>
                   {!t.is_settlement ? (
@@ -176,10 +199,10 @@ export const LedgerPrintLayout = ({
                     </span>
                   ) : (
                     <span className="font-extrabold text-blue-700 text-[10px] tracking-wide">
-                      MONDAY FINAL SETTLEMENT
+                      {isLofferUser ? 'FINAL SETTLEMENT' : 'MONDAY FINAL SETTLEMENT'}
                     </span>
                   )}
-                  {t.remarks && t.remarks !== 'MONDAY FINAL SETTLEMENT' && (
+                  {t.remarks && !t.remarks.toUpperCase().includes('FINAL SETTLEMENT') && (
                     <span className={`ml-2 text-[9px] italic ${t.is_settlement ? 'text-blue-600 font-bold' : 'text-slate-450'}`}>
                       ({t.remarks})
                     </span>
@@ -194,6 +217,16 @@ export const LedgerPrintLayout = ({
                 <td className={`text-right font-black ${t.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                   ₹ {Math.round(Math.abs(t.balance)).toLocaleString('en-IN')} {t.balance >= 0 ? 'Cr' : 'Dr'}
                 </td>
+                <td className="text-right text-slate-600 font-bold text-[9px]">
+                  <div className="flex flex-col leading-tight">
+                    <span>{formatTime(t.created_at)}</span>
+                    {t.is_modified && (
+                      <span className="text-[8px] text-sky-600 font-bold">
+                        Mod: {formatTime(t.updated_at || t.created_at)}
+                      </span>
+                    )}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -201,7 +234,7 @@ export const LedgerPrintLayout = ({
       )}
 
       {/* Footer Signature Details */}
-      <div className="mt-16 no-page-break flex justify-between items-end px-4 text-xs font-semibold text-slate-500">
+      <div className="mt-6 no-page-break flex justify-between items-end px-4 text-xs font-semibold text-slate-500">
         <div>
           <p className="border-t border-slate-300 w-44 text-center pt-1.5 uppercase tracking-wider text-[9px] font-black">Prepared By</p>
         </div>

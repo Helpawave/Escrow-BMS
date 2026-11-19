@@ -1,113 +1,46 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Plus, FileText } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { StaffHeaderBadge } from '@/components/StaffHeaderBadge';
+import { supabase, serviceSupabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { useNavigate } from 'react-router-dom';
+import { safelyToLocaleDate } from '@/utils/dateUtils';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from "@/components/ui/dropdown-menu";
+  formatPurchaseBillWhatsAppMessage,
+  formatPurchaseBillEmail,
+  normalizeWhatsAppNumber,
+  openWhatsAppChat,
+  shortenUrl,
+  createShortReceiptLink
+} from '@/utils/whatsappTemplates';
+import { generatePurchaseBillPDFBlob } from '@/utils/invoicePDF';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { PurchaseInvoiceDialog } from '@/components/PurchaseInvoiceDialog';
+import { PurchasePreviewDialog } from '@/components/PurchasePreviewDialog';
+import { SuccessModal } from '@/components/SuccessModal';
+import { DeleteConfirmation } from '@/components/DeleteConfirmation';
+import { adjustStock } from '@/utils/inventory';
+import { DataTablePagination } from '@/components/DataTablePagination';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  PurchaseInvoice,
+  SharedInvoiceStatus,
+  getPaymentMethodLabel
+} from './purchase-invoices/types';
 import {
-  FileText,
-  Plus,
-  Search,
-  Trash2,
-  Mail,
-  MoreHorizontal,
-  Eye,
-  Loader2,
-  Phone,
-  Pencil,
-  CreditCard,
-  X,
-  AlertTriangle,
-  Copy,
-  Banknote,
-  Smartphone,
-  ChevronDown,
-  Printer
-} from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
-import { supabase, serviceSupabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-import { useToast } from "@/hooks/use-toast";
-import { useCurrency } from "@/contexts/CurrencyContext";
-import { useNavigate } from "react-router-dom";
-import { StatusBadge } from "@/components/StatusBadge";
-import { safelyToLocaleDate } from "@/utils/dateUtils";
-import { formatPurchaseBillWhatsAppMessage } from "@/utils/whatsappTemplates";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { PurchaseInvoiceDialog } from "@/components/PurchaseInvoiceDialog";
-import { PurchasePreviewDialog } from "@/components/PurchasePreviewDialog";
-import { SuccessModal } from "@/components/SuccessModal";
-import { DeleteConfirmation } from "@/components/DeleteConfirmation";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { adjustStock } from "@/utils/inventory";
-import { postPaymentToLedger, removeInvoiceFromLedger } from "@/utils/erpPosting";
-import { DataTablePagination } from "@/components/DataTablePagination";
-
-const getPaymentMethodLabel = (method: string | null | undefined): string => {
-  switch (method) {
-    case 'cash':
-      return 'Cash';
-    case 'upi':
-      return 'UPI / Online';
-    case 'bank_transfer':
-      return 'Bank Transfer';
-    case 'cheque':
-      return 'Cheque';
-    case 'credit_card':
-      return 'Credit Card';
-    case 'debit_card':
-      return 'Debit Card';
-    case 'net_banking':
-      return 'Net Banking';
-    case 'other':
-      return 'Other Method';
-    case 'pending':
-      return 'Pending';
-    default:
-      return method ? method.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Pending';
-  }
-};
-
-interface PurchaseInvoice {
-  id: string;
-  user_id?: string;
-  invoice_number: string;
-  vendor_id: string;
-  vendors: { 
-    name: string;
-    email?: string;
-    phone?: string;
-  };
-  total_amount: number;
-  issue_date: string;
-  due_date?: string;
-  status: string;
-  currency: string;
-  notes?: string;
-  created_at?: string;
-}
-
+  MarkPaidDialog,
+  SMSPreviewDialog,
+  EmailPreviewDialog
+} from './purchase-invoices/modals';
+import {
+  PurchaseFilters,
+  PurchaseCardItem
+} from './purchase-invoices/components';
 const PurchaseInvoicesPage = () => {
   const { user, effectiveUserId, companyProfile, profile, ownerName, isStaff, staffName } = useAuth();
   const targetUserId = effectiveUserId || user?.id;
@@ -163,6 +96,7 @@ const PurchaseInvoicesPage = () => {
   const [markPaidDialogOpen, setMarkPaidDialogOpen] = useState(false);
   const [billToMarkPaid, setBillToMarkPaid] = useState<PurchaseInvoice | null>(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
 
   // Shared state tracking
   const [sharedInvoices, setSharedInvoices] = useState<Record<string, { whatsapp?: boolean; email?: boolean; sms?: boolean }>>(() => {
@@ -184,6 +118,29 @@ const PurchaseInvoicesPage = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearch, statusFilter]);
+
+  useEffect(() => {
+    if (!targetUserId) return;
+    const fetchWhatsAppProvider = async () => {
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const { data } = await (clientToUse as any)
+          .from('user_settings')
+          .select('whatsapp_provider')
+          .eq('user_id', targetUserId)
+          .maybeSingle();
+
+        if (data?.whatsapp_provider) {
+          setWhatsappProvider(data.whatsapp_provider);
+        } else {
+          setWhatsappProvider('personal');
+        }
+      } catch {
+        setWhatsappProvider('personal');
+      }
+    };
+    fetchWhatsAppProvider();
+  }, [targetUserId]);
 
   const { data: invoices = [], isLoading: loading, isFetching: searchLoading } = useQuery({
     queryKey: ['purchase_invoices', targetUserId],
@@ -252,6 +209,8 @@ const PurchaseInvoicesPage = () => {
   }, [filteredInvoices, currentPage, pageSize]);
 
   const handleMarkAsPaid = async (inv: PurchaseInvoice, paymentMethod: string | null) => {
+    if (isSubmittingPayment) return;
+    setIsSubmittingPayment(true);
     try {
       const clientToUse = serviceSupabase || supabase;
       
@@ -263,7 +222,7 @@ const PurchaseInvoicesPage = () => {
 
       if (billError) throw billError;
 
-      // 2. Insert into payments table
+      // 2. Insert or update payment in payments table
       const creatorName = isStaff
         ? (staffName || user?.user_metadata?.full_name || user?.user_metadata?.name || 'Staff Member')
         : (companyProfile?.company_name || 'Company Owner');
@@ -275,22 +234,47 @@ const PurchaseInvoicesPage = () => {
         ? `Purchase Bill #${inv.invoice_number} paid (Mode of payment is pended) • Created by: ${creatorName}`
         : `Purchase Bill #${inv.invoice_number} paid via ${methodLabel} • Created by: ${creatorName}`;
 
-      const { error: payError } = await clientToUse
+      // Check if a payment record already exists for this purchase bill
+      const { data: existingPayment } = await clientToUse
         .from('payments')
-        .insert([{
-          purchase_invoice_id: inv.id,
-          invoice_id: null,
-          amount: Number(inv.total_amount || 0),
-          payment_date: new Date().toISOString().split('T')[0],
-          payment_method: actualMethod,
-          reference_number: '',
-          notes: paymentNotes,
-          user_id: inv.user_id || targetUserId || user?.id
-        }]);
+        .select('id')
+        .eq('purchase_invoice_id', inv.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (payError) {
-        console.error('Payment record insertion error:', payError);
-        throw payError;
+      if (existingPayment) {
+        // Update existing record rather than creating a duplicate
+        const { error: updatePayError } = await clientToUse
+          .from('payments')
+          .update({
+            amount: Number(inv.total_amount || 0),
+            payment_method: actualMethod,
+            notes: paymentNotes
+          })
+          .eq('id', (existingPayment as unknown as { id: string }).id);
+
+        if (updatePayError) {
+          console.error('Payment record update error:', updatePayError);
+        }
+      } else {
+        const { error: payError } = await clientToUse
+          .from('payments')
+          .insert([{
+            purchase_invoice_id: inv.id,
+            invoice_id: null,
+            amount: Number(inv.total_amount || 0),
+            payment_date: new Date().toISOString().split('T')[0],
+            payment_method: actualMethod,
+            reference_number: '',
+            notes: paymentNotes,
+            user_id: inv.user_id || targetUserId || user?.id
+          }]);
+
+        if (payError) {
+          console.error('Payment record insertion error:', payError);
+          throw payError;
+        }
       }
 
       if (isPending) {
@@ -306,26 +290,6 @@ const PurchaseInvoicesPage = () => {
       }
 
       // Invalidate queries to refresh data
-      
-      // Auto-post purchase payment to Account Ledger
-      try {
-        const vendorName = inv.vendors?.name || '';
-        if (vendorName) {
-          await postPaymentToLedger({
-            invoiceId: inv.id,
-            invoiceNumber: inv.invoice_number,
-            partyName: vendorName,
-            amount: Number(inv.total_amount || 0),
-            type: 'paid',
-            paymentMode: actualMethod,
-            date: new Date().toISOString(),
-            userId: targetUserId
-          });
-        }
-      } catch (erpErr) {
-        console.warn("ERP Ledger Purchase Payment Auto-Post error:", erpErr);
-      }
-
       queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
       queryClient.invalidateQueries({ queryKey: ['purchase-invoices'] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });
@@ -338,6 +302,8 @@ const PurchaseInvoicesPage = () => {
         title: "Error",
         description: "Failed to mark bill as paid."
       });
+    } finally {
+      setIsSubmittingPayment(false);
     }
   };
 
@@ -400,6 +366,110 @@ const PurchaseInvoicesPage = () => {
     }
   };
 
+  const ensurePurchaseBillPdfUrl = async (inv: PurchaseInvoice): Promise<string> => {
+    const storageClient = serviceSupabase || supabase;
+    const cleanFileName = `purchase-bill-${inv.invoice_number}.pdf`.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const supabaseFileName = `${targetUserId || user?.id}/purchase-invoices/${inv.id}/${cleanFileName}`;
+
+    console.log('[PurchasePDF] Starting generation for:', inv.invoice_number, '| template:', localStorage.getItem('purchase_bill_template') || 'classic-blue');
+
+    try {
+      const clientToUse = serviceSupabase || supabase;
+      const { data: itemsRaw, error: itemsErr } = await (clientToUse as any)
+        .from('purchase_invoice_items')
+        .select('*, product:products(*)')
+        .eq('invoice_id', inv.id);
+
+      if (itemsErr) console.error('[PurchasePDF] Items fetch error:', itemsErr);
+
+      const items: any[] = (itemsRaw || []).map((item: any) => ({
+        description: item.description,
+        quantity: item.quantity,
+        rate: item.rate,
+        tax_rate: item.tax_rate || 0,
+        discount: item.discount || 0,
+        amount: item.amount,
+        product: item.product ? {
+          opening_stock: item.product.opening_stock,
+          type: item.product.type,
+          unit: item.product.unit
+        } : undefined
+      }));
+
+      console.log('[PurchasePDF] Items count:', items.length);
+
+      const vendor = inv.vendors || { name: 'Vendor' };
+      const company = (companyProfile || profile || {}) as any;
+      let savedTemplate = (localStorage.getItem('purchase_bill_template') as any) || 'classic-blue';
+
+      try {
+        const { data: tplSetting } = await (supabase as any)
+          .from('system_settings')
+          .select('value')
+          .eq('key', `purchase_bill_template_${targetUserId || user?.id}`)
+          .maybeSingle();
+        if (tplSetting?.value) {
+          let val = tplSetting.value;
+          if (typeof val === 'string') {
+            try { val = JSON.parse(val); } catch {}
+          }
+          if (val) savedTemplate = val;
+        }
+      } catch {}
+
+      console.log('[PurchasePDF] Generating blob with template:', savedTemplate);
+
+      const blob = await generatePurchaseBillPDFBlob(
+        {
+          invoice_number: inv.invoice_number || 'N/A',
+          issue_date: inv.issue_date,
+          due_date: inv.due_date,
+          status: inv.status || 'pending',
+          subtotal: inv.subtotal || Number(inv.total_amount || 0),
+          tax_amount: inv.tax_amount || 0,
+          discount_amount: inv.discount_amount || 0,
+          total_amount: Number(inv.total_amount || 0),
+          currency: inv.currency || 'INR',
+          notes: inv.notes || '',
+          terms: inv.terms || ''
+        },
+        vendor as any,
+        items,
+        company,
+        savedTemplate,
+        currencySymbol
+      );
+
+      console.log('[PurchasePDF] Blob generated, size:', blob.size, '| uploading to:', supabaseFileName);
+
+      const { error: uploadError } = await supabase.storage
+        .from('company-assets')
+        .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
+
+      if (uploadError) {
+        console.error('[PurchasePDF] Upload FAILED:', uploadError);
+        if (serviceSupabase) {
+          await serviceSupabase.storage
+            .from('company-assets')
+            .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
+        }
+      }
+
+      const { data } = supabase.storage
+        .from('company-assets')
+        .getPublicUrl(supabaseFileName);
+
+      console.log('[PurchasePDF] Upload SUCCESS. Public URL:', data?.publicUrl);
+      if (data?.publicUrl) return `${data.publicUrl}?t=${Date.now()}`;
+    } catch (err) {
+      console.error('[PurchasePDF] CRITICAL ERROR during PDF generation:', err);
+    }
+
+    // Return empty — don't return a broken URL that gives 404
+    return '';
+  };
+
+
   // WhatsApp Flow: Direct open for personal WhatsApp, background send with notifications for Cloud API
   const openWhatsAppModal = async (inv: PurchaseInvoice, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -412,113 +482,153 @@ const PurchaseInvoicesPage = () => {
       });
     }
 
-    const vendorName = inv.vendors?.name || 'Vendor';
-    const currency = inv.currency === 'USD' ? '$' : (inv.currency === 'EUR' ? '€' : (inv.currency === 'GBP' ? '£' : currencySymbol));
-    
-    let purchaseItems: { description?: string; quantity?: number; amount?: number }[] = [];
-    try {
-      const clientToUse = serviceSupabase || supabase;
-      const { data: pItems } = await (clientToUse as any)
-        .from('purchase_invoice_items')
-        .select('description, quantity, amount')
-        .eq('invoice_id', inv.id)
-        .order('created_at', { ascending: true })
-        .limit(10);
-      if (pItems) purchaseItems = pItems as { description?: string; quantity?: number; amount?: number }[];
-    } catch {}
+    const isMeta = whatsappProvider === 'meta';
 
-    const text = formatPurchaseBillWhatsAppMessage({
-      invoiceNumber: inv.invoice_number,
-      vendorName: vendorName,
-      companyName: companyProfile?.company_name || profile?.company_name || ownerName,
-      totalAmount: Number(inv.total_amount || 0),
-      currencySymbol: currency,
-      issueDate: safelyToLocaleDate(inv.issue_date),
-      status: inv.status,
-      paymentMethod: (inv as any).payment_method,
-      items: purchaseItems,
-      companyPhone: companyProfile?.phone || profile?.phone,
-      companyEmail: companyProfile?.email || profile?.email || user?.email,
-    });
-    
-    const rawPhone = inv.vendors?.phone || '';
-    const digitsOnly = rawPhone.replace(/[^\d]/g, '');
-    let phoneWithCC = digitsOnly;
-    if (rawPhone.trim().startsWith('+')) {
-      phoneWithCC = digitsOnly;
-    } else if (digitsOnly.length === 10) {
-      phoneWithCC = `91${digitsOnly}`;
-    }
-
-    let provider = 'meta';
-    try {
-      const clientToUse = serviceSupabase || supabase;
-      const { data: settings } = await clientToUse
-        .from('user_settings')
-        .select('whatsapp_provider')
-        .eq('user_id', targetUserId)
-        .maybeSingle();
-      if ((settings as any)?.whatsapp_provider) {
-        provider = (settings as any).whatsapp_provider;
-      }
-    } catch (e) {
-      // fallback
-    }
-
-    // 1. Personal WhatsApp Mode: Direct Open without preview modal
-    if (provider === 'personal') {
-      const waUrl = `https://wa.me/${phoneWithCC}?text=${encodeURIComponent(text)}`;
-      window.open(waUrl, '_blank');
-      setSharedInvoices(prev => ({
-        ...prev,
-        [inv.id]: { ...(prev[inv.id] || {}), whatsapp: true }
-      }));
-      toast({
-        title: "WhatsApp Opened! 📱",
-        description: `Direct WhatsApp chat opened for purchase bill #${inv.invoice_number}.`
-      });
-      return;
-    }
-
-    // 2. Official WhatsApp Mode: Run in background with notifications
     setSendingWhatsApp(true);
     toast({
-      title: "Sending via WhatsApp...",
-      description: `Sending purchase bill #${inv.invoice_number}...`
+      title: isMeta ? "Sending via WhatsApp API ⚡" : "Preparing WhatsApp...",
+      description: isMeta ? `Connecting to ESCROW WhatsApp Gateway for purchase bill #${inv.invoice_number}...` : `Preparing PDF for purchase bill #${inv.invoice_number}...`
     });
 
     try {
-      const { error } = await supabase.functions.invoke('send-invoice-whatsapp', {
-        body: {
-          invoiceId: inv.id,
-          recipientPhone: phoneWithCC,
-          message: text
+      const phoneWithCC = normalizeWhatsAppNumber(inv.vendors?.phone);
+      const vendorName = inv.vendors?.name || 'Vendor';
+      const currency = inv.currency === 'USD' ? '$' : (inv.currency === 'EUR' ? '€' : (inv.currency === 'GBP' ? '£' : currencySymbol));
+
+      let provider = whatsappProvider || 'personal';
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const { data: settings } = await clientToUse
+          .from('user_settings')
+          .select('whatsapp_provider')
+          .eq('user_id', targetUserId)
+          .maybeSingle();
+        if ((settings as any)?.whatsapp_provider) {
+          provider = (settings as any).whatsapp_provider;
         }
+      } catch (e) {
+        // fallback
+      }
+
+      const cleanCode = (inv.invoice_number || '').trim().replace(/^#+/, '');
+      let baseUrl = 'https://bill.escrowbms.in';
+      if (typeof window !== 'undefined' && window.location?.origin) {
+        const origin = window.location.origin;
+        if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+          baseUrl = origin.replace('www.bill.escrowbms.in', 'bill.escrowbms.in');
+        }
+      }
+      const publicReceiptUrl = `${baseUrl}/v/${encodeURIComponent(cleanCode)}`;
+
+      // 1. Personal WhatsApp Mode: Direct Instant Open without waiting for slow client-side PDF generation
+      if (provider === 'personal') {
+        const text = formatPurchaseBillWhatsAppMessage({
+          invoiceNumber: inv.invoice_number,
+          vendorName: vendorName,
+          companyName: companyProfile?.company_name || profile?.company_name || ownerName,
+          totalAmount: Number(inv.total_amount || 0),
+          currencySymbol: currency,
+          issueDate: safelyToLocaleDate(inv.issue_date),
+          status: inv.status,
+          pdfUrl: publicReceiptUrl,
+        });
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+
+        const waUrl = openWhatsAppChat(phoneWithCC, text);
+        setSharedInvoices(prev => ({
+          ...prev,
+          [inv.id]: { ...(prev[inv.id] || {}), whatsapp: true }
+        }));
+        toast({
+          title: "WhatsApp Opened! 📱",
+          description: `Direct WhatsApp chat opened for purchase bill #${inv.invoice_number}.`,
+          action: (
+            <ToastAction altText="Open WhatsApp" onClick={() => window.open(waUrl, '_blank')}>
+              Open Chat
+            </ToastAction>
+          )
+        });
+
+        // Background PDF sync so direct link and public viewer have the uploaded PDF cached
+        ensurePurchaseBillPdfUrl(inv).then(async (directPdfUrl) => {
+          if (directPdfUrl) {
+            await createShortReceiptLink(inv.invoice_number, directPdfUrl, supabase, inv.id);
+          }
+        }).catch(err => console.warn('Background purchase bill PDF sync:', err));
+
+        return;
+      }
+
+      // 2. Official WhatsApp Mode: Step 1 - Generate PDF
+      toast({
+        title: "Sending via WhatsApp API ⚡",
+        description: `Step 1/2: Preparing official PDF for purchase bill #${inv.invoice_number}...`,
+        duration: 3000
       });
 
-      if (error) throw error;
-
-      setSharedInvoices(prev => ({
-        ...prev,
-        [inv.id]: { ...(prev[inv.id] || {}), whatsapp: true }
-      }));
+      const directPdfUrl = await ensurePurchaseBillPdfUrl(inv);
+      const cleanPdfUrl = directPdfUrl 
+        ? await createShortReceiptLink(inv.invoice_number, directPdfUrl, supabase, inv.id)
+        : directPdfUrl;
 
       toast({
-        title: "WhatsApp Message Sent",
-        description: `Purchase bill #${inv.invoice_number} sent successfully.`
+        title: "Sending via WhatsApp API ⚡",
+        description: `Step 2/2: Delivering to ${vendorName} via ESCROW Gateway...`,
+        duration: 4000
       });
-    } catch (error: any) {
-      console.warn('WhatsApp Cloud API failed, opening personal WhatsApp fallback:', error);
-      const waUrl = `https://wa.me/${phoneWithCC}?text=${encodeURIComponent(text)}`;
-      window.open(waUrl, '_blank');
-      setSharedInvoices(prev => ({
-        ...prev,
-        [inv.id]: { ...(prev[inv.id] || {}), whatsapp: true }
-      }));
-      toast({
-        title: "WhatsApp Opened",
-        description: "Opened in WhatsApp to send bill."
+
+      const text = formatPurchaseBillWhatsAppMessage({
+        invoiceNumber: inv.invoice_number,
+        vendorName: vendorName,
+        companyName: companyProfile?.company_name || profile?.company_name || ownerName,
+        totalAmount: Number(inv.total_amount || 0),
+        currencySymbol: currency,
+        issueDate: safelyToLocaleDate(inv.issue_date),
+        status: inv.status,
+        pdfUrl: cleanPdfUrl || publicReceiptUrl,
       });
+
+      // 2. Official WhatsApp Mode: Run in background with notifications
+      try {
+        const clientForFunction = serviceSupabase || supabase;
+        const { error } = await clientForFunction.functions.invoke('send-invoice-whatsapp', {
+          body: {
+            invoiceId: inv.id,
+            recipientPhone: phoneWithCC,
+            message: text,
+            mediaUrl: directPdfUrl || undefined,
+            companyName: companyProfile?.company_name || profile?.company_name || ownerName,
+            clientName: vendorName,
+            invoiceType: 'purchase'
+          }
+        });
+
+        if (error) throw error;
+
+        setSharedInvoices(prev => ({
+          ...prev,
+          [inv.id]: { ...(prev[inv.id] || {}), whatsapp: true }
+        }));
+
+        toast({
+          title: "WhatsApp Message Sent ✅",
+          description: `Purchase bill #${inv.invoice_number} sent via Meta WhatsApp Gateway.`
+        });
+      } catch (error: any) {
+        console.error('Meta WhatsApp API failed:', error);
+        const errMsg = error?.message || (typeof error === 'string' ? error : 'Meta WhatsApp delivery failed. Please check WhatsApp settings.');
+        toast({
+          variant: "destructive",
+          title: "Meta WhatsApp Failed ❌",
+          description: errMsg,
+          duration: 7000
+        });
+      }
+    } catch (err: any) {
+      console.error('Error sharing purchase bill on WhatsApp:', err);
     } finally {
       setSendingWhatsApp(false);
     }
@@ -551,12 +661,34 @@ const PurchaseInvoicesPage = () => {
     setEmailConfirmationOpen(true);
   };
 
-  const executeEmailSend = () => {
+  const executeEmailSend = async () => {
     if (!emailInvoice) return;
     const email = emailInvoice.vendors?.email || '';
-    const subject = encodeURIComponent(`Purchase Bill ${emailInvoice.invoice_number}`);
-    const body = encodeURIComponent(`Hello,\n\nPlease find the details for purchase bill ${emailInvoice.invoice_number}.\n\nVendor: ${emailInvoice.vendors?.name || 'N/A'}\nTotal Amount: INR ${emailInvoice.total_amount}\nDate: ${safelyToLocaleDate(emailInvoice.issue_date)}\nStatus: ${emailInvoice.status}\n\nRegards,\nEscrowBill`);
-    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
+    const vendorName = emailInvoice.vendors?.name || 'Vendor';
+    const compName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Business';
+    const currency = emailInvoice.currency === 'USD' ? '$' : (emailInvoice.currency === 'EUR' ? '€' : (emailInvoice.currency === 'GBP' ? '£' : currencySymbol));
+
+    toast({
+      title: "Preparing Email...",
+      description: "Generating PDF link for email..."
+    });
+
+    const directPdfUrl = await ensurePurchaseBillPdfUrl(emailInvoice);
+
+    const { subject, body } = formatPurchaseBillEmail({
+      invoiceNumber: emailInvoice.invoice_number,
+      vendorName,
+      companyName: compName,
+      totalAmount: Number(emailInvoice.total_amount || 0),
+      currencySymbol: currency,
+      issueDate: safelyToLocaleDate(emailInvoice.issue_date),
+      status: emailInvoice.status,
+      pdfUrl: directPdfUrl || undefined,
+    });
+
+    const mailtoUrl = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailtoUrl, '_blank');
+
     setSharedInvoices(prev => ({
       ...prev,
       [emailInvoice.id]: { ...(prev[emailInvoice.id] || {}), email: true }
@@ -587,399 +719,87 @@ const PurchaseInvoicesPage = () => {
       </div>
 
       {/* Search & Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search by bill number or vendor name..."
-            className="pl-10 pr-10 h-11 bg-background border-border/50 rounded-xl"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          {searchTerm.trim() && (
-            <button
-              type="button"
-              onClick={() => setSearchTerm("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-          {searchLoading && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          )}
-        </div>
-        <div className="w-full sm:w-48">
-          <select
-            className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="pending">Pending</option>
-            <option value="paid">Paid</option>
-            <option value="overdue">Overdue</option>
-          </select>
-        </div>
-      </div>
+      <PurchaseFilters
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
+        searchLoading={searchLoading}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+      />
 
       {/* Cards List Layout */}
       {loading ? (
-        <div className="space-y-4">
-          {[...Array(5)].map((_, i) => (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
             <Card key={i} className="p-4 md:p-6 rounded-xl border-border bg-card shadow-sm">
-              <div className="flex justify-between items-start">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="h-5 w-24" />
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                  </div>
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-20" />
+              <div className="flex justify-between items-center">
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-32" />
+                  <Skeleton className="h-4 w-48" />
                 </div>
-                <div className="text-right space-y-2">
+                <div className="space-y-2 text-right">
                   <Skeleton className="h-6 w-24 ml-auto" />
-                  <Skeleton className="h-3 w-12 ml-auto" />
+                  <Skeleton className="h-4 w-16 ml-auto" />
                 </div>
-              </div>
-              <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                <Skeleton className="h-9 w-9 rounded-lg" />
-                <Skeleton className="h-9 w-9 rounded-lg" />
-                <Skeleton className="h-9 w-9 rounded-lg" />
-                <Skeleton className="h-9 w-24 rounded-lg" />
               </div>
             </Card>
           ))}
         </div>
-      ) : filteredInvoices.length === 0 ? (
+      ) : paginatedInvoices.length === 0 ? (
         <Card className="p-4 md:p-6 md:p-8 text-center bg-card dark:bg-card">
-          <FileText className="w-12 h-12 md:w-16 md:h-16 text-muted-foreground mx-auto mb-4" />
-          <h3 className="text-lg md:text-xl font-semibold text-foreground mb-2">No Purchase Bills Found</h3>
-          <p className="text-sm md:text-base text-muted-foreground mb-4">
-            {invoices.length === 0
-              ? "Record your first vendor purchase bill to track procurement expenses."
-              : "No purchase bills match your search criteria."}
+          <FileText className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+          <p className="text-base md:text-lg font-bold text-foreground/80">No purchase bills found</p>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+            {searchTerm || statusFilter !== 'all'
+              ? 'Try adjusting your search criteria or filter options.'
+              : 'Record purchase bills to keep track of expenses and vendor accounts.'}
           </p>
-          {invoices.length === 0 && (
+          {!searchTerm && statusFilter === 'all' && (
             <Button
-              variant="default"
+              variant="outline"
+              size="sm"
               onClick={() => navigate('/create-invoice?type=purchase')}
-              className="w-full sm:w-auto"
+              className="mt-4 font-bold border-2"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Create Your First Purchase Bill
+              Add First Purchase Bill
             </Button>
           )}
         </Card>
       ) : (
         <div className="space-y-3 md:space-y-4">
           {paginatedInvoices.map((inv) => (
-            <Card key={inv.id} className="p-4 md:p-6 rounded-md border-border bg-card shadow-sm hover:shadow-md transition-shadow">
-              {/* Mobile Card Layout */}
-              <div className="md:hidden space-y-4">
-                <div
-                  className="space-y-4 cursor-pointer"
-                  onClick={() => {
-                    setPreviewInvoiceId(inv.id);
-                    setIsPreviewDialogOpen(true);
-                  }}
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-foreground">{inv.invoice_number}</span>
-                        <StatusBadge status={inv.status} dueDate={inv.due_date} />
-                      </div>
-                      <p className="text-sm font-medium text-muted-foreground">{inv.vendors?.name || 'Unknown Vendor'}</p>
-                      <p className="text-[10px] text-muted-foreground/60 font-normal">
-                        {getCreatorTag(inv.notes)}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{safelyToLocaleDate(inv.issue_date)}</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold">{formatAmount(Number(inv.total_amount || 0))}</p>
-                      <p className="text-xs text-muted-foreground uppercase">{inv.currency || 'INR'}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2 pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-10 w-full"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPreviewInvoiceId(inv.id);
-                        setIsPreviewDialogOpen(true);
-                      }}
-                      title="Preview Bill"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-10 w-full"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPreviewInvoiceId(inv.id);
-                        setIsPreviewDialogOpen(true);
-                      }}
-                      title="Print Bill"
-                    >
-                      <Printer className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className={`h-10 w-full ${sharedInvoices[inv.id]?.whatsapp ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : ''}`}
-                      onClick={(e) => openWhatsAppModal(inv, e)}
-                      title="Share to WhatsApp"
-                    >
-                      <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${sharedInvoices[inv.id]?.whatsapp ? 'text-emerald-700' : 'text-emerald-500'}`}>
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                      </svg>
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-10 w-full"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56">
-                        {inv.vendors?.email && (
-                          <DropdownMenuItem
-                            onClick={(e) => openEmailModal(inv, e as any)}
-                            className={sharedInvoices[inv.id]?.email ? "text-emerald-600 font-medium" : ""}
-                          >
-                            <Mail className={`mr-2 h-4 w-4 ${sharedInvoices[inv.id]?.email ? "text-emerald-600" : ""}`} />
-                            Email to Vendor {sharedInvoices[inv.id]?.email && "✓"}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onClick={(e) => openSMSModal(inv, e as any)}
-                          className={sharedInvoices[inv.id]?.sms ? "text-emerald-600 font-medium" : ""}
-                        >
-                          <Phone className={`mr-2 h-4 w-4 ${sharedInvoices[inv.id]?.sms ? "text-emerald-600" : ""}`} />
-                          Send via SMS {sharedInvoices[inv.id]?.sms && "✓"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => {
-                          e.stopPropagation();
-                          setPreviewInvoiceId(inv.id);
-                          setIsPreviewDialogOpen(true);
-                        }}>
-                          <Eye className="mr-2 h-4 w-4" />
-                          Preview Bill
-                        </DropdownMenuItem>
-                        {inv.status !== 'paid' ? (
-                          <>
-                            <DropdownMenuItem onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingInvoiceId(inv.id);
-                              setIsEditDialogOpen(true);
-                            }}>
-                              <Pencil className="mr-2 h-4 w-4" />
-                              Edit Bill
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setBillToMarkPaid(inv);
-                                setSelectedPaymentMethod(null);
-                                setMarkPaidDialogOpen(true);
-                              }}
-                              className="cursor-pointer font-medium text-emerald-700 dark:text-emerald-400"
-                            >
-                              <CreditCard className="mr-2 h-4 w-4 text-emerald-600" />
-                              Mark as Paid
-                            </DropdownMenuItem>
-                          </>
-                        ) : (
-                          <DropdownMenuItem
-                            disabled
-                            className="text-emerald-600 font-medium disabled:opacity-100"
-                          >
-                            <CreditCard className="mr-2 h-4 w-4 text-emerald-600" />
-                            Settled / Paid
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteTargetId(inv.id);
-                            setShowDeleteConfirm(true);
-                          }}
-                          className="text-destructive font-medium cursor-pointer"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete Bill
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </div>
-
-              {/* Desktop Card Layout */}
-              <div className="hidden md:flex items-center justify-between gap-3">
-                {/* Left: Bill info */}
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base lg:text-lg font-semibold truncate">{inv.invoice_number}</h3>
-                    </div>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {inv.vendors?.name || 'Unknown Vendor'}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <span>{safelyToLocaleDate(inv.issue_date)}</span>
-                      <span className="text-[10px] text-muted-foreground/60">
-                        {getCreatorTag(inv.notes)}
-                      </span>
-                    </div>
-                  </div>
-                  <StatusBadge status={inv.status} dueDate={inv.due_date} />
-                </div>
-
-                {/* Right: Amount + Actions */}
-                <div className="flex items-center gap-2 lg:gap-4 flex-shrink-0">
-                  <div className="text-right">
-                    <p className="text-base lg:text-lg font-bold">{formatAmount(Number(inv.total_amount || 0))}</p>
-                    <p className="text-xs lg:text-sm text-muted-foreground uppercase">{inv.currency || 'INR'}</p>
-                  </div>
-
-                  <div className="flex items-center gap-1 lg:gap-2">
-                    {/* Email */}
-                    {inv.vendors?.email && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => openEmailModal(inv, e)}
-                        title="Send via Email"
-                        className={`h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[inv.id]?.email ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
-                      >
-                        <Mail className={`w-4 h-4 lg:mr-1 ${sharedInvoices[inv.id]?.email ? 'text-emerald-700' : ''}`} />
-                        <span className="hidden lg:inline">Email</span>
-                      </Button>
-                    )}
-
-                    {/* SMS */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => openSMSModal(inv, e)}
-                      title="Send SMS"
-                      className={`h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[inv.id]?.sms ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
-                    >
-                      <Phone className={`w-4 h-4 lg:mr-1 ${sharedInvoices[inv.id]?.sms ? 'text-emerald-700' : ''}`} />
-                      <span className="hidden lg:inline">SMS</span>
-                    </Button>
-
-                    {/* WhatsApp */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => openWhatsAppModal(inv, e)}
-                      title="Send via WhatsApp"
-                      className={`flex items-center gap-1 h-8 lg:h-9 px-2 lg:px-3 ${sharedInvoices[inv.id]?.whatsapp ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800' : ''}`}
-                    >
-                      <svg viewBox="0 0 24 24" fill="currentColor" className={`w-4 h-4 ${sharedInvoices[inv.id]?.whatsapp ? 'text-emerald-700' : 'text-emerald-500'}`}>
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                      </svg>
-                      <span className="hidden lg:inline">WhatsApp</span>
-                    </Button>
-
-                    {/* Mark as Paid */}
-                    {inv.status !== 'paid' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        title="Mark as Paid"
-                        onClick={() => {
-                          setBillToMarkPaid(inv);
-                          setSelectedPaymentMethod(null);
-                          setMarkPaidDialogOpen(true);
-                        }}
-                        className="h-8 lg:h-9 px-2 lg:px-3 font-semibold bg-emerald-50/60 hover:bg-emerald-100/80 border-emerald-300 text-emerald-800 hover:text-emerald-900 transition-all active:scale-95"
-                      >
-                        <CreditCard className="w-4 h-4 lg:mr-1 text-emerald-600" />
-                        <span className="hidden lg:inline">Mark as Paid</span>
-                      </Button>
-                    )}
-
-                    {/* Preview */}
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => {
-                        setPreviewInvoiceId(inv.id);
-                        setIsPreviewDialogOpen(true);
-                      }} 
-                      title="Preview Bill" 
-                      className="h-8 lg:h-9 w-8 lg:w-9 p-0"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
-
-                    {/* Print */}
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => {
-                        setPreviewInvoiceId(inv.id);
-                        setIsPreviewDialogOpen(true);
-                      }} 
-                      title="Print Bill" 
-                      className="h-8 lg:h-9 w-8 lg:w-9 p-0"
-                    >
-                      <Printer className="w-4 h-4" />
-                    </Button>
-
-                    {/* Edit */}
-                    {inv.status !== 'paid' && (
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => {
-                          setEditingInvoiceId(inv.id);
-                          setIsEditDialogOpen(true);
-                        }} 
-                        title="Edit Bill" 
-                        className="h-8 lg:h-9 w-8 lg:w-9 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                    )}
-
-                    {/* Delete */}
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => {
-                        setDeleteTargetId(inv.id);
-                        setShowDeleteConfirm(true);
-                      }} 
-                      title="Delete Bill" 
-                      className="h-8 lg:h-9 w-8 lg:w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </Card>
+            <PurchaseCardItem
+              key={inv.id}
+              invoice={inv}
+              onPreview={(item) => {
+                setPreviewInvoiceId(item.id);
+                setIsPreviewDialogOpen(true);
+              }}
+              onPrint={(item) => {
+                setPreviewInvoiceId(item.id);
+                setIsPreviewDialogOpen(true);
+              }}
+              onWhatsApp={openWhatsAppModal}
+              onEmail={openEmailModal}
+              onSMS={openSMSModal}
+              onEdit={(item) => {
+                setEditingInvoiceId(item.id);
+                setIsEditDialogOpen(true);
+              }}
+              onMarkPaid={(item) => {
+                setBillToMarkPaid(item);
+                setSelectedPaymentMethod(null);
+                setMarkPaidDialogOpen(true);
+              }}
+              onDelete={(id) => {
+                setDeleteTargetId(id);
+                setShowDeleteConfirm(true);
+              }}
+              sharedStatus={sharedInvoices[inv.id]}
+              formatAmount={formatAmount}
+              getCreatorTag={getCreatorTag}
+            />
           ))}
         </div>
       )}
@@ -996,78 +816,21 @@ const PurchaseInvoicesPage = () => {
         isLoading={loading}
       />
 
-
-
-      {/* SMS Preview Dialog (Matches Invoices.tsx) */}
-      <AlertDialog open={smsConfirmationOpen} onOpenChange={setSmsConfirmationOpen}>
-        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
-              <Phone className="w-6 h-6 text-primary" />
-            </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">Preview SMS Message</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              Edit the message below before sending via SMS to your vendor.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="px-6 md:px-8 py-2">
-            <Textarea
-              value={smsMessage}
-              onChange={(e) => setSmsMessage(e.target.value)}
-              className="min-h-[120px] rounded-xl border-2 focus-visible:ring-primary/20 bg-muted/30 font-medium"
-            />
-          </div>
-          <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
-            <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={executeSMSSend}
-              className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-primary/20 bg-primary hover:opacity-90"
-            >
-              Send SMS
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Email Preview Dialog (Matches Invoices.tsx) */}
-      <AlertDialog open={emailConfirmationOpen} onOpenChange={setEmailConfirmationOpen}>
-        <AlertDialogContent className="max-w-md rounded-2xl border-none shadow-2xl bg-background p-0 overflow-hidden">
-          <AlertDialogHeader className="p-4 md:p-8 pb-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-4">
-              <Mail className="w-6 h-6 text-primary" />
-            </div>
-            <AlertDialogTitle className="text-2xl font-black tracking-tight">Email Purchase Bill</AlertDialogTitle>
-            <AlertDialogDescription className="text-muted-foreground font-medium pt-2">
-              Send purchase bill <span className="font-bold text-foreground">#{emailInvoice?.invoice_number}</span> to <span className="font-bold text-foreground">{emailInvoice?.vendors?.email || 'vendor'}</span>?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="p-4 md:p-8 pt-4 flex flex-row gap-3 bg-muted/5">
-            <AlertDialogCancel className="flex-1 h-11 font-bold rounded-xl border-2 m-0">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={executeEmailSend}
-              className="flex-1 h-11 font-black rounded-xl shadow-lg shadow-primary/20 bg-primary hover:opacity-90"
-            >
-              Send Email
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Edit Dialog */}
-      <PurchaseInvoiceDialog 
-        invoiceId={editingInvoiceId}
-        isOpen={isEditDialogOpen}
-        onOpenChange={setIsEditDialogOpen}
-        onSuccess={() => {
-          queryClient.invalidateQueries({ queryKey: ['purchase_invoices'] });
-        }}
+      {/* SMS Preview Dialog */}
+      <SMSPreviewDialog
+        open={smsConfirmationOpen}
+        onOpenChange={setSmsConfirmationOpen}
+        smsMessage={smsMessage}
+        setSmsMessage={setSmsMessage}
+        onConfirmSend={executeSMSSend}
       />
 
-      {/* Preview Dialog */}
-      <PurchasePreviewDialog
-        invoiceId={previewInvoiceId}
-        isOpen={isPreviewDialogOpen}
-        onOpenChange={setIsPreviewDialogOpen}
+      {/* Email Preview Dialog */}
+      <EmailPreviewDialog
+        open={emailConfirmationOpen}
+        onOpenChange={setEmailConfirmationOpen}
+        emailInvoice={emailInvoice}
+        onConfirmSend={executeEmailSend}
       />
 
       {/* Delete Confirmation Modal */}
@@ -1080,161 +843,16 @@ const PurchaseInvoicesPage = () => {
       />
 
       {/* Mark as Paid Selection Popup Dialog */}
-      <Dialog open={markPaidDialogOpen} onOpenChange={setMarkPaidDialogOpen}>
-        <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden rounded-2xl border-none shadow-2xl bg-background">
-          <DialogHeader className="p-6 pb-4 bg-muted/10 border-b border-border/50">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center mb-3">
-              <CreditCard className="w-6 h-6" />
-            </div>
-            <DialogTitle className="text-xl font-black text-foreground">
-              Mark Purchase Bill as Paid
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground mt-1">
-              Bill #{billToMarkPaid?.invoice_number} • Amount: {formatAmount(Number(billToMarkPaid?.total_amount || 0))}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Select Payment Method (Optional)
-              </Label>
-              {selectedPaymentMethod && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedPaymentMethod(null)}
-                  className="text-[11px] font-bold text-amber-600 hover:underline"
-                >
-                  Clear Selection
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setSelectedPaymentMethod(prev => prev === 'cash' ? null : 'cash')}
-                className={`p-4 rounded-xl border-2 text-left flex flex-col gap-2 transition-all cursor-pointer active:scale-95 ${
-                  selectedPaymentMethod === 'cash'
-                    ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 shadow-md ring-2 ring-emerald-500/20'
-                    : 'border-border/60 hover:border-border text-muted-foreground hover:bg-muted/30'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <Banknote className={`w-5 h-5 ${selectedPaymentMethod === 'cash' ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-                  {selectedPaymentMethod === 'cash' && (
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-                  )}
-                </div>
-                <div>
-                  <p className="font-black text-sm text-foreground">Cash</p>
-                  <p className="text-[10px] opacity-70">Physical Cash Payment</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedPaymentMethod(prev => prev === 'upi' ? null : 'upi')}
-                className={`p-4 rounded-xl border-2 text-left flex flex-col gap-2 transition-all cursor-pointer active:scale-95 ${
-                  selectedPaymentMethod === 'upi'
-                    ? 'border-violet-600 bg-violet-50/70 dark:bg-violet-950/40 text-violet-900 dark:text-violet-100 shadow-md ring-2 ring-violet-500/20'
-                    : 'border-border/60 hover:border-border text-muted-foreground hover:bg-muted/30'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <Smartphone className={`w-5 h-5 ${selectedPaymentMethod === 'upi' ? 'text-violet-600' : 'text-muted-foreground'}`} />
-                  {selectedPaymentMethod === 'upi' && (
-                    <span className="w-2.5 h-2.5 rounded-full bg-violet-600"></span>
-                  )}
-                </div>
-                <div>
-                  <p className="font-black text-sm text-foreground">UPI / Online</p>
-                  <p className="text-[10px] opacity-70">GPay, PhonePe, QR</p>
-                </div>
-              </button>
-            </div>
-
-            <div className="space-y-1.5 pt-1">
-              <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Or Other Payment Method
-              </Label>
-              <Select
-                value={
-                  selectedPaymentMethod && selectedPaymentMethod !== 'cash' && selectedPaymentMethod !== 'upi'
-                    ? selectedPaymentMethod
-                    : ""
-                }
-                onValueChange={(val) => {
-                  if (val === 'none') {
-                    setSelectedPaymentMethod(null);
-                  } else {
-                    setSelectedPaymentMethod(val);
-                  }
-                }}
-              >
-                <SelectTrigger className="w-full h-11 bg-muted/20 border-border/70 rounded-xl text-sm font-medium focus:ring-emerald-500">
-                  <SelectValue placeholder="Choose other payment method..." />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl border border-border shadow-xl z-50">
-                  <SelectItem value="none" className="cursor-pointer py-2 text-muted-foreground italic font-medium">
-                    -- None (Mode is Pended) --
-                  </SelectItem>
-                  <SelectItem value="bank_transfer" className="cursor-pointer py-2 font-medium">
-                    🏦 Bank Transfer (NEFT / RTGS / IMPS)
-                  </SelectItem>
-                  <SelectItem value="cheque" className="cursor-pointer py-2 font-medium">
-                    📜 Cheque
-                  </SelectItem>
-                  <SelectItem value="credit_card" className="cursor-pointer py-2 font-medium">
-                    💳 Credit Card
-                  </SelectItem>
-                  <SelectItem value="debit_card" className="cursor-pointer py-2 font-medium">
-                    💳 Debit Card
-                  </SelectItem>
-                  <SelectItem value="net_banking" className="cursor-pointer py-2 font-medium">
-                    🌐 Net Banking
-                  </SelectItem>
-                  <SelectItem value="other" className="cursor-pointer py-2 font-medium">
-                    📦 Other Method
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {!selectedPaymentMethod && (
-              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
-                <span>No mode selected. Bill will be settled with <strong>Pending Payment Mode</strong> (you can set it in Payments anytime).</span>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="p-4 bg-muted/5 border-t border-border/50 flex flex-row gap-3 shrink-0 sm:space-x-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setMarkPaidDialogOpen(false)}
-              className="w-24 sm:w-28 h-11 font-bold rounded-xl shrink-0"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={async () => {
-                if (billToMarkPaid) {
-                  await handleMarkAsPaid(billToMarkPaid, selectedPaymentMethod);
-                  setMarkPaidDialogOpen(false);
-                  setBillToMarkPaid(null);
-                }
-              }}
-              className="flex-1 h-11 font-bold text-xs sm:text-sm rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20 px-3 whitespace-nowrap overflow-hidden text-ellipsis"
-            >
-              {selectedPaymentMethod 
-                ? `Confirm (${getPaymentMethodLabel(selectedPaymentMethod)})` 
-                : 'Confirm (Mode is Pended)'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <MarkPaidDialog
+        open={markPaidDialogOpen}
+        onOpenChange={setMarkPaidDialogOpen}
+        billToMarkPaid={billToMarkPaid}
+        selectedPaymentMethod={selectedPaymentMethod}
+        setSelectedPaymentMethod={setSelectedPaymentMethod}
+        isSubmittingPayment={isSubmittingPayment}
+        onConfirm={handleMarkAsPaid}
+        formatAmount={formatAmount}
+      />
 
       {/* Success Modal */}
       <SuccessModal

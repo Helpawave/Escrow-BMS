@@ -123,3 +123,46 @@ export const generateInvoiceNumber = async (
     return `${finalPrefix}-${Date.now().toString().slice(-6)}`;
   }
 };
+
+/**
+ * Generates an auto-incrementing, unique Booking Number for Downpayment Invoices (e.g. BK-0001, BK-0002).
+ */
+export const generateBookingNumber = async (targetUserId?: string): Promise<string> => {
+  const clientToUse = (serviceSupabase || supabase) as any;
+  const prefix = 'BK';
+
+  try {
+    let query = clientToUse
+      .from('invoices')
+      .select('notes, invoice_number');
+
+    if (targetUserId) {
+      query = query.eq('user_id', targetUserId);
+    }
+
+    const { data } = await query.order('created_at', { ascending: false }).limit(300);
+
+    const rows = (data as unknown as { notes?: string; invoice_number?: string }[]) || [];
+    let maxNum = 0;
+    if (rows && rows.length > 0) {
+      for (const row of rows) {
+        const matchNotes = (row.notes || '').match(/BK[-_](\d+)/i);
+        const matchInv = (row.invoice_number || '').match(/BK[-_](\d+)/i);
+        const match = matchNotes || matchInv;
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+          }
+        }
+      }
+    }
+
+    const nextNum = maxNum + 1;
+    return `${prefix}-${nextNum.toString().padStart(4, '0')}`;
+  } catch (err) {
+    console.error('Error generating booking number:', err);
+    return `${prefix}-${Date.now().toString().slice(-4)}`;
+  }
+};
+

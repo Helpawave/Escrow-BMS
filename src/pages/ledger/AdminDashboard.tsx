@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '@/contexts/AdminContext';
-import { supabase } from '@/lib/supabase';
+import { supabase, serviceSupabase } from '@/lib/supabase';
 import { toast } from 'react-hot-toast';
 import { AdminModals } from '@/components/admin/AdminModals';
 import { AdminOverview } from '@/components/admin/AdminOverview';
@@ -10,7 +10,7 @@ import type { AuditLog } from '@/components/admin/SystemGuards';
 import { 
   Users, Shield, RefreshCw, LogOut, Search, Activity, 
   Settings, Key, Eye, Clock, Trash2, 
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Briefcase, CheckCircle2, SlidersHorizontal
 } from 'lucide-react';
 
 interface AdminStats {
@@ -28,6 +28,7 @@ interface AdminUser {
   last_sign_in_at: string | null;
   subscription_expires_at: string | null;
   plan_type: string;
+  account_type?: string;
   is_blocked: boolean;
   is_paid: boolean;
   client_count: number;

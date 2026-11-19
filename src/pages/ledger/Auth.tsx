@@ -27,7 +27,8 @@ const Auth = () => {
     mobile: '',
     email: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    accountType: 'regular' as 'regular' | 'ca'
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,17 +62,35 @@ const Auth = () => {
         if (error) throw error;
         navigate('/dashboard');
       } else {
-        const { error } = await supabase.auth.signUp({ 
+        const { data: signUpRes, error } = await supabase.auth.signUp({ 
           email: formData.email, 
           password: formData.password,
           options: {
             data: {
               full_name: formData.fullName,
-              mobile: formData.mobile
+              mobile: formData.mobile,
+              account_type: formData.accountType
             }
           }
         });
         if (error) throw error;
+
+        if (signUpRes?.user?.id) {
+          const uid = signUpRes.user.id;
+          try {
+            await supabase.from('profiles').update({ account_type: formData.accountType } as any).eq('id', uid);
+          } catch {}
+          try {
+            const { data: curSt } = await supabase.from('system_settings').select('value').eq('key', 'user_account_types').maybeSingle();
+            const curMap = curSt?.value ? (typeof curSt.value === 'string' ? JSON.parse(curSt.value) : curSt.value) : {};
+            curMap[uid] = formData.accountType;
+            await supabase.from('system_settings').upsert({ key: 'user_account_types', value: curMap });
+          } catch {}
+          try {
+            localStorage.setItem('escrow_cached_user_account_type', formData.accountType);
+          } catch {}
+        }
+
         alert('Registration successful! Please check your email for verification.');
         setIsLogin(true);
       }
@@ -173,6 +192,52 @@ const Auth = () => {
                     value={formData.mobile}
                     onChange={(val) => setFormData(prev => ({ ...prev, mobile: val }))}
                   />
+                </div>
+
+                <div className="space-y-2 col-span-1 md:col-span-2">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300 ml-1">
+                    Ledger User Type
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, accountType: 'regular' }))}
+                      className={`p-3.5 rounded-2xl border text-left transition-all ${
+                        formData.accountType === 'regular'
+                          ? 'border-blue-600 bg-blue-50/80 dark:bg-blue-900/30 text-blue-950 dark:text-blue-100 ring-2 ring-blue-600/20 shadow-sm'
+                          : 'border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm">Regular User</span>
+                        {formData.accountType === 'regular' && (
+                          <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                        Trader, Merchant, Qty × Rate single-party direct ledger & final settlement.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, accountType: 'ca' }))}
+                      className={`p-3.5 rounded-2xl border text-left transition-all ${
+                        formData.accountType === 'ca'
+                          ? 'border-blue-600 bg-blue-50/80 dark:bg-blue-900/30 text-blue-950 dark:text-blue-100 ring-2 ring-blue-600/20 shadow-sm'
+                          : 'border-slate-200 dark:border-slate-750 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm">CA / Commission Agent</span>
+                        {formData.accountType === 'ca' && (
+                          <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                        Broker / Dalal double-entry ledger with linked parties & Monday Final.
+                      </p>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

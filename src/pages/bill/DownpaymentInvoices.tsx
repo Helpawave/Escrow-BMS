@@ -10,8 +10,9 @@ import {
 import {
   FileText, Plus, Search, Download, Trash2, Printer,
   Eye, Loader2, Phone, Pencil, Send, CreditCard, MoreHorizontal,
-  Smartphone, Car, CheckCircle2, Coins, Landmark, Mail, Check
+  Smartphone, Car, CheckCircle2, Coins, Landmark, History, Clock, ArrowRight, Wallet, Mail
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,7 +34,9 @@ import { StaffHeaderBadge } from "@/components/StaffHeaderBadge";
 import { DataTablePagination } from "@/components/DataTablePagination";
 import { extractVehicleDetails, extractPaymentDetails } from "@/components/AutoInvoiceTemplate";
 import { useInvoices } from "@/hooks/useInvoices";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useUserType } from "@/hooks/useUserType";
+import { useQueryClient } from "@tanstack/react-query";
+import { ToastAction } from "@/components/ui/toast";
 import { Invoice } from "@/types/invoice";
 import {
   fetchFullInvoiceData,
@@ -41,22 +44,33 @@ import {
   formatInvoiceData,
   formatClientData
 } from "@/utils/invoice-service";
+import {
+  formatDownpaymentWhatsAppMessage,
+  formatDownpaymentEmail,
+  normalizeWhatsAppNumber,
+  openWhatsAppChat,
+  shortenUrl,
+  createShortReceiptLink
+} from "@/utils/whatsappTemplates";
 
-const getPaymentMethodLabel = (method: string | null | undefined): string => {
-  switch (method) {
-    case 'cash': return 'Cash';
-    case 'upi': return 'UPI / Online';
-    case 'bank_transfer': return 'Bank Transfer';
-    case 'cheque': return 'Cheque';
-    case 'card': return 'Debit / Credit Card';
-    default: return method ? method.toUpperCase() : 'Cash';
-  }
-};
+import { DownpaymentFilters } from './downpayment-invoices/components/DownpaymentFilters';
+import { DownpaymentCardItem } from './downpayment-invoices/components/DownpaymentCardItem';
+import { DownpaymentSettlementDialog } from './downpayment-invoices/modals/DownpaymentSettlementDialog';
+import { DownpaymentHistoryDialog } from './downpayment-invoices/modals/DownpaymentHistoryDialog';
+import { getPaymentMethodLabel } from './downpayment-invoices/utils/downpaymentUtils';
 
 export default function DownpaymentInvoices() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user, effectiveUserId, companyProfile, profile, ownerName, isStaff, staffName } = useAuth();
+  const { isAutomobile, userTypeLoading } = useUserType();
+
+  useEffect(() => {
+    if (!userTypeLoading && !isAutomobile) {
+      navigate('/invoices', { replace: true });
+    }
+  }, [isAutomobile, userTypeLoading, navigate]);
+
   const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
   const { currencySymbol, formatAmount } = useCurrency();
@@ -87,126 +101,19 @@ export default function DownpaymentInvoices() {
   const [loanAccountNo, setLoanAccountNo] = useState<string>('');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
   const [downloadingPDFId, setDownloadingPDFId] = useState<string | null>(null);
-  const [sharedInvoices, setSharedInvoices] = useState<Record<string, { whatsapp?: boolean; email?: boolean; sms?: boolean }>>(() => {
-    try {
-      const saved = localStorage.getItem('invoice_shared_status');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [uploadingWhatsApp, setUploadingWhatsApp] = useState<string | null>(null);
+  const [whatsappProvider, setWhatsappProvider] = useState<string | null>(null);
 
-  const markInvoiceShared = useCallback(async (invoiceId: string, channel: 'whatsapp' | 'sms' | 'email', invoiceNumber?: string) => {
-    setSharedInvoices(prev => {
-      const updated = {
-        ...prev,
-        [invoiceId]: {
-          ...(prev[invoiceId] || {}),
-          [channel]: true
-        }
-      };
-      try {
-        localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-
-    if (targetUserId) {
-      try {
-        const clientToUse = serviceSupabase || supabase;
-        const senderLabel = staffName ? `Staff (${staffName})` : (isStaff ? 'Staff' : 'Owner');
-        await (clientToUse as any).from('notifications').insert({
-          user_id: targetUserId,
-          title: `Downpayment Receipt Sent via ${channel === 'whatsapp' ? 'WhatsApp' : channel.toUpperCase()}`,
-          message: `Downpayment receipt #${invoiceNumber || 'DP'} shared on ${channel === 'whatsapp' ? 'WhatsApp' : channel} by ${senderLabel}`,
-          type: `${channel}_shared`,
-          action_url: invoiceId,
-          read: true
-        });
-      } catch (err) {
-        console.warn(`Could not sync ${channel} share status to database:`, err);
-      }
-    }
-  }, [targetUserId, staffName, isStaff]);
-
-  // Sync shared status across devices and staff in real-time
-  useEffect(() => {
-    if (!targetUserId) return;
-    let isMounted = true;
-    const clientToUse = serviceSupabase || supabase;
-
-    const fetchSharedHistory = async () => {
-      try {
-        const { data, error } = await (clientToUse as any)
-          .from('notifications')
-          .select('action_url, type')
-          .eq('user_id', targetUserId)
-          .in('type', ['whatsapp_shared', 'email_shared', 'sms_shared']);
-
-        if (!error && data && isMounted) {
-          const rows = data as Array<{ action_url?: string; type?: string }>;
-          setSharedInvoices(prev => {
-            const merged = { ...prev };
-            for (const item of rows) {
-              if (item.action_url) {
-                const invId = item.action_url;
-                if (!merged[invId]) merged[invId] = {};
-                if (item.type === 'whatsapp_shared') merged[invId].whatsapp = true;
-                if (item.type === 'email_shared') merged[invId].email = true;
-                if (item.type === 'sms_shared') merged[invId].sms = true;
-              }
-            }
-            try {
-              localStorage.setItem('invoice_shared_status', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-      } catch (err) {
-        console.warn('Could not fetch downpayment invoice shared history:', err);
-      }
-    };
-
-    fetchSharedHistory();
-
-    const channel = supabase
-      .channel(`downpayment-shares-${targetUserId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${targetUserId}`
-        },
-        (payload) => {
-          const row = payload.new as { action_url?: string; type?: string };
-          if (row?.action_url && (row.type === 'whatsapp_shared' || row.type === 'email_shared' || row.type === 'sms_shared')) {
-            setSharedInvoices(prev => {
-              const updated = {
-                ...prev,
-                [row.action_url!]: {
-                   ...(prev[row.action_url!] || {}),
-                   ...(row.type === 'whatsapp_shared' ? { whatsapp: true } : {}),
-                   ...(row.type === 'email_shared' ? { email: true } : {}),
-                   ...(row.type === 'sms_shared' ? { sms: true } : {})
-                }
-              };
-              try {
-                localStorage.setItem('invoice_shared_status', JSON.stringify(updated));
-              } catch {}
-              return updated;
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      isMounted = false;
-      supabase.removeChannel(channel);
-    };
-  }, [targetUserId]);
+  // Advanced Ledger & Settlement states
+  const [alreadyPaidAmount, setAlreadyPaidAmount] = useState<number>(0);
+  const [remainingBalanceAmount, setRemainingBalanceAmount] = useState<number>(0);
+  const [balanceSettleType, setBalanceSettleType] = useState<'balance_full' | 'balance_partial' | 'finance_disburse'>('balance_full');
+  const [installmentAmount, setInstallmentAmount] = useState<string>('');
+  const [historyDialogOpen, setHistoryDialogOpen] = useState<boolean>(false);
+  const [historyInvoice, setHistoryInvoice] = useState<Invoice | null>(null);
+  const [historyPayments, setHistoryPayments] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -219,6 +126,30 @@ export default function DownpaymentInvoices() {
     setCurrentPage(1);
   }, [debouncedSearch, statusFilter]);
 
+  useEffect(() => {
+    const targetUid = effectiveUserId || user?.id;
+    if (!targetUid) return;
+    const fetchWhatsAppProvider = async () => {
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const { data: settingsData } = await (clientToUse as any)
+          .from('user_settings')
+          .select('whatsapp_provider')
+          .eq('user_id', targetUid)
+          .maybeSingle();
+
+        if (settingsData?.whatsapp_provider) {
+          setWhatsappProvider(settingsData.whatsapp_provider);
+        } else {
+          setWhatsappProvider('personal');
+        }
+      } catch {
+        setWhatsappProvider('personal');
+      }
+    };
+    fetchWhatsAppProvider();
+  }, [effectiveUserId, user?.id]);
+
   const { data, isLoading: queryLoading, isPending, isFetching: searchLoading } = useInvoices({
     page: currentPage,
     pageSize,
@@ -227,42 +158,11 @@ export default function DownpaymentInvoices() {
     typeFilter: 'downpayment'
   });
 
-  // Query all downpayment invoices for the user to compute high-level KPI stat cards
-  const { data: allDownpaymentStats } = useQuery({
-    queryKey: ['downpayment-kpis', targetUserId],
-    queryFn: async () => {
-      if (!targetUserId) return null;
-      const client = (serviceSupabase || supabase) as any;
-      const { data, error } = await client
-        .from('invoices')
-        .select('id, status, total_amount, notes, due_date, invoice_number')
-        .eq('user_id', targetUserId)
-        .or('invoice_number.ilike.DP-%,invoice_number.ilike.DP%,notes.ilike.%is_downpayment%,notes.ilike.%downpayment%,notes.ilike.%down payment%,notes.ilike.%Vehicle:%,notes.ilike.%vehicle%,notes.ilike.%booking%');
-
-      if (error) {
-        console.warn('Error fetching downpayment stats:', error);
-        return null;
-      }
-      return data || [];
-    },
-    enabled: !!targetUserId
-  });
-
   const isDownpaymentInvoice = useCallback((inv: Invoice) => {
-    return (
-      Boolean(inv.notes?.includes('is_downpayment')) ||
-      Boolean(inv.invoice_number?.startsWith('DP-')) ||
-      Boolean(inv.invoice_number?.startsWith('DP')) ||
-      Boolean(inv.notes?.toLowerCase().includes('downpayment')) ||
-      Boolean(inv.notes?.toLowerCase().includes('down payment')) ||
-      Boolean(inv.notes?.toLowerCase().includes('vehicle booking')) ||
-      Boolean(inv.notes?.toLowerCase().includes('booking advance')) ||
-      Boolean(inv.notes?.toLowerCase().includes('token payment')) ||
-      Boolean(inv.notes?.includes('Vehicle:')) ||
-      Boolean(inv.terms?.toLowerCase().includes('downpayment')) ||
-      Boolean(inv.terms?.toLowerCase().includes('down payment')) ||
-      Boolean(inv.payment_terms?.toLowerCase().includes('downpayment')) ||
-      Boolean(inv.payment_terms?.toLowerCase().includes('down payment'))
+    return Boolean(
+      inv.invoice_number?.startsWith('DP-') ||
+      inv.invoice_number?.startsWith('DP') ||
+      inv.notes?.includes('"is_downpayment":true')
     );
   }, []);
 
@@ -274,50 +174,6 @@ export default function DownpaymentInvoices() {
   const totalCount = data?.totalCount || 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const loading = queryLoading || isPending || (searchLoading && invoices.length === 0);
-
-  // High-Level KPI Aggregates
-  const kpiStats = useMemo(() => {
-    const list = (allDownpaymentStats && allDownpaymentStats.length > 0) ? allDownpaymentStats : invoices;
-    let totalBookings = list.length;
-    let totalBookingValue = 0;
-    let totalCollected = 0;
-    let totalPending = 0;
-    let fullySettled = 0;
-
-    list.forEach((inv: any) => {
-      const total = Number(inv.total_amount || 0);
-      totalBookingValue += total;
-
-      const payment = extractPaymentDetails(inv);
-      if (inv.status === 'paid') {
-        totalCollected += total;
-        fullySettled += 1;
-      } else if (payment?.type === 'partial') {
-        const received = Number(payment.amountReceived || 0);
-        totalCollected += received;
-        totalPending += Math.max(0, total - received);
-      } else if (payment?.type === 'finance') {
-        const dp = Number(payment.finance?.downpayment || 0);
-        if (payment.finance?.disbursed) {
-          totalCollected += total;
-          fullySettled += 1;
-        } else {
-          totalCollected += dp;
-          totalPending += Math.max(0, total - dp);
-        }
-      } else {
-        totalPending += total;
-      }
-    });
-
-    return {
-      totalBookings: totalCount > totalBookings ? totalCount : totalBookings,
-      totalBookingValue,
-      totalCollected,
-      totalPending,
-      fullySettled
-    };
-  }, [allDownpaymentStats, invoices, totalCount]);
 
   const getCreatorTag = (terms?: string | null) => {
     if (terms && terms.startsWith('Created by:')) {
@@ -348,7 +204,7 @@ export default function DownpaymentInvoices() {
 
       const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
       const clientDataForUtils = formatClientData(clientData);
-      const companyDataForUtils = formatCompanyData(userProf, user?.email || "");
+      const companyDataForUtils = formatCompanyData(userProf || companyProfile || profile, user?.email || "");
 
       const formattedItems = (items as any[]).map((item: any) => ({
         description: item.description,
@@ -363,13 +219,35 @@ export default function DownpaymentInvoices() {
         product: item.product || item.products
       }));
 
-      const selectedTemplate = (settings as any)?.downpayment_template || (typeof window !== 'undefined' ? localStorage.getItem('downpayment_template') : '') || 'auto_dealership';
+      let chosenTemplate = 'auto_classic';
+      try {
+        const targetUid = targetUserId || user?.id;
+        const { data: tplSetting } = await (supabase as any)
+          .from('system_settings')
+          .select('value')
+          .eq('key', `downpayment_template_${targetUid}`)
+          .maybeSingle();
+        if (tplSetting?.value) {
+          let val = tplSetting.value;
+          if (typeof val === 'string') {
+            try { val = JSON.parse(val); } catch {}
+          }
+          if (val && String(val).startsWith('auto_')) chosenTemplate = val;
+        } else {
+          const rawTpl = localStorage.getItem('downpayment_template') || (settings as any)?.downpayment_template;
+          if (rawTpl && String(rawTpl).startsWith('auto_')) chosenTemplate = rawTpl;
+        }
+      } catch {
+        const rawTpl = localStorage.getItem('downpayment_template') || (settings as any)?.downpayment_template;
+        if (rawTpl && String(rawTpl).startsWith('auto_')) chosenTemplate = rawTpl;
+      }
+
       const blob = await generateInvoicePDFBlob(
         invoiceData,
         clientDataForUtils,
         formattedItems,
         companyDataForUtils,
-        selectedTemplate as any,
+        chosenTemplate as any,
         currencySymbol
       );
 
@@ -410,7 +288,7 @@ export default function DownpaymentInvoices() {
 
       const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
       const clientDataForUtils = formatClientData(clientData);
-      const companyDataForUtils = formatCompanyData(userProf, user?.email || "");
+      const companyDataForUtils = formatCompanyData(userProf || companyProfile || profile, user?.email || "");
 
       const formattedItems = (items as any[]).map((item: any) => ({
         description: item.description,
@@ -425,13 +303,35 @@ export default function DownpaymentInvoices() {
         product: item.product || item.products
       }));
 
-      const selectedTemplate = (settings as any)?.downpayment_template || (typeof window !== 'undefined' ? localStorage.getItem('downpayment_template') : '') || 'auto_dealership';
+      let chosenTemplate = 'auto_classic';
+      try {
+        const targetUid = targetUserId || user?.id;
+        const { data: tplSetting } = await (supabase as any)
+          .from('system_settings')
+          .select('value')
+          .eq('key', `downpayment_template_${targetUid}`)
+          .maybeSingle();
+        if (tplSetting?.value) {
+          let val = tplSetting.value;
+          if (typeof val === 'string') {
+            try { val = JSON.parse(val); } catch {}
+          }
+          if (val && String(val).startsWith('auto_')) chosenTemplate = val;
+        } else {
+          const rawTpl = localStorage.getItem('downpayment_template') || (settings as any)?.downpayment_template;
+          if (rawTpl && String(rawTpl).startsWith('auto_')) chosenTemplate = rawTpl;
+        }
+      } catch {
+        const rawTpl = localStorage.getItem('downpayment_template') || (settings as any)?.downpayment_template;
+        if (rawTpl && String(rawTpl).startsWith('auto_')) chosenTemplate = rawTpl;
+      }
+
       const html = await generateInvoiceHTML(
         invoiceData,
         clientDataForUtils,
         formattedItems,
         companyDataForUtils,
-        selectedTemplate as any,
+        chosenTemplate as any,
         currencySymbol
       );
 
@@ -454,123 +354,284 @@ export default function DownpaymentInvoices() {
     }
   };
 
-  const handleShareWhatsApp = async (invoice: Invoice) => {
-    const rawPhone = invoice.clients?.phone || '';
-    const digitsOnly = rawPhone.replace(/\D/g, '');
-    let phoneWithCC = digitsOnly;
-    if (rawPhone.trim().startsWith('+')) {
-      phoneWithCC = digitsOnly;
-    } else if (digitsOnly.length === 10) {
-      phoneWithCC = `91${digitsOnly}`;
-    }
+  const ensureDownpaymentPdfUrl = async (invoice: Invoice): Promise<string> => {
+    const targetUid = effectiveUserId || user?.id;
+    const cleanFileName = `downpayment-${invoice.invoice_number}.pdf`.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const supabaseFileName = `${targetUid}/invoices/${invoice.id}/${cleanFileName}`;
+    const storageClient = serviceSupabase || supabase;
 
-    const vehicle = extractVehicleDetails(invoice);
-    const vehicleText = vehicle.model ? `\n🚗 Vehicle: ${vehicle.model}` : '';
-    const chassisText = vehicle.chassisNo ? `\n🔢 Chassis/VIN: ${vehicle.chassisNo}` : '';
-    const companyName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Dealership';
-
-    const message = [
-      `Hello ${invoice.clients?.name || 'Customer'},`,
-      ``,
-      `Here is your vehicle booking downpayment receipt from *${companyName}*:`,
-      ``,
-      `📄 Receipt No: #${invoice.invoice_number}`,
-      `💰 Amount: ${currencySymbol}${Number(invoice.total_amount || 0).toLocaleString('en-IN')}`,
-      `📌 Status: ${invoice.status.toUpperCase()}`,
-      `${vehicleText}${chassisText}`,
-      ``,
-      `Thank you for booking with us!`,
-      `_Powered by ESCROW BILL_`
-    ].filter(Boolean).join('\n');
-
-    // Check user settings for whatsapp_provider
-    let provider = 'meta';
+    // Generate fresh downpayment receipt PDF blob and upload with safety timeout
     try {
-      const clientToUse = (serviceSupabase || supabase) as any;
-      const ownerId = (invoice as any)?.user_id || targetUserId;
-      const { data: settings } = await clientToUse
-        .from('user_settings')
-        .select('whatsapp_provider')
-        .eq('user_id', ownerId)
-        .maybeSingle();
-      if (settings?.whatsapp_provider) {
-        provider = settings.whatsapp_provider;
-      }
-    } catch (e) {
-      // fallback
+      const pdfTask = async () => {
+        const {
+          invoice: freshInvoiceData,
+          items,
+          client: clientData,
+          settings,
+          profile: userProf
+        } = await fetchFullInvoiceData(invoice.id, targetUid || "");
+
+        const invoiceData = formatInvoiceData(freshInvoiceData, (settings as any)?.default_terms, (settings as any)?.default_payment_terms);
+        const clientDataForUtils = formatClientData(clientData);
+        const companyDataForUtils = formatCompanyData(userProf || companyProfile || profile, user?.email || "");
+
+        const formattedItems = (items as any[]).map((item: any) => ({
+          description: item.description,
+          product_name: item.product_name || item.products?.name || item.product?.name || item.name || '',
+          name: item.name || item.product_name || item.products?.name || item.product?.name || '',
+          quantity: item.quantity,
+          rate: item.rate,
+          tax_rate: item.tax_rate,
+          discount: item.discount || 0,
+          amount: item.amount,
+          hsn_code: item.hsn_code || item.products?.hsn_code || item.product?.hsn_code || '',
+          product: item.product || item.products
+        }));
+
+        let chosenTemplate = 'auto_classic';
+        try {
+          const { data: tplSetting } = await (supabase as any)
+            .from('system_settings')
+            .select('value')
+            .eq('key', `downpayment_template_${targetUid}`)
+            .maybeSingle();
+          if (tplSetting?.value) {
+            let val = tplSetting.value;
+            if (typeof val === 'string') {
+              try { val = JSON.parse(val); } catch {}
+            }
+            if (val && String(val).startsWith('auto_')) chosenTemplate = val;
+          } else {
+            const rawTpl = localStorage.getItem('downpayment_template') || (settings as any)?.downpayment_template;
+            if (rawTpl && String(rawTpl).startsWith('auto_')) chosenTemplate = rawTpl;
+          }
+        } catch {
+          const rawTpl = localStorage.getItem('downpayment_template') || (settings as any)?.downpayment_template;
+          if (rawTpl && String(rawTpl).startsWith('auto_')) chosenTemplate = rawTpl;
+        }
+
+        const blob = await generateInvoicePDFBlob(
+          invoiceData,
+          clientDataForUtils,
+          formattedItems,
+          companyDataForUtils,
+          chosenTemplate as any,
+          currencySymbol
+        );
+
+        const { error: uploadError } = await storageClient.storage
+          .from('company-assets')
+          .upload(supabaseFileName, blob, { upsert: true, contentType: 'application/pdf' });
+
+        if (!uploadError) {
+          const { data } = storageClient.storage
+            .from('company-assets')
+            .getPublicUrl(supabaseFileName);
+          if (data?.publicUrl) return `${data.publicUrl}?t=${Date.now()}`;
+        } else {
+          console.warn('PDF upload error during downpayment share:', uploadError);
+        }
+        return '';
+      };
+
+      const pdfTimeout = new Promise<string>((resolve) =>
+        setTimeout(() => {
+          console.warn('Downpayment PDF generation timed out (5.5s), falling back to online receipt link');
+          resolve('');
+        }, 5500)
+      );
+
+      const generatedUrl = await Promise.race([pdfTask(), pdfTimeout]);
+      if (generatedUrl) return generatedUrl;
+    } catch (err) {
+      console.warn('PDF generation/upload error during downpayment share:', err);
     }
 
-    // 1. Personal WhatsApp Mode: Direct Open
-    if (provider === 'personal') {
-      const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(message)}`;
-      window.open(waUrl, '_blank');
-      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
-      if (invoice.status === 'draft') {
-        try {
-          const clientToUse = serviceSupabase || supabase;
-          await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
-          queryClient.invalidateQueries({ queryKey: ['invoices'] });
-          queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
-        } catch {}
-      }
+    // Fallback publicUrl with cache buster
+    try {
+      const { data } = storageClient.storage
+        .from('company-assets')
+        .getPublicUrl(supabaseFileName);
+      if (data?.publicUrl) return `${data.publicUrl}?t=${Date.now()}`;
+    } catch {}
+
+    return '';
+  };
+
+  const handleShareWhatsApp = async (invoice: Invoice) => {
+    if (uploadingWhatsApp === invoice.id) return;
+
+    const rawPhone = invoice.clients?.phone || '';
+    const phoneWithCC = normalizeWhatsAppNumber(rawPhone);
+    if (!phoneWithCC) {
+      toast({
+        variant: "destructive",
+        title: "Phone Number Missing",
+        description: "Customer does not have a valid mobile number for WhatsApp."
+      });
       return;
     }
 
-    // 2. WhatsApp Cloud API / Edge Function Mode
+    const isMeta = whatsappProvider === 'meta';
+
+    setUploadingWhatsApp(invoice.id);
+    toast({
+      title: isMeta ? "Sending via WhatsApp API ⚡" : "Preparing WhatsApp...",
+      description: isMeta ? `Connecting to ESCROW WhatsApp Gateway for downpayment #${invoice.invoice_number}...` : `Preparing downpayment receipt #${invoice.invoice_number}...`
+    });
+
     try {
-      toast({
-        title: "Sending via WhatsApp API...",
-        description: `Delivering downpayment receipt #${invoice.invoice_number} to ${phoneWithCC || 'customer'}...`
-      });
-
-      const { error: cloudApiError } = await (serviceSupabase || supabase).functions.invoke('send-invoice-whatsapp', {
-        body: {
-          invoiceId: invoice.id,
-          recipientPhone: phoneWithCC,
-          message,
-          companyName,
-          clientName: invoice.clients?.name || 'Customer'
+      // 1. Resolve user settings for whatsapp_provider (default to personal)
+      let provider = whatsappProvider || 'personal';
+      try {
+        const clientToUse = serviceSupabase || supabase;
+        const targetUid = effectiveUserId || user?.id;
+        const { data: settingsData } = await (clientToUse as any)
+          .from('user_settings')
+          .select('whatsapp_provider')
+          .eq('user_id', targetUid)
+          .maybeSingle();
+        if (settingsData?.whatsapp_provider) {
+          provider = settingsData.whatsapp_provider;
         }
-      });
-
-      if (cloudApiError) throw cloudApiError;
-
-      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
-
-      if (invoice.status === 'draft') {
-        try {
-          const clientToUse = serviceSupabase || supabase;
-          await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
-          queryClient.invalidateQueries({ queryKey: ['invoices'] });
-          queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
-        } catch {}
+      } catch (e) {
+        console.warn('Could not fetch whatsapp_provider setting, using personal fallback:', e);
       }
 
-      toast({
-        title: "WhatsApp Message Sent ✅",
-        description: `Downpayment receipt #${invoice.invoice_number} delivered successfully via WhatsApp API.`
-      });
-    } catch (apiErr) {
-      console.warn('WhatsApp API send failed, opening personal WhatsApp fallback:', apiErr);
-      toast({
-        title: "WhatsApp Cloud API Notice",
-        description: "API delivery could not be completed. Opening WhatsApp directly...",
-      });
-      const waUrl = `https://api.whatsapp.com/send?phone=${phoneWithCC}&text=${encodeURIComponent(message)}`;
-      window.open(waUrl, '_blank');
-      await markInvoiceShared(invoice.id, 'whatsapp', invoice.invoice_number);
-      if (invoice.status === 'draft') {
-        try {
-          const clientToUse = serviceSupabase || supabase;
-          await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
-          queryClient.invalidateQueries({ queryKey: ['invoices'] });
-          queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
-        } catch {}
+      const cleanCode = (invoice.invoice_number || '').trim().replace(/^#+/, '');
+      let baseUrl = 'https://bill.escrowbms.in';
+      if (typeof window !== 'undefined' && window.location?.origin) {
+        const origin = window.location.origin;
+        if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+          baseUrl = origin.replace('www.bill.escrowbms.in', 'bill.escrowbms.in');
+        }
       }
+      const publicReceiptUrl = invoice.id ? `${baseUrl}/v/${invoice.id}` : `${baseUrl}/v/${encodeURIComponent(cleanCode)}`;
+
+      const compName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Business';
+      const clientName = invoice.clients?.name || 'Customer';
+      const vehicle = extractVehicleDetails({ notes: invoice.notes });
+
+      // 2. Personal WhatsApp Mode: Open instantly without waiting for slow client-side PDF rendering!
+      if (provider === 'personal') {
+        const message = formatDownpaymentWhatsAppMessage({
+          invoiceNumber: invoice.invoice_number,
+          clientName: clientName,
+          companyName: compName,
+          totalAmount: Number(invoice.total_amount || 0),
+          currencySymbol,
+          issueDate: safelyToLocaleDate(invoice.issue_date),
+          status: invoice.status,
+          pdfUrl: publicReceiptUrl,
+          vehicleModel: vehicle.model,
+          vehicleRegNo: vehicle.vehicleNo || vehicle.regNo,
+          vehicleChassis: vehicle.chassisNo,
+          financer: vehicle.financer,
+          companyPhone: companyProfile?.phone || profile?.phone,
+          companyEmail: companyProfile?.email || profile?.email || user?.email
+        });
+
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(message).catch(() => {});
+        }
+
+        const waUrl = openWhatsAppChat(phoneWithCC, message);
+
+        toast({
+          title: "WhatsApp Opened! 📱",
+          description: `Personal WhatsApp opened for downpayment receipt #${invoice.invoice_number}.`,
+          action: (
+            <ToastAction altText="Open WhatsApp" onClick={() => window.open(waUrl, '_blank')}>
+              Open Chat
+            </ToastAction>
+          )
+        });
+
+        return;
+      }
+
+      // 3. Meta Cloud API mode: Rapid Instant Dispatch
+      toast({
+        title: "Sending via WhatsApp API ⚡",
+        description: `Delivering downpayment receipt #${invoice.invoice_number} to ${clientName}...`,
+        duration: 3500
+      });
+
+      const message = formatDownpaymentWhatsAppMessage({
+        invoiceNumber: invoice.invoice_number,
+        clientName: clientName,
+        companyName: compName,
+        totalAmount: Number(invoice.total_amount || 0),
+        currencySymbol,
+        issueDate: safelyToLocaleDate(invoice.issue_date),
+        status: invoice.status,
+        pdfUrl: publicReceiptUrl,
+        vehicleModel: vehicle.model,
+        vehicleRegNo: vehicle.vehicleNo || vehicle.regNo,
+        vehicleChassis: vehicle.chassisNo,
+        financer: vehicle.financer,
+        companyPhone: companyProfile?.phone || profile?.phone,
+        companyEmail: companyProfile?.email || profile?.email || user?.email
+      });
+
+      // Auto-copy text with real emojis to clipboard as instant backup safely
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(message).catch(() => {});
+      }
+
+      // 4. Meta Cloud API mode with 15s Timeout Protection
+      try {
+        const clientForFunction = serviceSupabase || supabase;
+        const invokePromise = clientForFunction.functions.invoke('send-invoice-whatsapp', {
+          body: {
+            invoiceId: invoice.id,
+            recipientPhone: phoneWithCC,
+            message,
+            mediaUrl: publicReceiptUrl,
+            companyName: compName,
+            clientName: clientName,
+            invoiceType: 'downpayment'
+          }
+        });
+
+        const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+          setTimeout(() => reject(new Error('WhatsApp gateway response timed out (15s)')), 15000)
+        );
+
+        const { data: cloudApiData, error: cloudApiError } = await Promise.race([invokePromise, timeoutPromise]);
+
+        if (cloudApiError) throw cloudApiError;
+        if (cloudApiData && cloudApiData.error) {
+          throw new Error(cloudApiData.error);
+        }
+
+        toast({
+          title: "WhatsApp Message Sent ✅",
+          description: `Downpayment receipt #${invoice.invoice_number} sent via Meta WhatsApp Gateway.`
+        });
+      } catch (apiErr: any) {
+        console.error('Meta WhatsApp API failed:', apiErr);
+        const errMsg = apiErr?.message || (typeof apiErr === 'string' ? apiErr : 'Meta WhatsApp delivery failed. Please check WhatsApp settings.');
+        toast({
+          variant: "destructive",
+          title: "Meta WhatsApp Failed ❌",
+          description: errMsg,
+          duration: 7000
+        });
+      }
+    } catch (err: any) {
+      console.error('Error sharing downpayment on WhatsApp:', err);
+      toast({
+        variant: "destructive",
+        title: "Sharing Failed",
+        description: "Failed to send downpayment receipt. Please try again."
+      });
+    } finally {
+      setUploadingWhatsApp(null);
     }
   };
 
-  const handleShareSMS = async (invoice: Invoice) => {
+  const handleShareSMS = (invoice: Invoice) => {
     const phone = invoice.clients?.phone?.replace(/\D/g, '') || '';
     const vehicle = extractVehicleDetails({ notes: invoice.notes });
     const vehicleText = vehicle.model ? ` for ${vehicle.model}` : '';
@@ -578,77 +639,215 @@ export default function DownpaymentInvoices() {
       `Vehicle Booking Downpayment #${invoice.invoice_number}${vehicleText}. Amount: ${currencySymbol}${invoice.total_amount}. Thank you!`
     );
     window.open(`sms:${phone}?body=${text}`, '_blank');
-    await markInvoiceShared(invoice.id, 'sms', invoice.invoice_number);
-
-    if (invoice.status === 'draft') {
-      try {
-        const clientToUse = serviceSupabase || supabase;
-        await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
-        queryClient.invalidateQueries({ queryKey: ['invoices'] });
-        queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
-      } catch {}
-    }
   };
 
   const handleShareEmail = async (invoice: Invoice) => {
-    const email = invoice.clients?.email || '';
-    const vehicle = extractVehicleDetails(invoice);
-    const companyName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Dealership';
-    const totalFormatted = `${currencySymbol}${Number(invoice.total_amount || 0).toLocaleString('en-IN')}`;
+    if (!invoice.clients?.email) {
+      toast({
+        variant: "destructive",
+        title: "Email Missing",
+        description: "Customer does not have an email address."
+      });
+      return;
+    }
 
-    const subject = encodeURIComponent(`Vehicle Booking Downpayment Receipt #${invoice.invoice_number} - ${companyName}`);
-    const body = encodeURIComponent(
-      `Dear ${invoice.clients?.name || 'Customer'},\n\n` +
-      `Thank you for booking with ${companyName}.\n\n` +
-      `Receipt Details:\n` +
-      `• Receipt No: #${invoice.invoice_number}\n` +
-      `• Total Amount: ${totalFormatted}\n` +
-      `• Status: ${invoice.status.toUpperCase()}\n` +
-      (vehicle.model ? `• Vehicle: ${vehicle.model}\n` : '') +
-      (vehicle.chassisNo ? `• Chassis/VIN: ${vehicle.chassisNo}\n` : '') +
-      (vehicle.engineNo ? `• Engine No: ${vehicle.engineNo}\n` : '') +
-      `\nPlease feel free to contact us if you have any questions.\n\n` +
-      `Warm regards,\n${companyName}`
-    );
+    toast({
+      title: "Preparing Email...",
+      description: "Generating PDF link for downpayment receipt..."
+    });
 
-    window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
-    await markInvoiceShared(invoice.id, 'email', invoice.invoice_number);
+    const directPdfUrl = await ensureDownpaymentPdfUrl(invoice);
+    const cleanPdfUrl = directPdfUrl 
+      ? await createShortReceiptLink(invoice.invoice_number, directPdfUrl, supabase, invoice.id)
+      : directPdfUrl;
 
-    if (invoice.status === 'draft') {
-      try {
-        const clientToUse = serviceSupabase || supabase;
-        await (clientToUse as any).from('invoices').update({ status: 'sent' }).eq('id', invoice.id);
-        queryClient.invalidateQueries({ queryKey: ['invoices'] });
-        queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
-      } catch {}
+    const clientName = invoice.clients?.name || 'Customer';
+    const compName = companyProfile?.company_name || profile?.company_name || ownerName || 'Our Business';
+
+    const { subject, body } = formatDownpaymentEmail({
+      invoiceNumber: invoice.invoice_number,
+      clientName: clientName,
+      companyName: compName,
+      totalAmount: Number(invoice.total_amount || 0),
+      currencySymbol,
+      issueDate: safelyToLocaleDate(invoice.issue_date),
+      status: invoice.status,
+      pdfUrl: cleanPdfUrl || undefined,
+      companyPhone: companyProfile?.phone || profile?.phone,
+      companyEmail: companyProfile?.email || profile?.email || user?.email
+    });
+
+    const mailtoUrl = `mailto:${invoice.clients.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailtoUrl, '_blank');
+  };
+  const handleViewHistory = async (invoice: Invoice) => {
+    setHistoryInvoice(invoice);
+    setIsLoadingHistory(true);
+    setHistoryDialogOpen(true);
+    try {
+      const clientToUse = serviceSupabase || supabase;
+      const { data } = await (clientToUse as any)
+        .from('payments')
+        .select('*')
+        .eq('invoice_id', invoice.id)
+        .order('payment_date', { ascending: true });
+      setHistoryPayments(data || []);
+    } catch (err) {
+      console.error("Error loading payment history:", err);
+      setHistoryPayments([]);
+    } finally {
+      setIsLoadingHistory(false);
     }
   };
 
-  const handleOpenMarkPaid = (invoice: Invoice) => {
+  const handleDeleteHistoryPayment = async (paymentId: string) => {
+    if (!historyInvoice) return;
+    try {
+      setDeletingPaymentId(paymentId);
+      const clientToUse = serviceSupabase || supabase;
+
+      // 1. Delete payment
+      const { error: delErr } = await (clientToUse as any)
+        .from('payments')
+        .delete()
+        .eq('id', paymentId);
+      if (delErr) throw delErr;
+
+      // 2. Fetch remaining payments for this invoice
+      const { data: remainingPayments } = await (clientToUse as any)
+        .from('payments')
+        .select('*')
+        .eq('invoice_id', historyInvoice.id)
+        .order('payment_date', { ascending: true });
+
+      const remainingList = remainingPayments || [];
+      const remainingTotal = remainingList.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+      const totalAmount = Number(historyInvoice.total_amount || 0);
+
+      // 3. Determine new invoice status & metadata
+      let newStatus = historyInvoice.status;
+      if (remainingTotal >= totalAmount && totalAmount > 0) {
+        newStatus = 'paid';
+      } else if (remainingTotal > 0) {
+        newStatus = 'sent';
+      } else {
+        newStatus = 'pending';
+      }
+
+      let existingMeta: any = {};
+      const metaMatch = (historyInvoice.notes || '').match(/\[META:(.*?)\]/);
+      if (metaMatch) {
+        try { existingMeta = JSON.parse(metaMatch[1]); } catch {}
+      }
+
+      if (remainingTotal === 0) {
+        if (existingMeta.payment) delete existingMeta.payment;
+      } else {
+        existingMeta.payment = {
+          ...(existingMeta.payment || {}),
+          type: remainingTotal >= totalAmount ? 'full' : 'partial',
+          total_amount: totalAmount,
+          amount_received: remainingTotal,
+          balance_pending: Math.max(0, totalAmount - remainingTotal),
+        };
+        if (existingMeta.payment.finance && remainingTotal < totalAmount) {
+          existingMeta.payment.finance.disbursed = false;
+        }
+      }
+
+      const cleanBase = (historyInvoice.notes || '').replace(/\[META:.*?\]/g, '').trim();
+      const updatedNotes = Object.keys(existingMeta).length > 0
+        ? `${cleanBase}\n[META:${JSON.stringify(existingMeta)}]`.trim()
+        : cleanBase;
+
+      // 4. Update invoice in database
+      const { error: invErr } = await (clientToUse as any)
+        .from('invoices')
+        .update({
+          status: newStatus,
+          notes: updatedNotes
+        })
+        .eq('id', historyInvoice.id);
+
+      if (invErr) throw invErr;
+
+      // 5. Update local state
+      setHistoryPayments(remainingList);
+      setHistoryInvoice({
+        ...historyInvoice,
+        status: newStatus,
+        notes: updatedNotes
+      });
+
+      toast({
+        title: "Payment Deleted",
+        description: `Payment record removed. Invoice status updated to '${newStatus === 'paid' ? 'Paid' : (remainingTotal > 0 ? 'Partial' : 'Pending')}'.`
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (err: any) {
+      console.error("Error deleting history payment:", err);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err?.message || "Failed to delete payment record."
+      });
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
+
+  const handleOpenMarkPaid = async (invoice: Invoice) => {
     setInvoiceToMarkPaid(invoice);
     const vehicle = extractVehicleDetails({ notes: invoice.notes });
     const existingPayment = extractPaymentDetails(invoice);
     const total = Number(invoice.total_amount || 0);
 
-    if (existingPayment) {
-      setPaymentType(existingPayment.type);
-      setSelectedPaymentMethod(existingPayment.paymentMethod || 'cash');
-      setTransactionRef(existingPayment.reference || '');
-      setPaymentDate(existingPayment.date || new Date().toISOString().split('T')[0]);
-      if (existingPayment.type === 'partial') {
-        setPartialAmount(String(existingPayment.amountReceived || Math.round(total * 0.5)));
-      } else if (existingPayment.type === 'finance' && existingPayment.finance) {
-        setDownpaymentAmount(String(existingPayment.finance.downpayment || Math.round(total * 0.2)));
-        setFinancierName(existingPayment.finance.financer || 'HDFC Bank');
-        setFinancedAmount(String(existingPayment.finance.financedAmount || (total - (existingPayment.finance.downpayment || 0))));
-        setFinanceStatus(existingPayment.finance.disbursed ? 'disbursed' : 'pending');
-        setLoanAccountNo(existingPayment.finance.loanAccount || '');
+    const clientToUse = serviceSupabase || supabase;
+    let paymentsSum = 0;
+    try {
+      const { data: dbPayments } = await (clientToUse as any)
+        .from('payments')
+        .select('*')
+        .eq('invoice_id', invoice.id)
+        .order('payment_date', { ascending: true });
+      if (dbPayments && dbPayments.length > 0) {
+        paymentsSum = dbPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
       }
+    } catch (e) {
+      console.warn("Could not fetch payments:", e);
+    }
+
+    const effectivePaid = paymentsSum > 0 ? paymentsSum : Number(existingPayment?.amountReceived || 0);
+    const effectiveRemaining = Math.max(0, total - effectivePaid);
+
+    setAlreadyPaidAmount(effectivePaid);
+    setRemainingBalanceAmount(effectiveRemaining);
+
+    setSelectedPaymentMethod('cash');
+    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setTransactionRef('');
+
+    const isFinanced = existingPayment?.type === 'finance' || Boolean(existingPayment?.finance);
+    const isDisbursed = Boolean(existingPayment?.finance?.disbursed);
+
+    if (effectivePaid > 0 && effectiveRemaining > 0) {
+      // In Balance Settlement Mode
+      if (isFinanced && !isDisbursed) {
+        setBalanceSettleType('finance_disburse');
+        setSelectedPaymentMethod('bank_transfer');
+        setFinancierName(existingPayment?.finance?.financer || vehicle.financer || 'HDFC Bank');
+        setLoanAccountNo(existingPayment?.finance?.loanAccount || '');
+      } else {
+        setBalanceSettleType('balance_full');
+      }
+      setInstallmentAmount(String(effectiveRemaining));
+      setBalanceDueDate('');
     } else {
+      // Fresh Invoice Mode
       setPaymentType('full');
-      setSelectedPaymentMethod('cash');
-      setPaymentDate(new Date().toISOString().split('T')[0]);
-      setTransactionRef('');
       setPartialAmount(String(Math.round(total * 0.3) || 25000));
       const defaultDp = Math.round(total * 0.2) || 50000;
       setDownpaymentAmount(String(defaultDp));
@@ -688,183 +887,352 @@ export default function DownpaymentInvoices() {
       const paymentRecordsToInsert: any[] = [];
       let summaryToast = '';
 
-      if (paymentType === 'full') {
-        newStatus = 'paid';
-        const metaObj = {
-          ...existingMeta,
-          vehicle: existingVehicle,
-          payment: {
-            type: 'full',
-            total_amount: invoiceToMarkPaid.total_amount,
-            amount_received: invoiceToMarkPaid.total_amount,
-            balance_pending: 0,
-            payment_method: methodToUse,
-            reference: transactionRef,
-            date: todayStr
-          }
-        };
+      const isSettlingExistingBalance = alreadyPaidAmount > 0 && remainingBalanceAmount > 0;
 
-        const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
-        const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+      if (isSettlingExistingBalance) {
+        // =========================================================================
+        // CASE A: INVOICE WAS ALREADY PARTIAL / FINANCED — SETTLING REMAINING BALANCE
+        // =========================================================================
+        if (balanceSettleType === 'balance_full') {
+          // Paying 100% of remaining balance
+          const amountToClear = remainingBalanceAmount;
+          newStatus = 'paid';
 
-        const { error: invoiceError } = await (clientToUse as any)
-          .from('invoices')
-          .update({
-            status: 'paid',
-            notes: updatedNotes
-          })
-          .eq('id', invoiceToMarkPaid.id);
-
-        if (invoiceError) throw invoiceError;
-
-        paymentRecordsToInsert.push({
-          amount: invoiceToMarkPaid.total_amount,
-          payment_date: todayStr,
-          payment_method: methodToUse,
-          invoice_id: invoiceToMarkPaid.id,
-          purchase_invoice_id: null,
-          reference_number: transactionRef || '',
-          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
-          notes: `Full payment for downpayment receipt #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
-        });
-
-        summaryToast = `Downpayment receipt #${invoiceToMarkPaid.invoice_number} marked as Paid in Full (${currencySymbol}${invoiceToMarkPaid.total_amount}).`;
-
-      } else if (paymentType === 'partial') {
-        const amtReceived = Number(partialAmount) || 0;
-        const balPending = Math.max(0, invoiceToMarkPaid.total_amount - amtReceived);
-        newStatus = 'sent';
-
-        const metaObj = {
-          ...existingMeta,
-          vehicle: existingVehicle,
-          payment: {
-            type: 'partial',
-            total_amount: invoiceToMarkPaid.total_amount,
-            amount_received: amtReceived,
-            balance_pending: balPending,
-            payment_method: methodToUse,
-            reference: transactionRef,
-            date: todayStr,
-            balance_due_date: balanceDueDate || null
-          }
-        };
-
-        const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
-        const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
-
-        const { error: invoiceError } = await (clientToUse as any)
-          .from('invoices')
-          .update({
-            status: 'sent',
-            due_date: balanceDueDate || invoiceToMarkPaid.due_date,
-            notes: updatedNotes
-          })
-          .eq('id', invoiceToMarkPaid.id);
-
-        if (invoiceError) throw invoiceError;
-
-        paymentRecordsToInsert.push({
-          amount: amtReceived,
-          payment_date: todayStr,
-          payment_method: methodToUse,
-          invoice_id: invoiceToMarkPaid.id,
-          purchase_invoice_id: null,
-          reference_number: transactionRef || '',
-          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
-          notes: `Partial payment of ${currencySymbol}${amtReceived} received for downpayment #${invoiceToMarkPaid.invoice_number}. Balance due: ${currencySymbol}${balPending}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
-        });
-
-        summaryToast = `Partial payment of ${currencySymbol}${amtReceived} recorded. Status updated to Partial (Balance: ${currencySymbol}${balPending}).`;
-
-      } else if (paymentType === 'finance') {
-        const dpAmt = Number(downpaymentAmount) || 0;
-        const loanAmt = Number(financedAmount) || Math.max(0, invoiceToMarkPaid.total_amount - dpAmt);
-        const isDisbursed = financeStatus === 'disbursed';
-
-        newStatus = isDisbursed ? 'paid' : 'sent';
-
-        const updatedVehicle = {
-          ...existingVehicle,
-          financer: effectiveFinancier
-        };
-
-        const metaObj = {
-          ...existingMeta,
-          vehicle: updatedVehicle,
-          payment: {
-            type: 'finance',
-            total_amount: invoiceToMarkPaid.total_amount,
-            amount_received: isDisbursed ? invoiceToMarkPaid.total_amount : dpAmt,
-            balance_pending: isDisbursed ? 0 : loanAmt,
-            payment_method: methodToUse,
-            date: todayStr,
-            finance: {
-              downpayment: dpAmt,
-              financed_amount: loanAmt,
-              financer: effectiveFinancier,
-              disbursed: isDisbursed,
-              loan_account: loanAccountNo || ''
+          const metaObj = {
+            ...existingMeta,
+            vehicle: existingVehicle,
+            payment: {
+              type: 'full',
+              total_amount: invoiceToMarkPaid.total_amount,
+              amount_received: invoiceToMarkPaid.total_amount,
+              balance_pending: 0,
+              payment_method: methodToUse,
+              reference: transactionRef,
+              date: todayStr
             }
-          }
-        };
+          };
 
-        const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
-        const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+          const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
+          const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
 
-        const { error: invoiceError } = await (clientToUse as any)
-          .from('invoices')
-          .update({
-            status: newStatus,
-            notes: updatedNotes
-          })
-          .eq('id', invoiceToMarkPaid.id);
+          const { error: invoiceError } = await (clientToUse as any)
+            .from('invoices')
+            .update({
+              status: 'paid',
+              notes: updatedNotes
+            })
+            .eq('id', invoiceToMarkPaid.id);
 
-        if (invoiceError) throw invoiceError;
+          if (invoiceError) throw invoiceError;
 
-        paymentRecordsToInsert.push({
-          amount: dpAmt,
-          payment_date: todayStr,
-          payment_method: methodToUse,
-          invoice_id: invoiceToMarkPaid.id,
-          purchase_invoice_id: null,
-          reference_number: transactionRef || '',
-          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
-          notes: `Customer Downpayment/Margin money of ${currencySymbol}${dpAmt} for #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
-        });
+          paymentRecordsToInsert.push({
+            amount: amountToClear,
+            payment_date: todayStr,
+            payment_method: methodToUse,
+            invoice_id: invoiceToMarkPaid.id,
+            user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+            reference_number: transactionRef || null,
+            notes: `Final balance settlement of ${currencySymbol}${amountToClear} for #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
+          });
 
-        if (isDisbursed && loanAmt > 0) {
+          summaryToast = `Remaining balance of ${currencySymbol}${amountToClear} cleared! Receipt #${invoiceToMarkPaid.invoice_number} marked as Paid in Full.`;
+
+        } else if (balanceSettleType === 'finance_disburse') {
+          // Confirming Bank Loan Disbursal
+          const loanAmt = remainingBalanceAmount;
+          newStatus = 'paid';
+
+          const updatedVehicle = {
+            ...existingVehicle,
+            financer: effectiveFinancier
+          };
+
+          const metaObj = {
+            ...existingMeta,
+            vehicle: updatedVehicle,
+            payment: {
+              type: 'finance',
+              total_amount: invoiceToMarkPaid.total_amount,
+              amount_received: invoiceToMarkPaid.total_amount,
+              balance_pending: 0,
+              payment_method: methodToUse,
+              date: todayStr,
+              finance: {
+                ...(existingMeta?.payment?.finance || {}),
+                downpayment: alreadyPaidAmount,
+                financed_amount: loanAmt,
+                financer: effectiveFinancier,
+                disbursed: true,
+                loan_account: loanAccountNo || '',
+                disbursal_date: todayStr
+              }
+            }
+          };
+
+          const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
+          const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+
+          const { error: invoiceError } = await (clientToUse as any)
+            .from('invoices')
+            .update({
+              status: 'paid',
+              notes: updatedNotes
+            })
+            .eq('id', invoiceToMarkPaid.id);
+
+          if (invoiceError) throw invoiceError;
+
           paymentRecordsToInsert.push({
             amount: loanAmt,
             payment_date: todayStr,
-            payment_method: 'bank_transfer',
+            payment_method: methodToUse || 'bank_transfer',
             invoice_id: invoiceToMarkPaid.id,
-            purchase_invoice_id: null,
-            reference_number: loanAccountNo || '',
             user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
-            notes: `Vehicle loan disbursed by ${effectiveFinancier} for #${invoiceToMarkPaid.invoice_number}${loanAccountNo ? ` (Loan A/C: ${loanAccountNo})` : ''}`
+            reference_number: loanAccountNo || transactionRef || null,
+            notes: `Vehicle loan of ${currencySymbol}${loanAmt} disbursed by ${effectiveFinancier} for #${invoiceToMarkPaid.invoice_number}${loanAccountNo ? ` (Loan A/C: ${loanAccountNo})` : ''} • Recorded by: ${creatorName}`
           });
+
+          summaryToast = `Loan of ${currencySymbol}${loanAmt} from ${effectiveFinancier} recorded as Disbursed. Receipt #${invoiceToMarkPaid.invoice_number} is now Paid in Full.`;
+
+        } else if (balanceSettleType === 'balance_partial') {
+          // Paying another installment towards the remaining balance
+          const thisInstallment = Number(installmentAmount) || 0;
+          if (thisInstallment <= 0) {
+            throw new Error("Please enter a valid installment amount greater than 0.");
+          }
+          if (thisInstallment > remainingBalanceAmount) {
+            throw new Error(`Installment amount cannot exceed the remaining balance of ${currencySymbol}${remainingBalanceAmount}.`);
+          }
+
+          const newTotalReceived = alreadyPaidAmount + thisInstallment;
+          const newBalPending = Math.max(0, invoiceToMarkPaid.total_amount - newTotalReceived);
+          newStatus = newBalPending === 0 ? 'paid' : 'sent';
+
+          const metaObj = {
+            ...existingMeta,
+            vehicle: existingVehicle,
+            payment: {
+              type: newBalPending === 0 ? 'full' : 'partial',
+              total_amount: invoiceToMarkPaid.total_amount,
+              amount_received: newTotalReceived,
+              balance_pending: newBalPending,
+              payment_method: methodToUse,
+              reference: transactionRef,
+              date: todayStr,
+              balance_due_date: balanceDueDate || null
+            }
+          };
+
+          const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
+          const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+
+          const { error: invoiceError } = await (clientToUse as any)
+            .from('invoices')
+            .update({
+              status: newStatus,
+              due_date: balanceDueDate || invoiceToMarkPaid.due_date,
+              notes: updatedNotes
+            })
+            .eq('id', invoiceToMarkPaid.id);
+
+          if (invoiceError) throw invoiceError;
+
+          paymentRecordsToInsert.push({
+            amount: thisInstallment,
+            payment_date: todayStr,
+            payment_method: methodToUse,
+            invoice_id: invoiceToMarkPaid.id,
+            user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+            reference_number: transactionRef || null,
+            notes: `Part payment of ${currencySymbol}${thisInstallment} received for #${invoiceToMarkPaid.invoice_number}. Total paid: ${currencySymbol}${newTotalReceived}, Balance due: ${currencySymbol}${newBalPending}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
+          });
+
+          summaryToast = newBalPending === 0
+            ? `Final payment of ${currencySymbol}${thisInstallment} received! Receipt #${invoiceToMarkPaid.invoice_number} marked as Paid in Full.`
+            : `Part payment of ${currencySymbol}${thisInstallment} recorded. Total received: ${currencySymbol}${newTotalReceived} (Remaining: ${currencySymbol}${newBalPending}).`;
         }
 
-        summaryToast = isDisbursed
-          ? `Downpayment + Financed balance received! Status marked as Paid (Financier: ${effectiveFinancier}).`
-          : `Downpayment of ${currencySymbol}${dpAmt} received. Status updated to Partial (Finance pending with ${effectiveFinancier}).`;
+      } else {
+        // =========================================================================
+        // CASE B: FRESH INVOICE (No previous payments recorded yet)
+        // =========================================================================
+        if (paymentType === 'full') {
+          newStatus = 'paid';
+          const metaObj = {
+            ...existingMeta,
+            vehicle: existingVehicle,
+            payment: {
+              type: 'full',
+              total_amount: invoiceToMarkPaid.total_amount,
+              amount_received: invoiceToMarkPaid.total_amount,
+              balance_pending: 0,
+              payment_method: methodToUse,
+              reference: transactionRef,
+              date: todayStr
+            }
+          };
+
+          const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
+          const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+
+          const { error: invoiceError } = await (clientToUse as any)
+            .from('invoices')
+            .update({
+              status: 'paid',
+              notes: updatedNotes
+            })
+            .eq('id', invoiceToMarkPaid.id);
+
+          if (invoiceError) throw invoiceError;
+
+          paymentRecordsToInsert.push({
+            amount: invoiceToMarkPaid.total_amount,
+            payment_date: todayStr,
+            payment_method: methodToUse,
+            invoice_id: invoiceToMarkPaid.id,
+            user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+            reference_number: transactionRef || null,
+            notes: `Full payment for downpayment receipt #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
+          });
+
+          summaryToast = `Downpayment receipt #${invoiceToMarkPaid.invoice_number} marked as Paid in Full (${currencySymbol}${invoiceToMarkPaid.total_amount}).`;
+
+        } else if (paymentType === 'partial') {
+          const amtReceived = Number(partialAmount) || 0;
+          if (amtReceived <= 0) {
+            throw new Error("Please enter a valid partial amount greater than 0.");
+          }
+          const balPending = Math.max(0, invoiceToMarkPaid.total_amount - amtReceived);
+          newStatus = balPending === 0 ? 'paid' : 'sent';
+
+          const metaObj = {
+            ...existingMeta,
+            vehicle: existingVehicle,
+            payment: {
+              type: balPending === 0 ? 'full' : 'partial',
+              total_amount: invoiceToMarkPaid.total_amount,
+              amount_received: amtReceived,
+              balance_pending: balPending,
+              payment_method: methodToUse,
+              reference: transactionRef,
+              date: todayStr,
+              balance_due_date: balanceDueDate || null
+            }
+          };
+
+          const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
+          const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+
+          const { error: invoiceError } = await (clientToUse as any)
+            .from('invoices')
+            .update({
+              status: newStatus,
+              due_date: balanceDueDate || invoiceToMarkPaid.due_date,
+              notes: updatedNotes
+            })
+            .eq('id', invoiceToMarkPaid.id);
+
+          if (invoiceError) throw invoiceError;
+
+          paymentRecordsToInsert.push({
+            amount: amtReceived,
+            payment_date: todayStr,
+            payment_method: methodToUse,
+            invoice_id: invoiceToMarkPaid.id,
+            user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+            reference_number: transactionRef || null,
+            notes: `Partial payment of ${currencySymbol}${amtReceived} received for downpayment #${invoiceToMarkPaid.invoice_number}. Balance due: ${currencySymbol}${balPending}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
+          });
+
+          summaryToast = balPending === 0
+            ? `Receipt #${invoiceToMarkPaid.invoice_number} marked as Paid in Full.`
+            : `Partial payment of ${currencySymbol}${amtReceived} recorded. Status updated to Partial (Balance: ${currencySymbol}${balPending}).`;
+
+        } else if (paymentType === 'finance') {
+          const dpAmt = Number(downpaymentAmount) || 0;
+          const loanAmt = Number(financedAmount) || Math.max(0, invoiceToMarkPaid.total_amount - dpAmt);
+          const isDisbursed = financeStatus === 'disbursed';
+
+          newStatus = isDisbursed ? 'paid' : 'sent';
+
+          const updatedVehicle = {
+            ...existingVehicle,
+            financer: effectiveFinancier
+          };
+
+          const metaObj = {
+            ...existingMeta,
+            vehicle: updatedVehicle,
+            payment: {
+              type: 'finance',
+              total_amount: invoiceToMarkPaid.total_amount,
+              amount_received: isDisbursed ? invoiceToMarkPaid.total_amount : dpAmt,
+              balance_pending: isDisbursed ? 0 : loanAmt,
+              payment_method: methodToUse,
+              date: todayStr,
+              finance: {
+                downpayment: dpAmt,
+                financed_amount: loanAmt,
+                financer: effectiveFinancier,
+                disbursed: isDisbursed,
+                loan_account: loanAccountNo || '',
+                disbursal_date: isDisbursed ? todayStr : undefined
+              }
+            }
+          };
+
+          const cleanBase = existingNotes.replace(/\[META:.*?\]/g, '').trim();
+          const updatedNotes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+
+          const { error: invoiceError } = await (clientToUse as any)
+            .from('invoices')
+            .update({
+              status: newStatus,
+              notes: updatedNotes
+            })
+            .eq('id', invoiceToMarkPaid.id);
+
+          if (invoiceError) throw invoiceError;
+
+          if (dpAmt > 0) {
+            paymentRecordsToInsert.push({
+              amount: dpAmt,
+              payment_date: todayStr,
+              payment_method: methodToUse,
+              invoice_id: invoiceToMarkPaid.id,
+              user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+              reference_number: transactionRef || null,
+              notes: `Customer Downpayment/Margin money of ${currencySymbol}${dpAmt} for #${invoiceToMarkPaid.invoice_number} via ${getPaymentMethodLabel(methodToUse)}${transactionRef ? ` (Ref: ${transactionRef})` : ''} • Recorded by: ${creatorName}`
+            });
+          }
+
+          if (isDisbursed && loanAmt > 0) {
+            paymentRecordsToInsert.push({
+              amount: loanAmt,
+              payment_date: todayStr,
+              payment_method: 'bank_transfer',
+              invoice_id: invoiceToMarkPaid.id,
+              user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
+              reference_number: loanAccountNo || null,
+              notes: `Vehicle loan disbursed by ${effectiveFinancier} for #${invoiceToMarkPaid.invoice_number}${loanAccountNo ? ` (Loan A/C: ${loanAccountNo})` : ''}`
+            });
+          }
+
+          summaryToast = isDisbursed
+            ? `Downpayment + Financed balance received! Status marked as Paid (Financier: ${effectiveFinancier}).`
+            : `Downpayment of ${currencySymbol}${dpAmt} received. Status updated to Partial (Finance pending with ${effectiveFinancier}).`;
+        }
       }
 
       if (paymentRecordsToInsert.length > 0) {
-        await (clientToUse as any).from('payments').insert(paymentRecordsToInsert);
-      }
+        // Clean up previous payments for this invoice to prevent duplicate stacking
+        await (clientToUse as any)
+          .from('payments')
+          .delete()
+          .eq('invoice_id', invoiceToMarkPaid.id);
 
-      try {
-        await (clientToUse as any).from('notifications').insert({
-          user_id: invoiceToMarkPaid.user_id || targetUserId || user?.id,
-          title: newStatus === 'paid' ? 'Downpayment Receipt Paid' : 'Downpayment Payment Recorded',
-          message: summaryToast,
-          type: 'invoice_status_update',
-          action_url: `/dashboard/downpayment-invoices`
-        });
-      } catch (notifyErr) {
-        console.warn('Notification log skipped:', notifyErr);
+        const { error: payError } = await (clientToUse as any).from('payments').insert(paymentRecordsToInsert);
+        if (payError) throw payError;
       }
 
       toast({
@@ -875,7 +1243,6 @@ export default function DownpaymentInvoices() {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['downpayment-kpis'] });
       setMarkPaidDialogOpen(false);
       setInvoiceToMarkPaid(null);
     } catch (err: any) {
@@ -966,7 +1333,7 @@ export default function DownpaymentInvoices() {
         <Button
           variant="default"
           size="lg"
-          onClick={() => navigate('/billing/create-invoice?type=downpayment')}
+          onClick={() => navigate('/create-downpayment')}
           className="w-full sm:w-auto h-11 bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md shadow-amber-600/20"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -974,106 +1341,13 @@ export default function DownpaymentInvoices() {
         </Button>
       </div>
 
-      {/* KPI Stats Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        {/* Card 1: Total Bookings */}
-        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-amber-500/30 transition-all">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Bookings</p>
-              <h3 className="text-xl md:text-2xl font-black text-foreground mt-1">{kpiStats.totalBookings}</h3>
-            </div>
-            <div className="p-2.5 bg-amber-500/10 text-amber-600 rounded-xl shrink-0">
-              <Car className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
-            Value: <span className="font-bold text-foreground">{formatAmount(kpiStats.totalBookingValue)}</span>
-          </p>
-        </Card>
-
-        {/* Card 2: Advance Collected */}
-        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-emerald-500/30 transition-all">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Advance Collected</p>
-              <h3 className="text-xl md:text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                {formatAmount(kpiStats.totalCollected)}
-              </h3>
-            </div>
-            <div className="p-2.5 bg-emerald-500/10 text-emerald-600 rounded-xl shrink-0">
-              <Coins className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
-            Margin money & tokens received
-          </p>
-        </Card>
-
-        {/* Card 3: Pending Balance */}
-        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-blue-500/30 transition-all">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pending Balance</p>
-              <h3 className="text-xl md:text-2xl font-black text-blue-600 dark:text-blue-400 mt-1">
-                {formatAmount(kpiStats.totalPending)}
-              </h3>
-            </div>
-            <div className="p-2.5 bg-blue-500/10 text-blue-600 rounded-xl shrink-0">
-              <CreditCard className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
-            Awaiting disbursal / settlement
-          </p>
-        </Card>
-
-        {/* Card 4: Cleared & Disbursed */}
-        <Card className="p-4 md:p-5 rounded-2xl border-border bg-card shadow-xs hover:border-indigo-500/30 transition-all">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cleared / Disbursed</p>
-              <h3 className="text-xl md:text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                {kpiStats.fullySettled}
-              </h3>
-            </div>
-            <div className="p-2.5 bg-indigo-500/10 text-indigo-600 rounded-xl shrink-0">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-          </div>
-          <p className="text-[11px] md:text-xs text-muted-foreground mt-2 font-medium">
-            100% cleared or disbursed
-          </p>
-        </Card>
-      </div>
-
       {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search by DP number, customer name, vehicle model..."
-            className="pl-10 h-11 bg-background border-border/50 rounded-xl"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <div className="w-full sm:w-48">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-11 bg-background border-border/50 rounded-xl">
-              <SelectValue placeholder="All Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="paid">Paid</SelectItem>
-              <SelectItem value="overdue">Overdue</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      <DownpaymentFilters
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+      />
 
       {/* Invoices List */}
       {loading ? (
@@ -1098,13 +1372,13 @@ export default function DownpaymentInvoices() {
           <h3 className="text-lg md:text-xl font-bold text-foreground mb-2">No Downpayment Invoices Found</h3>
           <p className="text-sm md:text-base text-muted-foreground mb-6 max-w-md mx-auto">
             {totalCount === 0
-              ? "Create vehicle booking advance receipts with chassis, engine, and financer details."
+              ? "Create vehicle booking advance receipts with vehicle number, chassis, and financer details."
               : "No downpayment receipts match your search criteria."}
           </p>
           {totalCount === 0 && (
             <Button
               variant="default"
-              onClick={() => navigate('/billing/create-invoice?type=downpayment')}
+              onClick={() => navigate('/create-downpayment')}
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-11 px-6 shadow-md"
             >
               <Plus className="w-4 h-4 mr-2" />
@@ -1114,313 +1388,26 @@ export default function DownpaymentInvoices() {
         </Card>
       ) : (
         <div className="space-y-3 md:space-y-4">
-          {invoices.map((invoice) => {
-            const vehicle = extractVehicleDetails({ notes: invoice.notes });
-            const paymentDetails = extractPaymentDetails(invoice);
-
-            return (
-              <Card key={invoice.id} className="p-4 md:p-6 rounded-xl border-border bg-card shadow-xs hover:border-amber-500/40 transition-all">
-                {/* Mobile View */}
-                <div className="md:hidden space-y-3">
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-foreground">{invoice.invoice_number}</span>
-                        <Badge variant="outline" className="bg-amber-500/10 text-amber-600 border-amber-500/30 text-[10px] font-bold py-0 px-1.5 flex items-center gap-1">
-                          <Car className="w-3 h-3" /> Advance
-                        </Badge>
-                        <StatusBadge status={invoice.status} dueDate={invoice.due_date} notes={invoice.notes} />
-                      </div>
-                      <p className="text-sm font-semibold text-foreground mt-1">{invoice.clients?.name || 'Walk-in Customer'}</p>
-                      {vehicle.model && (
-                        <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mt-0.5">
-                          🚗 {vehicle.model}
-                        </p>
-                      )}
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {safelyToLocaleDate(invoice.issue_date)} • {getCreatorTag(invoice.payment_terms)}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-base font-extrabold text-foreground">{formatAmount(invoice.total_amount)}</p>
-                      <p className="text-[10px] text-muted-foreground uppercase">{invoice.currency}</p>
-                      {paymentDetails?.type === 'partial' && (
-                        <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mt-0.5">
-                          Paid: {formatAmount(paymentDetails.amountReceived)}
-                        </p>
-                      )}
-                      {paymentDetails?.type === 'finance' && (
-                        <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                          DP: {formatAmount(paymentDetails.finance?.downpayment || 0)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Vehicle Details Pill Box */}
-                  {(vehicle.chassisNo || vehicle.engineNo || vehicle.color || vehicle.financer) && (
-                    <div className="flex flex-wrap gap-1.5 p-2 bg-muted/40 rounded-lg text-[11px] text-muted-foreground">
-                      {vehicle.chassisNo && <span><strong>VIN:</strong> {vehicle.chassisNo}</span>}
-                      {vehicle.engineNo && <span>• <strong>Eng:</strong> {vehicle.engineNo}</span>}
-                      {vehicle.color && <span>• <strong>Color:</strong> {vehicle.color}</span>}
-                      {vehicle.financer && <span>• <strong>Financer:</strong> {vehicle.financer}</span>}
-                    </div>
-                  )}
-
-                  {/* Payment Details Pill if Partial or Finance */}
-                  {paymentDetails && (
-                    <div className="p-2 bg-muted/30 rounded-lg text-xs space-y-0.5 border border-border/50">
-                      {paymentDetails.type === 'partial' && (
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-blue-700 dark:text-blue-300 font-semibold">Token Paid: {formatAmount(paymentDetails.amountReceived)}</span>
-                          <span className="text-rose-600 dark:text-rose-400 font-bold">Balance: {formatAmount(paymentDetails.balancePending)}</span>
-                        </div>
-                      )}
-                      {paymentDetails.type === 'finance' && paymentDetails.finance && (
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-indigo-700 dark:text-indigo-300 font-semibold">Margin DP: {formatAmount(paymentDetails.finance.downpayment)}</span>
-                          <span className="text-foreground font-medium">Loan: {formatAmount(paymentDetails.finance.financedAmount)} ({paymentDetails.finance.financer})</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="grid grid-cols-4 gap-2 pt-2 border-t border-border/50">
-                    <Button variant="outline" size="sm" onClick={() => handlePreviewInvoice(invoice)} className="h-9">
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleShareWhatsApp(invoice)} className="h-9 text-emerald-600 relative">
-                      <Send className="w-4 h-4" />
-                      {sharedInvoices[invoice.id]?.whatsapp && (
-                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-xs">
-                          ✓
-                        </span>
-                      )}
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDownloadPDF(invoice)} disabled={downloadingPDFId === invoice.id} className="h-9">
-                      {downloadingPDFId === invoice.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-9">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handlePrint(invoice)}>
-                          <Printer className="mr-2 h-4 w-4" /> Print
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleShareEmail(invoice)}>
-                          <Mail className="mr-2 h-4 w-4 text-blue-600" />
-                          <span>Email</span>
-                          {sharedInvoices[invoice.id]?.email && (
-                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleShareSMS(invoice)}>
-                          <Smartphone className="mr-2 h-4 w-4 text-purple-600" />
-                          <span>SMS</span>
-                          {sharedInvoices[invoice.id]?.sms && (
-                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
-                          )}
-                        </DropdownMenuItem>
-                        {invoice.status !== 'paid' && (
-                          <>
-                            <DropdownMenuItem onClick={() => navigate(`/billing/invoices/${invoice.id}/edit?type=downpayment`)}>
-                              <Pencil className="mr-2 h-4 w-4 text-amber-600" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleOpenMarkPaid(invoice)} className="text-emerald-600 font-semibold">
-                              <CreditCard className="mr-2 h-4 w-4" /> Record Payment / Settle
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        <DropdownMenuItem onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)} className="text-destructive font-semibold">
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-
-                {/* Desktop View */}
-                <div className="hidden md:flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <h3 className="text-base lg:text-lg font-bold text-foreground">{invoice.invoice_number}</h3>
-                      <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 font-bold text-xs flex items-center gap-1">
-                        <Car className="w-3.5 h-3.5" /> Downpayment
-                      </Badge>
-                      <StatusBadge status={invoice.status} dueDate={invoice.due_date} notes={invoice.notes} />
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <p className="text-sm font-semibold text-foreground">{invoice.clients?.name || 'Walk-in Customer'}</p>
-                      {invoice.clients?.phone && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Phone className="w-3 h-3" /> {invoice.clients.phone}
-                        </span>
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        • {safelyToLocaleDate(invoice.issue_date)}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/70">
-                        • {getCreatorTag(invoice.payment_terms)}
-                      </span>
-                    </div>
-
-                    {/* Vehicle Details Badges */}
-                    {vehicle.model && (
-                      <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
-                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-800 dark:text-amber-300 font-semibold rounded-md border border-amber-500/20">
-                          🚗 {vehicle.model}
-                        </span>
-                        {vehicle.chassisNo && (
-                          <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-md font-mono text-[11px]">
-                            VIN: {vehicle.chassisNo}
-                          </span>
-                        )}
-                        {vehicle.engineNo && (
-                          <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-md font-mono text-[11px]">
-                            Eng: {vehicle.engineNo}
-                          </span>
-                        )}
-                        {vehicle.color && (
-                          <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-md text-[11px]">
-                            Color: {vehicle.color}
-                          </span>
-                        )}
-                        {vehicle.financer && (
-                          <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded-md text-[11px]">
-                            Financer: {vehicle.financer}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Payment Settlement Badges (Partial or Financed) */}
-                    {paymentDetails && (
-                      <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
-                        {paymentDetails.type === 'partial' && (
-                          <span className="px-2 py-0.5 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-bold rounded-md border border-blue-500/20 text-[11px]">
-                            💰 Paid: {formatAmount(paymentDetails.amountReceived)} • Pending Due: {formatAmount(paymentDetails.balancePending)}
-                          </span>
-                        )}
-                        {paymentDetails.type === 'finance' && paymentDetails.finance && (
-                          <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-bold rounded-md border border-indigo-500/20 text-[11px]">
-                            🏦 Margin DP: {formatAmount(paymentDetails.finance.downpayment)} | Loan: {formatAmount(paymentDetails.finance.financedAmount)} ({paymentDetails.finance.financer}) • {paymentDetails.finance.disbursed ? 'Loan Disbursed' : 'Disbursal In-Process'}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Right side Amount + Actions */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right mr-2">
-                      <p className="text-base lg:text-lg font-extrabold text-foreground">{formatAmount(invoice.total_amount)}</p>
-                      <p className="text-xs text-muted-foreground uppercase">{invoice.currency}</p>
-                      {paymentDetails?.type === 'partial' && (
-                        <p className="text-[11px] font-bold text-blue-600 dark:text-blue-400 mt-0.5">
-                          Paid: {formatAmount(paymentDetails.amountReceived)}
-                        </p>
-                      )}
-                      {paymentDetails?.type === 'finance' && (
-                        <p className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                          DP: {formatAmount(paymentDetails.finance?.downpayment || 0)}
-                        </p>
-                      )}
-                    </div>
-
-                    <Button variant="outline" size="sm" onClick={() => handlePreviewInvoice(invoice)} title="Preview Receipt" className="h-9 w-9 p-0">
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleShareWhatsApp(invoice)}
-                      title={sharedInvoices[invoice.id]?.whatsapp ? "WhatsApp (Already Sent)" : "Share via WhatsApp"}
-                      className="h-9 w-9 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 relative"
-                    >
-                      <Send className="w-4 h-4" />
-                      {sharedInvoices[invoice.id]?.whatsapp && (
-                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-xs">
-                          ✓
-                        </span>
-                      )}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleShareEmail(invoice)}
-                      title={sharedInvoices[invoice.id]?.email ? "Email (Already Sent)" : "Share via Email"}
-                      className="h-9 w-9 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 relative"
-                    >
-                      <Mail className="w-4 h-4" />
-                      {sharedInvoices[invoice.id]?.email && (
-                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-white text-[8px] font-black shadow-xs">
-                          ✓
-                        </span>
-                      )}
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDownloadPDF(invoice)} disabled={downloadingPDFId === invoice.id} title="Download PDF" className="h-9 w-9 p-0">
-                      {downloadingPDFId === invoice.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                    </Button>
-                    {invoice.status !== 'paid' && (
-                      <>
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/billing/invoices/${invoice.id}/edit?type=downpayment`)} title="Edit Receipt" className="h-9 w-9 p-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50">
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleOpenMarkPaid(invoice)}
-                          title="Record Payment / Settle"
-                          className="h-9 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                        >
-                          <CreditCard className="w-3.5 h-3.5 mr-1" /> Settle
-                        </Button>
-                      </>
-                    )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-9 w-9 p-0">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handlePrint(invoice)}>
-                          <Printer className="mr-2 h-4 w-4" /> Print
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleShareEmail(invoice)}>
-                          <Mail className="mr-2 h-4 w-4 text-blue-600" />
-                          <span>Email Receipt</span>
-                          {sharedInvoices[invoice.id]?.email && (
-                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleShareSMS(invoice)}>
-                          <Smartphone className="mr-2 h-4 w-4 text-purple-600" />
-                          <span>SMS Receipt</span>
-                          {sharedInvoices[invoice.id]?.sms && (
-                            <Check className="w-3.5 h-3.5 ml-auto text-emerald-600" />
-                          )}
-                        </DropdownMenuItem>
-                        {invoice.status !== 'paid' && (
-                          <DropdownMenuItem onClick={() => handleOpenMarkPaid(invoice)} className="text-emerald-600 font-semibold">
-                            <CreditCard className="mr-2 h-4 w-4" /> Record Payment / Settle
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => deleteInvoice(invoice.id, invoice.invoice_number, invoice.status)} className="text-destructive font-semibold">
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+          {invoices.map((invoice) => (
+            <DownpaymentCardItem
+              key={invoice.id}
+              invoice={invoice}
+              formatAmount={formatAmount}
+              getCreatorTag={getCreatorTag}
+              handlePreviewInvoice={handlePreviewInvoice}
+              handleDownloadPDF={handleDownloadPDF}
+              handleShareWhatsApp={handleShareWhatsApp}
+              handleShareEmail={handleShareEmail}
+              handleShareSMS={handleShareSMS}
+              handlePrint={handlePrint}
+              handleOpenMarkPaid={handleOpenMarkPaid}
+              handleViewHistory={handleViewHistory}
+              deleteInvoice={deleteInvoice}
+              downloadingPDFId={downloadingPDFId}
+              uploadingWhatsApp={uploadingWhatsApp}
+              navigate={navigate}
+            />
+          ))}
         </div>
       )}
 
@@ -1455,375 +1442,60 @@ export default function DownpaymentInvoices() {
       />
 
       {/* Enhanced Downpayment Settlement Modal */}
-      <Dialog open={markPaidDialogOpen} onOpenChange={setMarkPaidDialogOpen}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 bg-emerald-500/10 text-emerald-600 rounded-xl">
-                <CreditCard className="w-5 h-5" />
-              </div>
-              <div>
-                <DialogTitle className="text-lg font-bold">Record Payment / Downpayment Settlement</DialogTitle>
-                <DialogDescription className="text-xs">
-                  Receipt #{invoiceToMarkPaid?.invoice_number} • Total Booking: {invoiceToMarkPaid ? formatAmount(invoiceToMarkPaid.total_amount) : ''}
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
+      {/* Enhanced Downpayment Settlement Modal */}
+      <DownpaymentSettlementDialog
+        open={markPaidDialogOpen}
+        onOpenChange={setMarkPaidDialogOpen}
+        invoiceToMarkPaid={invoiceToMarkPaid}
+        formatAmount={formatAmount}
+        currencySymbol={currencySymbol}
+        alreadyPaidAmount={alreadyPaidAmount}
+        remainingBalanceAmount={remainingBalanceAmount}
+        balanceSettleType={balanceSettleType}
+        setBalanceSettleType={setBalanceSettleType}
+        installmentAmount={installmentAmount}
+        setInstallmentAmount={setInstallmentAmount}
+        paymentType={paymentType}
+        setPaymentType={setPaymentType}
+        selectedPaymentMethod={selectedPaymentMethod}
+        setSelectedPaymentMethod={setSelectedPaymentMethod}
+        paymentDate={paymentDate}
+        setPaymentDate={setPaymentDate}
+        transactionRef={transactionRef}
+        setTransactionRef={setTransactionRef}
+        partialAmount={partialAmount}
+        setPartialAmount={setPartialAmount}
+        balanceDueDate={balanceDueDate}
+        setBalanceDueDate={setBalanceDueDate}
+        downpaymentAmount={downpaymentAmount}
+        setDownpaymentAmount={setDownpaymentAmount}
+        financierName={financierName}
+        setFinancierName={setFinancierName}
+        customFinancier={customFinancier}
+        setCustomFinancier={setCustomFinancier}
+        financedAmount={financedAmount}
+        setFinancedAmount={setFinancedAmount}
+        financeStatus={financeStatus}
+        setFinanceStatus={setFinanceStatus}
+        loanAccountNo={loanAccountNo}
+        setLoanAccountNo={setLoanAccountNo}
+        isSubmittingPayment={isSubmittingPayment}
+        handleMarkAsPaid={handleMarkAsPaid}
+      />
 
-          {invoiceToMarkPaid && (() => {
-            const vehicle = extractVehicleDetails({ notes: invoiceToMarkPaid.notes });
-            const total = Number(invoiceToMarkPaid.total_amount || 0);
-            const pAmt = Number(partialAmount) || 0;
-            const pBalance = Math.max(0, total - pAmt);
-            const dp = Number(downpaymentAmount) || 0;
-            const loan = Number(financedAmount) || Math.max(0, total - dp);
-
-            return (
-              <div className="space-y-4 py-2 text-sm">
-                {/* Vehicle & Customer Summary Strip */}
-                <div className="p-3 bg-muted/60 rounded-xl flex flex-wrap justify-between items-center gap-2 text-xs">
-                  <div>
-                    <span className="text-muted-foreground block text-[10px] uppercase font-bold">Customer</span>
-                    <span className="font-bold text-foreground text-sm">{invoiceToMarkPaid.clients?.name || 'Walk-in Customer'}</span>
-                  </div>
-                  {vehicle.model && (
-                    <div className="text-center sm:text-left">
-                      <span className="text-muted-foreground block text-[10px] uppercase font-bold">Booked Vehicle</span>
-                      <span className="font-bold text-foreground">🚗 {vehicle.model}</span>
-                    </div>
-                  )}
-                  <div className="text-right">
-                    <span className="text-muted-foreground block text-[10px] uppercase font-bold">Invoice Total</span>
-                    <span className="text-base font-black text-foreground">{formatAmount(total)}</span>
-                  </div>
-                </div>
-
-                {/* Settlement Type Selector: 3 Cards */}
-                <div>
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 block">
-                    Select Settlement Mode
-                  </Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {/* Full Payment Card */}
-                    <button
-                      type="button"
-                      onClick={() => setPaymentType('full')}
-                      className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col justify-between ${
-                        paymentType === 'full'
-                          ? 'border-emerald-600 bg-emerald-500/10 text-emerald-950 dark:text-emerald-300 ring-2 ring-emerald-500/20'
-                          : 'border-border hover:bg-muted/50 text-foreground'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <CheckCircle2 className={`w-4 h-4 ${paymentType === 'full' ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-                        <Badge variant="outline" className="text-[9px] font-bold uppercase">Status: Paid</Badge>
-                      </div>
-                      <p className="font-bold text-xs">Full Payment</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">100% amount received now</p>
-                    </button>
-
-                    {/* Partial Advance Card */}
-                    <button
-                      type="button"
-                      onClick={() => setPaymentType('partial')}
-                      className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col justify-between ${
-                        paymentType === 'partial'
-                          ? 'border-blue-600 bg-blue-500/10 text-blue-950 dark:text-blue-300 ring-2 ring-blue-500/20'
-                          : 'border-border hover:bg-muted/50 text-foreground'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <Coins className={`w-4 h-4 ${paymentType === 'partial' ? 'text-blue-600' : 'text-muted-foreground'}`} />
-                        <Badge variant="outline" className="text-[9px] font-bold uppercase">Status: Partial</Badge>
-                      </div>
-                      <p className="font-bold text-xs">Partial / Token</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">Token paid, balance pending</p>
-                    </button>
-
-                    {/* Downpayment + Finance Card */}
-                    <button
-                      type="button"
-                      onClick={() => setPaymentType('finance')}
-                      className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col justify-between ${
-                        paymentType === 'finance'
-                          ? 'border-indigo-600 bg-indigo-500/10 text-indigo-950 dark:text-indigo-300 ring-2 ring-indigo-500/20'
-                          : 'border-border hover:bg-muted/50 text-foreground'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <Landmark className={`w-4 h-4 ${paymentType === 'finance' ? 'text-indigo-600' : 'text-muted-foreground'}`} />
-                        <Badge variant="outline" className="text-[9px] font-bold uppercase">Auto Finance</Badge>
-                      </div>
-                      <p className="font-bold text-xs">Downpayment + Loan</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">Margin money + bank finance</p>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 1. FULL PAYMENT FIELDS */}
-                {paymentType === 'full' && (
-                  <div className="p-3.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl space-y-2">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-muted-foreground">Amount to Clear:</span>
-                      <span className="font-extrabold text-base text-emerald-700 dark:text-emerald-400">{formatAmount(total)}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Marking as full payment will clear the receipt balance and set the status to <strong className="text-emerald-600">PAID</strong>.
-                    </p>
-                  </div>
-                )}
-
-                {/* 2. PARTIAL PAYMENT FIELDS */}
-                {paymentType === 'partial' && (
-                  <div className="p-3.5 bg-blue-500/5 border border-blue-500/20 rounded-xl space-y-3">
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <Label className="text-xs font-semibold">Amount Received Now ({currencySymbol})</Label>
-                        <span className="text-[11px] text-muted-foreground">Total Booking: {formatAmount(total)}</span>
-                      </div>
-                      <Input
-                        type="number"
-                        placeholder="Enter amount paid"
-                        value={partialAmount}
-                        onChange={(e) => setPartialAmount(e.target.value)}
-                        className="font-bold text-base"
-                      />
-                    </div>
-
-                    {/* Quick Percentage Chips */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] text-muted-foreground">Quick set:</span>
-                      {[0.2, 0.3, 0.5, 0.75].map((pct) => (
-                        <button
-                          key={pct}
-                          type="button"
-                          onClick={() => setPartialAmount(String(Math.round(total * pct)))}
-                          className="px-2 py-0.5 bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary rounded text-[10px] font-semibold transition-colors"
-                        >
-                          {pct * 100}% ({formatAmount(Math.round(total * pct))})
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Dynamic Balance Calculation Banner */}
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/50 text-xs">
-                      <div>
-                        <span className="text-muted-foreground block text-[10px]">Received Now:</span>
-                        <span className="font-bold text-blue-600 dark:text-blue-400 text-sm">{formatAmount(pAmt)}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-muted-foreground block text-[10px]">Remaining Balance:</span>
-                        <span className="font-black text-rose-600 dark:text-rose-400 text-sm">{formatAmount(pBalance)}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1 pt-1">
-                      <Label className="text-xs font-semibold">Balance Due Date (Optional)</Label>
-                      <Input
-                        type="date"
-                        value={balanceDueDate}
-                        onChange={(e) => setBalanceDueDate(e.target.value)}
-                        className="text-xs"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. DOWNPAYMENT + FINANCE FIELDS */}
-                {paymentType === 'finance' && (
-                  <div className="p-3.5 bg-indigo-500/5 border border-indigo-500/20 rounded-xl space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold">Customer Downpayment ({currencySymbol})</Label>
-                        <Input
-                          type="number"
-                          placeholder="e.g. 50000"
-                          value={downpaymentAmount}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setDownpaymentAmount(val);
-                            setFinancedAmount(String(Math.max(0, total - (Number(val) || 0))));
-                          }}
-                          className="font-bold"
-                        />
-                        <span className="text-[10px] text-muted-foreground">Paid upfront by customer</span>
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold">Financed / Loan Amount ({currencySymbol})</Label>
-                        <Input
-                          type="number"
-                          placeholder="e.g. 450000"
-                          value={financedAmount}
-                          onChange={(e) => setFinancedAmount(e.target.value)}
-                          className="font-bold"
-                        />
-                        <span className="text-[10px] text-muted-foreground">Funded by bank / NBFC</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                      <div className="space-y-1">
-                        <Label className="text-xs font-semibold">Financier / Bank</Label>
-                        <Select value={financierName} onValueChange={setFinancierName}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Bank" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="HDFC Bank">HDFC Bank</SelectItem>
-                            <SelectItem value="State Bank of India (SBI)">State Bank of India (SBI)</SelectItem>
-                            <SelectItem value="ICICI Bank">ICICI Bank</SelectItem>
-                            <SelectItem value="Kotak Mahindra Prime">Kotak Mahindra Prime</SelectItem>
-                            <SelectItem value="Axis Bank">Axis Bank</SelectItem>
-                            <SelectItem value="Bajaj Auto Finance">Bajaj Auto Finance</SelectItem>
-                            <SelectItem value="Cholamandalam (Chola)">Cholamandalam (Chola)</SelectItem>
-                            <SelectItem value="Tata Capital">Tata Capital</SelectItem>
-                            <SelectItem value="IndusInd Bank">IndusInd Bank</SelectItem>
-                            <SelectItem value="Mahindra Finance">Mahindra Finance</SelectItem>
-                            <SelectItem value="other">Other / Custom</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {financierName === 'other' ? (
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold">Enter Financier Name</Label>
-                          <Input
-                            placeholder="Bank / Financier Name"
-                            value={customFinancier}
-                            onChange={(e) => setCustomFinancier(e.target.value)}
-                          />
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <Label className="text-xs font-semibold">Loan App / Account No (Optional)</Label>
-                          <Input
-                            placeholder="e.g. LN-8291048"
-                            value={loanAccountNo}
-                            onChange={(e) => setLoanAccountNo(e.target.value)}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Disbursal State Radio Switch */}
-                    <div className="pt-2 border-t border-border/50">
-                      <Label className="text-xs font-semibold block mb-1.5">Bank Loan Disbursal Status</Label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setFinanceStatus('disbursed')}
-                          className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
-                            financeStatus === 'disbursed'
-                              ? 'border-emerald-600 bg-emerald-500/10 text-emerald-950 dark:text-emerald-300 font-bold'
-                              : 'border-border hover:bg-muted text-muted-foreground'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                            <span>Loan Disbursed & Received</span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground font-normal block mt-0.5">
-                            Status updates to <strong>PAID</strong> (100% Cleared)
-                          </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setFinanceStatus('pending')}
-                          className={`p-2.5 rounded-lg border text-left text-xs transition-all ${
-                            financeStatus === 'pending'
-                              ? 'border-amber-600 bg-amber-500/10 text-amber-950 dark:text-amber-300 font-bold'
-                              : 'border-border hover:bg-muted text-muted-foreground'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-amber-500" />
-                            <span>Sanctioned / Pending Disbursal</span>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground font-normal block mt-0.5">
-                            Status updates to <strong>PARTIAL</strong> (DP cleared)
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* COMMON PAYMENT DETAILS (Method, Ref, Date) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold">
-                      {paymentType === 'finance' ? "Downpayment Mode" : "Payment Method"}
-                    </Label>
-                    <Select value={selectedPaymentMethod} onValueChange={setSelectedPaymentMethod}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select payment method" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="upi">UPI / Online Transfer</SelectItem>
-                        <SelectItem value="bank_transfer">Bank Transfer (NEFT/RTGS/IMPS)</SelectItem>
-                        <SelectItem value="cheque">Cheque / Demand Draft</SelectItem>
-                        <SelectItem value="card">Debit / Credit Card</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs font-semibold">Payment Date</Label>
-                    <Input
-                      type="date"
-                      value={paymentDate}
-                      onChange={(e) => setPaymentDate(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs font-semibold">Transaction / Reference Number (Optional)</Label>
-                  <Input
-                    placeholder="e.g. UPI txn ID, Cheque number, Bank UTR..."
-                    value={transactionRef}
-                    onChange={(e) => setTransactionRef(e.target.value)}
-                  />
-                </div>
-              </div>
-            );
-          })()}
-
-          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
-            <Button variant="outline" onClick={() => setMarkPaidDialogOpen(false)} disabled={isSubmittingPayment}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleMarkAsPaid}
-              disabled={isSubmittingPayment}
-              className={`font-semibold text-white ${
-                paymentType === 'partial'
-                  ? 'bg-blue-600 hover:bg-blue-700'
-                  : paymentType === 'finance' && financeStatus === 'pending'
-                  ? 'bg-indigo-600 hover:bg-indigo-700'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
-              }`}
-            >
-              {isSubmittingPayment ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving Payment...
-                </>
-              ) : paymentType === 'partial' ? (
-                `Record Partial Payment (${currencySymbol}${partialAmount})`
-              ) : paymentType === 'finance' ? (
-                financeStatus === 'disbursed' ? "Confirm Disbursed & Mark Paid" : "Record DP & Set Finance In-Process"
-              ) : (
-                "Confirm Full Payment (Mark Paid)"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Payment History / Ledger Modal */}
+      {/* Payment History / Ledger Modal */}
+      <DownpaymentHistoryDialog
+        open={historyDialogOpen}
+        onOpenChange={setHistoryDialogOpen}
+        historyInvoice={historyInvoice}
+        historyPayments={historyPayments}
+        isLoadingHistory={isLoadingHistory}
+        deletingPaymentId={deletingPaymentId}
+        formatAmount={formatAmount}
+        handleDeleteHistoryPayment={handleDeleteHistoryPayment}
+        handleOpenMarkPaid={handleOpenMarkPaid}
+      />
     </div>
   );
 }

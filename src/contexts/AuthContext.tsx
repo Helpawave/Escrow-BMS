@@ -204,6 +204,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (data) {
+        // Check system_settings user_account_types for explicit super admin override
+        try {
+          const { data: stData } = await supabase
+            .from('system_settings')
+            .select('value')
+            .eq('key', 'user_account_types')
+            .maybeSingle();
+
+          if (stData?.value) {
+            const typeMap = typeof stData.value === 'string' ? JSON.parse(stData.value) : stData.value;
+            if (typeMap && typeMap[userId]) {
+              (data as any).account_type = typeMap[userId];
+              try { localStorage.setItem('escrow_cached_user_account_type', typeMap[userId]); } catch {}
+            }
+          }
+        } catch {}
+
         setProfile(data as Profile);
         try { localStorage.setItem('escrow_cached_profile', JSON.stringify(data)); } catch { }
         if ((data as any).logo_url) {

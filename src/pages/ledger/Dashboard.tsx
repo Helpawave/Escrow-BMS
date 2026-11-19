@@ -1,14 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings, PlusCircle, Database, BarChart3, TrendingUp, Users, Activity, AlertCircle } from 'lucide-react';
+import { Settings, PlusCircle, Database, BarChart3, TrendingUp, Users, Activity, AlertCircle, Cloud } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/lib/supabase';
 import { GlobalLoader } from '@/components/ui/GlobalLoader';
+import { autoBackupService, type AutoBackupConfig } from '@/services/autoBackupService';
 const Dashboard = () => {
   const { user } = useAuth();
-  const { currencySymbol, currencyCode } = useCurrency();
+  const { currencySymbol } = useCurrency();
   const navigate = useNavigate();
+  const [autoConfig, setAutoConfig] = useState<AutoBackupConfig | null>(() => 
+    user ? autoBackupService.getConfig(user.id) : null
+  );
+
+  useEffect(() => {
+    if (user) {
+      setAutoConfig(autoBackupService.getConfig(user.id));
+    }
+    const handleChange = () => {
+      if (user) setAutoConfig(autoBackupService.getConfig(user.id));
+    };
+    window.addEventListener('escrow_auto_backup_change', handleChange);
+    return () => window.removeEventListener('escrow_auto_backup_change', handleChange);
+  }, [user]);
+
   const [companyName, setCompanyName] = useState<string>(() => {
     return localStorage.getItem('cached_dashboard_company') || '';
   });
@@ -46,8 +62,6 @@ const Dashboard = () => {
     }
   });
 
-  const [recentActivityList, setRecentActivityList] = useState<any[]>([]);
-
   useEffect(() => {
     if (!user) return;
     let mounted = true;
@@ -58,8 +72,8 @@ const Dashboard = () => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // Fetch user profile and parties
-        const [profileRes, partiesRes] = await Promise.all([
+        // Fetch all 4 distinct datasets in parallel to optimize initial reload load time!
+        const [profileRes, partiesRes, todayTnsRes, allTnsRes] = await Promise.all([
           supabase
             .from('profiles')
             .select('full_name, company_name')
@@ -68,42 +82,37 @@ const Dashboard = () => {
           supabase
             .from('parties')
             .select('id, monday_final, system_type')
+            .eq('user_id', user.id),
+          supabase
+            .from('transactions')
+            .select('credit, debit, transaction_date')
             .eq('user_id', user.id)
+            .gte('transaction_date', today.toISOString()),
+          supabase
+            .from('transactions')
+            .select('party_id, balance, transaction_date, parties(system_type)')
+            .eq('user_id', user.id)
+            .order('transaction_date', { ascending: false })
         ]);
 
         if (profileRes.error) throw profileRes.error;
         if (partiesRes.error) throw partiesRes.error;
+        if (todayTnsRes.error) throw todayTnsRes.error;
+        if (allTnsRes.error) throw allTnsRes.error;
 
         const profileData = profileRes.data;
-        const partiesData = partiesRes.data || [];
-        const partyIds = partiesData.map(p => p.id);
-
-        let todayTns: any[] = [];
-        let allTns: any[] = [];
-
-        if (partyIds.length > 0) {
-          const [todayTnsRes, allTnsRes] = await Promise.all([
-            supabase
-              .from('transactions')
-              .select('credit, debit, created_at')
-              .in('party_id', partyIds)
-              .gte('created_at', today.toISOString()),
-            supabase
-              .from('transactions')
-              .select('id, party_id, credit, debit, remarks, created_at, parties(party_name, system_type)')
-              .in('party_id', partyIds)
-              .order('created_at', { ascending: false })
-          ]);
-          todayTns = todayTnsRes.data || [];
-          allTns = allTnsRes.data || [];
-        }
+        const partiesData = partiesRes.data;
+        const todayTns = todayTnsRes.data;
+        const allTns = allTnsRes.data;
 
         if (mounted && profileData) {
           const name = profileData.company_name || profileData.full_name || user.user_metadata?.full_name || 'Valued User';
           setCompanyName(name);
           try {
             localStorage.setItem('cached_dashboard_company', name);
-          } catch {}
+          } catch {
+            // ignore localStorage quota errors
+          }
         }
 
         const totalParties = partiesData?.length || 0;
@@ -112,26 +121,20 @@ const Dashboard = () => {
         const todayEntries = todayTns?.length || 0;
         const todayVolume = Math.round(todayTns?.reduce((sum, t) => sum + Math.max(t.credit, t.debit), 0) || 0);
 
-        // Calculate Commission & Overall Balance from transactions
-        const partyBalanceSums = new Map<string, number>();
-        let commSum = 0;
+        // Calculate Commission (Balance of the commission system party)
+        const commissionParty = allTns?.find((t: any) => t.parties?.system_type === 'commission');
+        const totalCommission = commissionParty ? Math.round(commissionParty.balance) : 0;
 
-        (allTns || []).forEach((t: any) => {
-          const delta = (Number(t.credit) || 0) - (Number(t.debit) || 0);
-          const current = partyBalanceSums.get(t.party_id) || 0;
-          partyBalanceSums.set(t.party_id, current + delta);
-
-          const rawParty = Array.isArray(t.parties) ? t.parties[0] : t.parties;
-          if (rawParty?.system_type === 'commission') {
-            commSum += delta;
+        // Calculate Overall Balance
+        const latestBalances = new Map();
+        allTns?.forEach(t => {
+          if (!latestBalances.has(t.party_id)) {
+            latestBalances.set(t.party_id, t.balance);
           }
         });
 
         let totalBalance = 0;
-        partyBalanceSums.forEach(bal => {
-          totalBalance += bal;
-        });
-        const totalCommission = Math.round(commSum);
+        latestBalances.forEach(bal => totalBalance += bal);
 
         if (mounted) {
           const newStats = {
@@ -143,13 +146,14 @@ const Dashboard = () => {
             pendingFinals
           };
           setStatsData(newStats);
-          setRecentActivityList(allTns?.slice(0, 5) || []);
           try {
             localStorage.setItem('cached_dashboard_stats', JSON.stringify(newStats));
-          } catch {}
+          } catch {
+            // ignore localStorage quota errors
+          }
         }
       } catch (err) {
-        console.error("Dashboard error:", err);
+        console.error('Error fetching dashboard data:', err);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -180,18 +184,18 @@ const Dashboard = () => {
     { name: 'Today Entries', value: (statsData?.todayEntries ?? 0).toString(), icon: <Activity className="w-5 h-5" />, color: 'green' },
     { 
       name: 'Overall Balance', 
-      value: `${currencySymbol || '₹'} ${Math.abs(Math.round(statsData?.overallBalance ?? 0)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')} ${(statsData?.overallBalance ?? 0) >= 0 ? 'Cr' : 'Dr'}`, 
+      value: `₹ ${Math.abs(Math.round(statsData?.overallBalance ?? 0)).toLocaleString()} ${(statsData?.overallBalance ?? 0) >= 0 ? 'Cr' : 'Dr'}`, 
       icon: <TrendingUp className="w-5 h-5" />, 
       color: (statsData?.overallBalance ?? 0) >= 0 ? 'emerald' : 'rose' 
     },
-    { name: "Today's Volume", value: `${currencySymbol || '₹'} ${Math.round(statsData?.todayVolume ?? 0).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`, icon: <Database className="w-5 h-5" />, color: 'orange' },
-    { name: 'Total Commission', value: `${currencySymbol || '₹'} ${Math.abs(Math.round(statsData?.totalCommission ?? 0)).toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`, icon: <BarChart3 className="w-5 h-5" />, color: 'indigo' },
+    { name: "Today's Volume", value: `₹ ${Math.round(statsData?.todayVolume ?? 0).toLocaleString()}`, icon: <Database className="w-5 h-5" />, color: 'orange' },
+    { name: 'Total Commission', value: `₹ ${Math.abs(Math.round(statsData?.totalCommission ?? 0)).toLocaleString()}`, icon: <BarChart3 className="w-5 h-5" />, color: 'indigo' },
     { name: 'Pending Finals', value: (statsData?.pendingFinals ?? 0).toString(), icon: <AlertCircle className="w-5 h-5" />, color: 'amber' },
   ];
 
   const quickActions = [
     { name: 'Configure Settings', desc: 'Setup your business profile & preferences', icon: <Settings />, link: '/configure/company' },
-    { name: 'Create New Party', desc: 'Add new clients or business partners', icon: <PlusCircle />, link: '/billing/clients?action=new' },
+    { name: 'Create New Party', desc: 'Add new clients or business partners', icon: <PlusCircle />, link: '/create/party' },
     { name: 'Data Entry', desc: 'Record daily credit/debit transactions', icon: <Database />, link: '/ledger' },
     { name: 'View Reports', desc: 'Check balances and transaction history', icon: <BarChart3 />, link: '/reports/parties' },
   ];
@@ -207,9 +211,27 @@ const Dashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="space-y-2">
             <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              <span className="text-blue-600 dark:text-blue-400">{companyName}</span> Ledger
+              Welcome, <span className="text-blue-600 dark:text-blue-400">{companyName}</span>
             </h1>
-            <p className="text-slate-500 dark:text-slate-400 text-lg">Here's an overview of your escrow accounts today.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+              <p className="text-slate-500 dark:text-slate-400 text-lg">Here's an overview of your escrow accounts today.</p>
+              <button
+                type="button"
+                onClick={() => navigate('/configure/online-backup')}
+                className="self-start sm:self-auto inline-flex items-center gap-2 px-3.5 py-1.5 bg-blue-50/80 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 border border-blue-200/60 dark:border-blue-800/60 rounded-xl text-xs font-semibold text-blue-700 dark:text-blue-300 transition shadow-sm group"
+                title="View Backup Status & Settings"
+              >
+                <Cloud className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
+                <span>
+                  Last Backup: <strong className="font-bold text-slate-900 dark:text-white">{autoBackupService.formatDate(autoConfig?.lastDriveBackupAt || autoConfig?.lastLocalBackupAt)}</strong>
+                </span>
+                {(autoConfig?.lastDriveBackupAt || autoConfig?.lastLocalBackupAt) && (
+                  <span className="text-[10px] bg-blue-200/60 dark:bg-blue-900/80 px-1.5 py-0.5 rounded-md font-bold text-blue-800 dark:text-blue-300">
+                    {autoBackupService.formatRelativeTime(autoConfig?.lastDriveBackupAt || autoConfig?.lastLocalBackupAt)}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -257,42 +279,20 @@ const Dashboard = () => {
           ))}
         </div>
 
-        {/* Recent Activity Table */}
+        {/* Recent Activity Placeholder (Could be expanded later) */}
         <div className="mt-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm transition-colors duration-200">
           <div className="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center text-slate-900 dark:text-white">
             <h3 className="text-lg font-bold">Recent Activity</h3>
             <button 
-              onClick={() => navigate('/ledger/ledger')}
+              onClick={() => navigate('/ledger')}
               className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
             >
               View Ledger
             </button>
           </div>
-          {recentActivityList.length > 0 ? (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {recentActivityList.map((t: any) => (
-                <div key={t.id} className="px-8 py-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                  <div>
-                    <p className="font-semibold text-sm text-slate-900 dark:text-slate-100">
-                      {t.parties?.party_name || t.parties?.name || 'Party Transaction'}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {t.remarks || 'Journal Entry'} · {new Date(t.created_at || t.transaction_date || Date.now()).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className={`font-mono font-bold text-sm ${t.credit > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                      {t.credit > 0 ? `+${currencySymbol || '₹'}${t.credit.toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}` : `-${currencySymbol || '₹'}${t.debit.toLocaleString(currencyCode === 'INR' ? 'en-IN' : 'en-US')}`}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="p-8 text-center py-16 text-slate-400 dark:text-slate-500 italic text-sm">
-              No recent ledger entries found. Click Transfer Entry to record your first transaction.
-            </div>
-          )}
+          <div className="p-8 text-center py-20 text-slate-400 dark:text-slate-500 italic">
+            Check your ledger for the most up-to-date transaction history.
+          </div>
         </div>
       </div>
     </div>

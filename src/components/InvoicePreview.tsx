@@ -15,6 +15,7 @@ import {
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useUserType } from "@/hooks/useUserType";
 import { InvoiceTemplate } from "./InvoiceTemplate";
 import { StatusBadge } from "./StatusBadge";
 import { generateInvoicePDFBlob, generateInvoiceHTML } from '@/utils/invoicePDF';
@@ -110,166 +111,175 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   open,
   onClose
 }) => {
-  const [items, setItems] = useState<InvoiceItem[]>([]);
-  const [company, setCompany] = useState<CompanyProfile>({});
-  const [template, setTemplate] = useState('corporate');
-  const [defaultTerms, setDefaultTerms] = useState<string>('');
-  const [defaultPaymentTerms, setDefaultPaymentTerms] = useState<string>('30');
-  const [loading, setLoading] = useState(true);
-  const [emailConfirmationOpen, setEmailConfirmationOpen] = useState(false);
-  const [fullInvoice, setFullInvoice] = useState<Invoice | null>(null);
-
-  const { user, effectiveUserId, isStaff, companyProfile, profile } = useAuth();
+  const { user, effectiveUserId, isStaff, companyProfile } = useAuth();
+  const { isCafe } = useUserType();
   const { toast } = useToast();
 
-  const fetchInvoiceData = useCallback(async () => {
-    if (!invoice || !user) return;
+  const [items, setItems] = useState<InvoiceItem[]>([]);
+  const [company, setCompany] = useState<CompanyProfile>(() => {
+    return (companyProfile as any) || {};
+  });
+  const [template, setTemplate] = useState(() => isCafe ? 'thermal' : 'corporate');
+  const [defaultTerms, setDefaultTerms] = useState<string>('');
+  const [defaultPaymentTerms, setDefaultPaymentTerms] = useState<string>('30');
+  const [loading, setLoading] = useState(false);
+  const [emailConfirmationOpen, setEmailConfirmationOpen] = useState(false);
+  const [fullInvoice, setFullInvoice] = useState<Invoice | null>(invoice);
+  const lastFetchedIdRef = React.useRef<string | null>(null);
 
-    setLoading(true);
+  const fetchInvoiceData = useCallback(async (targetInvoice: Invoice) => {
+    if (!targetInvoice?.id) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const clientToUse = serviceSupabase || supabase;
 
-      // Fetch full invoice details to ensure all fields (subtotal, notes, terms, etc.) are populated
-      const { data: invoiceData, error: invoiceError } = await clientToUse
-        .from('invoices')
-        .select('*, clients(*)')
-        .eq('id', invoice.id)
-        .maybeSingle();
+      const loadTask = async () => {
+        // Fetch full invoice details and items concurrently
+        const [invoiceRes, itemsRes] = await Promise.all([
+          clientToUse
+            .from('invoices')
+            .select('*, clients(*)')
+            .eq('id', targetInvoice.id)
+            .maybeSingle(),
+          clientToUse
+            .from('invoice_items')
+            .select(`
+              *,
+              products (
+                id,
+                name,
+                description,
+                hsn_code,
+                opening_stock,
+                type,
+                unit
+              )
+            `)
+            .eq('invoice_id', targetInvoice.id)
+        ]);
 
-      if (invoiceError) {
-        console.warn('Could not fetch full invoice with relation, falling back to prop invoice:', invoiceError);
-      }
-      
-      const resolvedInvoice = (invoiceData as unknown as Invoice) || invoice;
-      setFullInvoice(resolvedInvoice);
+        const resolvedInvoice = (invoiceRes.data as unknown as Invoice) || targetInvoice;
+        setFullInvoice(resolvedInvoice);
 
-      // Fetch invoice items
-      const { data: itemsData, error: itemsError } = await clientToUse
-        .from('invoice_items')
-        .select(`
-          *,
-          products (
-            id,
-            name,
-            description,
-            hsn_code,
-            opening_stock,
-            type,
-            unit
-          )
-        `)
-        .eq('invoice_id', invoice.id);
+        const targetOwnerId = (resolvedInvoice as any)?.user_id || (isStaff && effectiveUserId ? effectiveUserId : user?.id);
 
-      if (itemsError) {
-        console.warn('Could not fetch invoice items with products relation:', itemsError);
-      }
+        // Fetch settings and profile in parallel with short timeout
+        const [profRes, settsRes] = await Promise.all([
+          targetOwnerId ? (clientToUse as any).from('profiles').select('*').eq('user_id', targetOwnerId).maybeSingle() : Promise.resolve({ data: null }),
+          targetOwnerId ? (clientToUse as any).from('user_settings').select('*').eq('user_id', targetOwnerId).maybeSingle() : Promise.resolve({ data: null })
+        ]);
 
-      // Fetch company profile & settings using owner's ID
-      const targetOwnerId = (resolvedInvoice as any)?.user_id || (isStaff && effectiveUserId ? effectiveUserId : user.id);
+        const profileData = profRes.data;
+        const settingsData = settsRes.data as {
+          invoice_template?: string;
+          hide_company_details?: boolean;
+          default_terms?: string;
+          default_payment_terms?: string;
+        } | null;
 
-      const { data: profileData } = await (clientToUse as any)
-        .from('profiles')
-        .select('*')
-        .or(`user_id.eq.${targetOwnerId},id.eq.${targetOwnerId}`)
-        .maybeSingle();
+        // Strictly identify downpayment receipts only by DP/BK invoice prefix or explicit is_downpayment:true metadata
+        const isDownpayment = Boolean(
+          resolvedInvoice?.invoice_number?.startsWith('DP-') ||
+          resolvedInvoice?.invoice_number?.startsWith('DP') ||
+          resolvedInvoice?.invoice_number?.startsWith('BK-') ||
+          resolvedInvoice?.invoice_number?.startsWith('BK') ||
+          resolvedInvoice?.notes?.includes('"is_downpayment":true')
+        );
 
-      // Fetch user settings for template and default terms
-      const { data: rawSettingsData, error: settingsError } = await (clientToUse as any)
-        .from('user_settings')
-        .select('*')
-        .eq('user_id', targetOwnerId)
-        .maybeSingle();
+        let savedDownpaymentTemplate = localStorage.getItem('downpayment_template') || (settingsData as any)?.downpayment_template;
+        if (!savedDownpaymentTemplate) savedDownpaymentTemplate = 'auto_classic';
 
-      const settingsData = rawSettingsData as {
-        invoice_template?: string;
-        hide_company_details?: boolean;
-        default_terms?: string;
-        default_payment_terms?: string;
-      } | null;
+        const savedSalesTemplate = settingsData?.invoice_template && !settingsData.invoice_template.startsWith('auto_')
+          ? settingsData.invoice_template
+          : 'corporate';
 
-      if (settingsError) console.warn('Could not fetch user settings, using default template');
+        if (isCafe || resolvedInvoice?.notes?.includes('[Order:')) {
+          // Use user's saved template if set, otherwise default to thermal for cafe
+          const cafeTpl = (settingsData?.invoice_template && !settingsData.invoice_template.startsWith('auto_'))
+            ? settingsData.invoice_template
+            : 'thermal';
+          setTemplate(cafeTpl as any);
+        } else if (isDownpayment) {
+          setTemplate(savedDownpaymentTemplate);
+        } else {
+          setTemplate(savedSalesTemplate);
+        }
 
-      const isDownpayment = Boolean(
-        resolvedInvoice?.notes?.includes('is_downpayment') ||
-        resolvedInvoice?.notes?.includes('Vehicle:') ||
-        resolvedInvoice?.invoice_number?.startsWith('DP-') ||
-        resolvedInvoice?.notes?.toLowerCase().includes('downpayment') ||
-        resolvedInvoice?.notes?.toLowerCase().includes('vehicle booking') ||
-        resolvedInvoice?.notes?.toLowerCase().includes('booking advance')
+        if (settingsData) {
+          if (settingsData.default_terms !== undefined) setDefaultTerms(settingsData.default_terms || '');
+          if (settingsData.default_payment_terms) setDefaultPaymentTerms(settingsData.default_payment_terms);
+        }
+
+        const itemsRaw = (itemsRes.data as unknown as any[]) || [];
+        if (itemsRaw.length > 0) {
+          setItems(itemsRaw.map(item => ({
+            description: item.description || '',
+            product_name: item.products?.name || item.product_name || item.name || '',
+            name: item.products?.name || item.product_name || item.name || '',
+            quantity: item.quantity,
+            rate: item.rate,
+            tax_rate: item.tax_rate,
+            discount: item.discount || 0,
+            amount: item.amount,
+            hsn_code: item.hsn_code || item.products?.hsn_code || '',
+            product: item.products ? {
+              name: item.products.name,
+              opening_stock: item.products.opening_stock,
+              type: item.products.type,
+              unit: item.products.unit,
+              hsn_code: item.products.hsn_code
+            } : undefined
+          })));
+        }
+
+        const prof = (profileData as unknown as any) || (companyProfile as any) || {};
+        setCompany({
+          company_name: prof?.company_name || '',
+          email: prof?.email || user?.email || '',
+          phone: prof?.phone || '',
+          mobile: prof?.mobile || '',
+          business_address: prof?.business_address || '',
+          gstin: prof?.gstin || '',
+          logo_url: prof?.logo_url || '',
+          website: prof?.website || '',
+          signature_url: prof?.signature_url || '',
+          upi_qr_url: prof?.upi_qr_url || '',
+          upi_id: prof?.upi_id || '',
+          bank_name: prof?.bank_name || '',
+          account_number: prof?.account_number || '',
+          ifsc_code: prof?.ifsc_code || '',
+          account_holder_name: prof?.account_holder_name || '',
+          account_type: prof?.account_type || '',
+          hide_company_details: (settingsData as any)?.hide_company_details ?? false
+        });
+      };
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Invoice preview loading timed out')), 2500)
       );
 
-      const savedDownpaymentTemplate = (settingsData as any)?.downpayment_template || localStorage.getItem('downpayment_template') || 'auto_dealership';
-      const savedSalesTemplate = settingsData?.invoice_template && !settingsData.invoice_template.startsWith('auto_')
-        ? settingsData.invoice_template
-        : 'corporate';
-
-      if (isDownpayment) {
-        setTemplate(savedDownpaymentTemplate);
-      } else {
-        setTemplate(savedSalesTemplate);
-      }
-
-      if (settingsData) {
-        if (settingsData.default_terms !== undefined) setDefaultTerms(settingsData.default_terms || '');
-        if (settingsData.default_payment_terms) setDefaultPaymentTerms(settingsData.default_payment_terms);
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const itemsRaw = (itemsData as unknown as any[]) || [];
-      setItems(itemsRaw.map(item => ({
-        description: item.description || '',
-        product_name: item.products?.name || item.product_name || item.name || '',
-        name: item.products?.name || item.product_name || item.name || '',
-        quantity: item.quantity,
-        rate: item.rate,
-        tax_rate: item.tax_rate,
-        discount: item.discount || 0,
-        amount: item.amount,
-        hsn_code: item.hsn_code || item.products?.hsn_code || '',
-        product: item.products ? {
-          name: item.products.name,
-          opening_stock: item.products.opening_stock,
-          type: item.products.type,
-          unit: item.products.unit,
-          hsn_code: item.products.hsn_code
-        } : undefined
-      })) || []);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const prof = (profileData as unknown as any) || (companyProfile as any) || (profile as any) || {};
-      const storedLogo = typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_logo_url') || '') : '';
-      const storedSign = typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_signature_url') || '') : '';
-      setCompany({
-        company_name: prof?.company_name || (companyProfile as any)?.company_name || (profile as any)?.company_name || '',
-        email: prof?.email || (companyProfile as any)?.email || (profile as any)?.email || user?.email || '',
-        phone: prof?.phone || (companyProfile as any)?.phone || (profile as any)?.phone || '',
-        mobile: prof?.mobile || (companyProfile as any)?.mobile || (profile as any)?.mobile || '',
-        business_address: prof?.business_address || (companyProfile as any)?.business_address || (profile as any)?.business_address || '',
-        gstin: prof?.gstin || (companyProfile as any)?.gstin || (profile as any)?.gstin || '',
-        logo_url: prof?.logo_url || (companyProfile as any)?.logo_url || (profile as any)?.logo_url || storedLogo || '',
-        website: prof?.website || (companyProfile as any)?.website || (profile as any)?.website || '',
-        signature_url: prof?.signature_url || (companyProfile as any)?.signature_url || (profile as any)?.signature_url || storedSign || '',
-        upi_qr_url: prof?.upi_qr_url || '',
-        upi_id: prof?.upi_id || '',
-        bank_name: prof?.bank_name || '',
-        account_number: prof?.account_number || '',
-        ifsc_code: prof?.ifsc_code || '',
-        account_holder_name: prof?.account_holder_name || '',
-        account_type: prof?.account_type || '',
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        hide_company_details: (settingsData as any)?.hide_company_details ?? false
-      });
+      await Promise.race([loadTask(), timeoutPromise]);
     } catch (error) {
-      console.warn('Error in fetchInvoiceData, using fallback props:', error);
-      setFullInvoice(invoice);
+      console.warn('Notice in fetchInvoiceData, using available data:', error);
+      setFullInvoice(targetInvoice);
     } finally {
       setLoading(false);
     }
-  }, [invoice, user, effectiveUserId, isStaff, companyProfile, profile]);
+  }, [user?.id, effectiveUserId, isStaff, companyProfile]);
 
   useEffect(() => {
     if (invoice && open) {
-      fetchInvoiceData();
+      setFullInvoice(invoice);
+      if (lastFetchedIdRef.current !== invoice.id) {
+        lastFetchedIdRef.current = invoice.id;
+        fetchInvoiceData(invoice);
+      }
+    }
+    if (!open) {
+      lastFetchedIdRef.current = null;
     }
   }, [invoice, open, fetchInvoiceData]);
 
@@ -306,7 +316,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         currency: invToUse.currency,
         notes: invToUse.notes,
         terms: effectiveTerms
-      } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      } as any,  
       {
         name: invToUse.clients?.name || 'N/A',
         email: invToUse.clients?.email || '',
@@ -320,8 +330,8 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         hide_contact_details: invToUse.clients?.hide_contact_details ?? false
       },
       items,
-      company as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-      template as any // eslint-disable-line @typescript-eslint/no-explicit-any
+      company as any,  
+      template as any  
     );
   };
 
@@ -375,7 +385,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           currency: invoice.currency,
           notes: invoice.notes,
           terms: invoice.terms
-      } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+      } as any,  
         {
           name: invoice.clients?.name || 'N/A',
           email: invoice.clients?.email || '',
@@ -389,8 +399,8 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           hide_contact_details: invoice.clients?.hide_contact_details ?? false
         },
         formattedItems,
-        company as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-        template as any // eslint-disable-line @typescript-eslint/no-explicit-any
+        company as any,  
+        template as any  
       );
 
       const { error } = await supabase.functions.invoke('send-invoice-email', {
@@ -429,19 +439,19 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-4xl w-full max-h-[92vh] p-0 bg-white dark:bg-slate-950 border border-border shadow-2xl flex flex-col overflow-hidden">
-        <DialogHeader className="shrink-0 w-full px-6 py-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 rounded-t-lg shadow-sm">
+        <DialogHeader className="shrink-0 w-full pl-4 pr-12 sm:px-6 py-4 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 rounded-t-lg shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-3">
-                <FileText className="w-5 h-5 text-primary" />
-                <span>Invoice Preview - {invToUse.invoice_number}</span>
+            <div className="space-y-1 min-w-0">
+              <DialogTitle className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2 sm:gap-3">
+                <FileText className="w-5 h-5 text-primary shrink-0" />
+                <span className="truncate">{(isCafe || template === 'thermal') ? 'Order Receipt' : 'Invoice Preview'} - #{invToUse.invoice_number}</span>
                 <StatusBadge status={invToUse.status} dueDate={invToUse.due_date} />
               </DialogTitle>
-              <DialogDescription className="text-slate-500 dark:text-slate-400 text-sm font-medium">
+              <DialogDescription className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium">
                 Review and manage invoice details before sending to client
               </DialogDescription>
             </div>
-            <div className="flex items-center gap-3 pr-8 sm:pr-10">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:pr-8">
               {invToUse.clients?.email && (
                 <Button
                   variant="outline"
@@ -497,6 +507,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                     return (
                       <InvoiceTemplate
                         invoice={{
+                          id: invToUse.id,
                           invoice_number: invToUse.invoice_number,
                           issue_date: invToUse.issue_date,
                           due_date: effectiveDueDate,
@@ -511,8 +522,8 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                         }}
                         client={invToUse.clients || { name: 'Customer', email: '' }}
                         items={items}
-                        company={company as any} // eslint-disable-line @typescript-eslint/no-explicit-any
-                        template={template as any} // eslint-disable-line @typescript-eslint/no-explicit-any
+                        company={company as any}  
+                        template={template as any}  
                       />
                     );
                   })()}

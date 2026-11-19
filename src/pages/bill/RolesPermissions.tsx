@@ -2,132 +2,49 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { CountryPhoneInput } from "@/components/ui/CountryPhoneInput";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { DataTablePagination } from "@/components/DataTablePagination";
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
-import { generateAccountId } from '@/utils/accountId';
 import { formatStaffCredentialsWhatsAppMessage, normalizeWhatsAppNumber, openWhatsAppChat } from '@/utils/whatsappTemplates';
+import { generateAccountId } from '@/utils/accountId';
 import { 
   Users, 
-  ShieldCheck, 
   UserPlus, 
-  Key, 
-  Copy, 
-  Check, 
-  Search, 
-  Edit3, 
-  Trash2, 
   RefreshCw, 
-  Eye, 
-  EyeOff, 
-  Sparkles,
-  Phone,
-  Mail,
-  MoreHorizontal,
-  UserCheck,
-  Power,
-  Share2,
-  Shield,
-  Filter,
-  MessageSquare
+  Shield
 } from "lucide-react";
-import { safelyToLocaleDate } from "@/utils/dateUtils";
+import { useUserType } from "@/hooks/useUserType";
 
+import {
+  StaffMember,
+  AVAILABLE_PERMISSIONS,
+  ROLE_PRESETS,
+  LOCAL_STORAGE_STAFF_KEY,
+  CreatedCredentials,
+} from './roles-permissions/types';
 
-export interface StaffMember {
-  id: string;
-  company_owner_id: string;
-  user_id?: string | null;
-  name: string;
-  email: string;
-  phone?: string | null;
-  role: string;
-  permissions: string[];
-  status: 'active' | 'inactive';
-  created_at: string;
-  updated_at?: string;
-  temp_password?: string;
-}
+import {
+  StaffStatsCards,
+  StaffFilters,
+  StaffTable,
+} from './roles-permissions/components';
 
-export const AVAILABLE_PERMISSIONS = [
-  { id: 'invoices', label: 'Sales Invoices', description: 'Create, view, and manage client tax invoices' },
-  { id: 'purchase-invoices', label: 'Purchase Bills', description: 'Record and track vendor purchase bills' },
-  { id: 'clients', label: 'Client Directory', description: 'Manage client accounts and billing records' },
-  { id: 'vendors', label: 'Vendor Directory', description: 'Manage supplier and vendor relationships' },
-  { id: 'products', label: 'Inventory & Catalog', description: 'Maintain product rates, stock, and HSN codes' },
-  { id: 'payments', label: 'Payments & Receipts', description: 'Log incoming and outgoing payment transactions' },
-  { id: 'expenses', label: 'Company Expenses', description: 'Track business expenses and categories' },
-  { id: 'einvoice', label: 'E-Way & E-Invoice', description: 'Generate GST compliant e-invoices and waybills' },
-];
+import {
+  EditStaffDialog,
+  PasswordResetDialog,
+  CredentialsSuccessDialog,
+  DeleteStaffAlert,
+} from './roles-permissions/modals';
 
-export const ROLE_PRESETS: Record<string, { name: string; permissions: string[] }> = {
-  Accountant: {
-    name: 'Accountant',
-    permissions: ['invoices', 'purchase-invoices', 'payments', 'expenses', 'einvoice']
-  },
-  'Sales Executive': {
-    name: 'Sales Executive',
-    permissions: ['invoices', 'clients', 'products']
-  },
-  'Inventory Manager': {
-    name: 'Inventory Manager',
-    permissions: ['purchase-invoices', 'vendors', 'products']
-  },
-  'Billing Operator': {
-    name: 'Billing Operator',
-    permissions: ['invoices', 'clients', 'payments']
-  },
-  Custom: {
-    name: 'Custom',
-    permissions: []
-  }
-};
-
-const LOCAL_STORAGE_STAFF_KEY = 'escrow_company_staff_backup';
+// Re-export for existing callers like AddStaff.tsx
+export { AVAILABLE_PERMISSIONS, ROLE_PRESETS, type StaffMember };
 
 export default function RolesPermissions() {
-  const { user, profile, isStaff } = useAuth();
+  const { user, profile, isStaff, companyProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { isAutomobile, isCafe } = useUserType();
+  const isEffectiveCafe = isCafe;
 
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,15 +73,69 @@ export default function RolesPermissions() {
   const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Credentials display state
-  const [createdCredentials, setCreatedCredentials] = useState<{
-    name: string;
-    email: string;
-    password?: string;
-    role: string;
-    loginUrl: string;
-    phone?: string;
-  } | null>(null);
+  const [createdCredentials, setCreatedCredentials] = useState<CreatedCredentials | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const activeRolePresets = useMemo(() => {
+    if (isEffectiveCafe) {
+      return {
+        'Kitchen Chef': {
+          name: 'Kitchen Chef',
+          permissions: ['kitchen']
+        },
+        'Billing Operator': {
+          name: 'Billing Operator',
+          permissions: ['invoices', 'clients', 'payments']
+        },
+        Accountant: {
+          name: 'Accountant',
+          permissions: ['invoices', 'purchase-invoices', 'payments', 'expenses']
+        },
+        'Inventory Manager': {
+          name: 'Inventory Manager',
+          permissions: ['purchase-invoices', 'vendors', 'products']
+        },
+        Custom: {
+          name: 'Custom',
+          permissions: []
+        }
+      };
+    }
+    if (isAutomobile) {
+      return {
+        Accountant: {
+          name: 'Accountant',
+          permissions: ['invoices', 'downpayment-invoices', 'purchase-invoices', 'payments', 'expenses', 'einvoice']
+        },
+        'Sales Executive': {
+          name: 'Sales Executive',
+          permissions: ['invoices', 'downpayment-invoices', 'clients', 'products']
+        },
+        'Inventory Manager': {
+          name: 'Inventory Manager',
+          permissions: ['purchase-invoices', 'vendors', 'products']
+        },
+        'Billing Operator': {
+          name: 'Billing Operator',
+          permissions: ['invoices', 'downpayment-invoices', 'clients', 'payments']
+        },
+        Custom: {
+          name: 'Custom',
+          permissions: []
+        }
+      };
+    }
+    return ROLE_PRESETS;
+  }, [isAutomobile, isEffectiveCafe]);
+
+  const visiblePermissions = useMemo(() => {
+    return AVAILABLE_PERMISSIONS.filter(p => {
+      if (p.autoOnly && !isAutomobile) return false;
+      if (p.cafeOnly && !isEffectiveCafe) return false;
+      if (p.hideForCafe && isEffectiveCafe) return false;
+      return true;
+    });
+  }, [isAutomobile, isEffectiveCafe]);
 
   const generateRandomNewPassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$%';
@@ -177,22 +148,44 @@ export default function RolesPermissions() {
 
   const handleRolePresetChange = (roleKey: string) => {
     setSelectedRole(roleKey);
-    if (ROLE_PRESETS[roleKey] && roleKey !== 'Custom') {
-      setSelectedPermissions(ROLE_PRESETS[roleKey].permissions);
+    if (activeRolePresets[roleKey] && roleKey !== 'Custom') {
+      setSelectedPermissions(activeRolePresets[roleKey].permissions);
     }
   };
 
   const handleTogglePermission = (permId: string) => {
     setSelectedPermissions(prev => {
       const next = prev.includes(permId) ? prev.filter(id => id !== permId) : [...prev, permId];
-      const matchedPreset = Object.keys(ROLE_PRESETS).find(key => {
+      const matchedPreset = Object.keys(activeRolePresets).find(key => {
         if (key === 'Custom') return false;
-        const presetPerms = ROLE_PRESETS[key].permissions;
+        const presetPerms = activeRolePresets[key].permissions;
         return presetPerms.length === next.length && presetPerms.every(p => next.includes(p));
       });
       setSelectedRole(matchedPreset || 'Custom');
       return next;
     });
+  };
+
+  const broadcastStaffEvent = (event: 'staff_updated' | 'staff_status_changed' | 'staff_removed', payload: any) => {
+    try {
+      const chName = `escrow_staff_sync_bc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const ch = supabase.channel(chName);
+      ch.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          ch.send({
+            type: 'broadcast',
+            event,
+            payload
+          }).finally(() => {
+            setTimeout(() => {
+              try { supabase.removeChannel(ch); } catch {}
+            }, 1000);
+          });
+        }
+      });
+    } catch (e) {
+      console.warn("Staff event broadcast notice:", e);
+    }
   };
 
   const loadStaff = useCallback(async () => {
@@ -389,12 +382,11 @@ export default function RolesPermissions() {
         }
 
         // Broadcast realtime update to staff sessions
-        const syncChannel = supabase.channel('escrow_staff_sync');
-        syncChannel.send({
-          type: 'broadcast',
-          event: 'staff_updated',
-          payload: { email: editingStaff.email, role: selectedRole, permissions: updatedPermissions }
-        }).catch(() => {});
+        broadcastStaffEvent('staff_updated', {
+          email: editingStaff.email,
+          role: selectedRole,
+          permissions: updatedPermissions
+        });
       } catch (err) {
         console.warn("DB update error:", err);
       }
@@ -452,12 +444,10 @@ export default function RolesPermissions() {
       }
 
       // Broadcast realtime update to staff sessions
-      const syncChannel = supabase.channel('escrow_staff_sync');
-      syncChannel.send({
-        type: 'broadcast',
-        event: 'staff_status_changed',
-        payload: { email: staff.email, status: nextStatus }
-      }).catch(() => {});
+      broadcastStaffEvent('staff_status_changed', {
+        email: staff.email,
+        status: nextStatus
+      });
 
       const updatedList: StaffMember[] = staffList.map(s => s.id === staff.id ? { ...s, status: nextStatus as 'active' | 'inactive' } : s);
       setStaffList(updatedList);
@@ -530,30 +520,84 @@ export default function RolesPermissions() {
             .update({ user_id: targetAuthId, updated_at: new Date().toISOString() })
             .eq('id', targetStaffForPassword.id);
 
+          // Sync owner user_type and company validity to staff profile
+          try {
+            const { data: ownerSetting } = await (serviceSupabase as any)
+              .from('user_settings')
+              .select('user_type')
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+            const ownerType = isCafe ? 'cafe' : isAutomobile ? 'automobile' : (ownerSetting?.user_type || 'normal');
+
+            if (ownerType !== 'cafe') {
+              await (serviceSupabase as any)
+                .from('user_settings')
+                .upsert({
+                  user_id: targetAuthId,
+                  user_type: ownerType,
+                  updated_at: new Date().toISOString()
+                }, { onConflict: 'user_id' });
+            }
+
+            await (serviceSupabase as any)
+              .from('system_settings')
+              .upsert({
+                key: `user_type_${targetAuthId}`,
+                value: ownerType,
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'key' });
+
+            await (serviceSupabase as any)
+              .from('profiles')
+              .upsert({
+                user_id: targetAuthId,
+                company_name: profile?.company_name || 'Escrow Company',
+                phone: targetStaffForPassword.phone || null,
+                mobile: targetStaffForPassword.phone || null,
+                is_staff: true,
+                company_id: user.id,
+                staff_role: targetStaffForPassword.role,
+                staff_permissions: targetStaffForPassword.permissions,
+                subscription_expires_at: profile?.subscription_expires_at || null,
+                is_paid: !!profile?.is_paid,
+                role: 'user',
+                updated_at: new Date().toISOString()
+              }, { onConflict: 'user_id' });
+          } catch (syncErr) {
+            console.warn("Staff profile sync warning:", syncErr);
+          }
+
           setStaffList(prev => prev.map(s => s.id === targetStaffForPassword.id ? { ...s, user_id: targetAuthId } : s));
         }
       }
 
       // Update password for targetAuthId — NEVER for the company owner!
       if (targetAuthId && targetAuthId !== user?.id) {
-        const { error: pwdErr } = await (serviceSupabase as any).auth.admin.updateUserById(
-          targetAuthId,
-          { 
-            password: newStaffPassword,
-            email_confirm: true,
-            user_metadata: {
-              full_name: targetStaffForPassword.name,
-              mobile: targetStaffForPassword.phone || '',
-              company_id: user.id,
-              company_name: profile?.company_name || 'Escrow Company',
-              is_staff: true,
-              staff_role: targetStaffForPassword.role,
-              initial_password: newStaffPassword,
-              temp_password: newStaffPassword
+        try {
+          const { error: pwdErr } = await (serviceSupabase as any).auth.admin.updateUserById(
+            targetAuthId,
+            { 
+              password: newStaffPassword,
+              email_confirm: true,
+              user_metadata: {
+                full_name: targetStaffForPassword.name,
+                mobile: targetStaffForPassword.phone || '',
+                company_id: user.id,
+                company_name: profile?.company_name || 'Escrow Company',
+                is_staff: true,
+                staff_role: targetStaffForPassword.role,
+                initial_password: newStaffPassword,
+                temp_password: newStaffPassword
+              }
             }
+          );
+          if (pwdErr) {
+            console.warn("Could not update staff auth credentials directly (non-fatal):", pwdErr);
           }
-        );
-        if (pwdErr) throw pwdErr;
+        } catch (authErr) {
+          console.warn("Exception during auth.admin.updateUserById (non-fatal):", authErr);
+        }
       }
 
       // Update staffList state and persist to localStorage so temp_password is kept for table WhatsApp
@@ -578,6 +622,7 @@ export default function RolesPermissions() {
       setCreatedCredentials({
         name: targetStaffForPassword.name,
         email: targetStaffForPassword.email,
+        userId: targetAuthId || targetStaffForPassword.user_id,
         password: newStaffPassword,
         role: targetStaffForPassword.role,
         loginUrl: loginUrl,
@@ -646,15 +691,10 @@ export default function RolesPermissions() {
 
       // 4. Broadcast instant logout signal to active staff browser sessions
       try {
-        const syncChannel = supabase.channel('escrow_staff_sync');
-        syncChannel.send({
-          type: 'broadcast',
-          event: 'staff_removed',
-          payload: { 
-            email: cleanEmail, 
-            user_id: targetAuthId 
-          }
-        }).catch(() => {});
+        broadcastStaffEvent('staff_removed', { 
+          email: cleanEmail, 
+          user_id: targetAuthId 
+        });
       } catch (bcErr) {
         console.warn("Broadcast error:", bcErr);
       }
@@ -680,8 +720,10 @@ export default function RolesPermissions() {
     }
   };
 
-  const copyToClipboard = (text: string, fieldName: string) => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = async (text: string, fieldName: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {}
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
     toast({
@@ -861,46 +903,10 @@ export default function RolesPermissions() {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card className="border border-border/70 shadow-sm bg-card overflow-hidden">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate">Total Staff</p>
-              <h3 className="text-xl sm:text-2xl font-bold text-foreground mt-1 break-words leading-tight py-0.5">{staffList.length}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5 truncate">Enrolled team members</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-              <Users className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border/70 shadow-sm bg-card overflow-hidden">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate">Active Status</p>
-              <h3 className="text-xl sm:text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 break-words leading-tight py-0.5">{activeStaffCount}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5 truncate">{staffList.length - activeStaffCount} inactive members</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <UserCheck className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border border-border/70 shadow-sm bg-card overflow-hidden">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider truncate">Security Architecture</p>
-              <h3 className="text-xl sm:text-2xl font-bold text-foreground mt-1 break-words leading-tight py-0.5">Role-Scoped</h3>
-              <p className="text-xs text-muted-foreground mt-0.5 truncate">Restricted module visibility</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <StaffStatsCards 
+        totalStaff={staffList.length} 
+        activeStaffCount={activeStaffCount} 
+      />
 
       {/* Main Table Card */}
       <Card className="border border-border/70 shadow-sm bg-card">
@@ -913,46 +919,16 @@ export default function RolesPermissions() {
               </CardDescription>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-full sm:w-60">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input 
-                  placeholder="Search staff..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 h-9 text-xs"
-                />
-              </div>
-
-              <Select value={roleFilter} onValueChange={setRoleFilter}>
-                <SelectTrigger className="w-[130px] h-9 text-xs">
-                  <SelectValue placeholder="All Roles" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Roles</SelectItem>
-                  <SelectItem value="Accountant">Accountant</SelectItem>
-                  <SelectItem value="Sales Executive">Sales</SelectItem>
-                  <SelectItem value="Inventory Manager">Inventory</SelectItem>
-                  <SelectItem value="Billing Operator">Billing</SelectItem>
-                  <SelectItem value="Custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[110px] h-9 text-xs">
-                  <SelectValue placeholder="All Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button variant="outline" size="sm" onClick={loadStaff} className="h-9 px-2.5">
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              </Button>
-            </div>
+            <StaffFilters
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              roleFilter={roleFilter}
+              onRoleFilterChange={setRoleFilter}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              onRefresh={loadStaff}
+              loading={loading}
+            />
           </div>
         </CardHeader>
 
@@ -984,456 +960,74 @@ export default function RolesPermissions() {
               )}
             </div>
           ) : (
-            <>
-              <div className="overflow-x-auto">
-                <Table>
-                <TableHeader className="bg-muted/30">
-                  <TableRow>
-                    <TableHead className="w-[150px] text-xs font-semibold">Account ID</TableHead>
-                    <TableHead className="w-[240px] text-xs font-semibold">Staff Member</TableHead>
-                    <TableHead className="text-xs font-semibold">Assigned Role</TableHead>
-                    <TableHead className="min-w-[280px] text-xs font-semibold">Authorized Modules</TableHead>
-                    <TableHead className="text-xs font-semibold">Status</TableHead>
-                    <TableHead className="text-xs font-semibold">Enrolled</TableHead>
-                    <TableHead className="text-right text-xs font-semibold">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paginatedStaff.map((staff) => (
-                    <TableRow key={staff.id || staff.email} className="hover:bg-muted/20">
-                      <TableCell>
-                        <div className="flex items-center gap-1.5 bg-primary/5 dark:bg-primary/10 border border-primary/20 px-2.5 py-1 rounded-lg w-fit font-mono">
-                          <span className="text-xs font-bold text-primary">
-                            #{generateAccountId(staff.user_id || staff.email)}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              copyToClipboard(generateAccountId(staff.user_id || staff.email), 'Account ID');
-                            }}
-                            className="text-muted-foreground hover:text-primary transition-colors p-0.5"
-                            title="Copy Account ID"
-                          >
-                            <Copy className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center font-bold text-xs shrink-0">
-                            {staff.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-xs text-foreground truncate">{staff.name}</p>
-                            <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
-                              <Mail className="w-3 h-3 shrink-0" /> {staff.email}
-                            </p>
-                            {staff.phone && (
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
-                                  <Phone className="w-2.5 h-2.5 shrink-0" /> {staff.phone}
-                                </span>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSendStaffWhatsApp(staff);
-                                  }}
-                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 hover:text-emerald-700 transition-colors"
-                                  title="Send WhatsApp Login Access"
-                                >
-                                  <MessageSquare className="w-2.5 h-2.5" /> WhatsApp
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-semibold text-[11px] px-2 py-0.5 bg-background">
-                          {staff.role}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1 max-w-sm">
-                          {staff.permissions && staff.permissions.length > 0 ? (
-                            staff.permissions.map(pKey => {
-                              const permObj = AVAILABLE_PERMISSIONS.find(ap => ap.id === pKey);
-                              return (
-                                <span 
-                                  key={pKey} 
-                                  className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border/60"
-                                >
-                                  {permObj ? permObj.label : pKey}
-                                </span>
-                              );
-                            })
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground italic">None</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <button
-                          onClick={() => handleToggleStatus(staff)}
-                          className="inline-flex items-center gap-1.5 focus:outline-none"
-                          title="Click to toggle status"
-                        >
-                          <span className={`w-2 h-2 rounded-full ${staff.status === 'active' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                          <Badge 
-                            variant="secondary"
-                            className={`text-[10px] uppercase font-bold tracking-wider cursor-pointer ${
-                              staff.status === 'active' 
-                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30' 
-                                : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 border border-rose-500/30'
-                            }`}
-                          >
-                            {staff.status === 'active' ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </button>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {safelyToLocaleDate(staff.created_at)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => handleSendStaffWhatsApp(staff)}
-                            className="h-8 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-xs gap-1.5 font-medium"
-                            title={`Send WhatsApp Access to ${staff.name}`}
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">WhatsApp</span>
-                          </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreHorizontal className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48">
-                              <DropdownMenuItem onClick={() => handleSendStaffWhatsApp(staff)} className="text-xs gap-2 text-emerald-600 font-medium">
-                                <MessageSquare className="w-3.5 h-3.5" /> Send WhatsApp Invite
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleOpenEdit(staff)} className="text-xs gap-2">
-                                <Edit3 className="w-3.5 h-3.5" /> Edit Privileges
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleOpenPasswordModal(staff)} className="text-xs gap-2">
-                                <Key className="w-3.5 h-3.5" /> Reset Password
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleToggleStatus(staff)} className="text-xs gap-2">
-                                <Power className="w-3.5 h-3.5" /> {staff.status === 'active' ? 'Deactivate' : 'Activate'}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => setDeleteStaffTarget(staff)} className="text-xs gap-2 text-destructive focus:text-destructive">
-                                <Trash2 className="w-3.5 h-3.5" /> Remove Staff
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            <DataTablePagination
-              currentPage={staffPage}
-              totalPages={Math.max(1, Math.ceil(filteredStaff.length / staffPageSize))}
-              totalCount={filteredStaff.length}
-              pageSize={staffPageSize}
+            <StaffTable
+              paginatedStaff={paginatedStaff}
+              totalFilteredCount={filteredStaff.length}
+              staffPage={staffPage}
+              staffPageSize={staffPageSize}
               onPageChange={setStaffPage}
               onPageSizeChange={setStaffPageSize}
-              entityName="staff members"
+              onToggleStatus={handleToggleStatus}
+              onSendWhatsApp={handleSendStaffWhatsApp}
+              onOpenEdit={handleOpenEdit}
+              onOpenPasswordModal={handleOpenPasswordModal}
+              onSetDeleteTarget={setDeleteStaffTarget}
+              onCopyToClipboard={copyToClipboard}
+              availablePermissions={visiblePermissions}
             />
-            </>
           )}
         </CardContent>
       </Card>
 
       {/* Edit Staff Modal */}
-      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold">Edit Staff Member</DialogTitle>
-            <DialogDescription className="text-xs">
-              Update assigned role and authorized modules for {editingStaff?.name}.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSaveEdit} className="space-y-4 pt-1">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Full Name</Label>
-                <Input 
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                  className="h-9 text-xs"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold">Login Email</Label>
-                <Input 
-                  value={email}
-                  disabled
-                  className="h-9 text-xs bg-muted text-muted-foreground"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Contact Number</Label>
-              <CountryPhoneInput 
-                value={phone}
-                onChange={(val) => setPhone(val)}
-                placeholder="Optional"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Role Preset</Label>
-              <Select value={selectedRole} onValueChange={handleRolePresetChange}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Accountant">Accountant</SelectItem>
-                  <SelectItem value="Sales Executive">Sales Executive</SelectItem>
-                  <SelectItem value="Inventory Manager">Inventory Manager</SelectItem>
-                  <SelectItem value="Billing Operator">Billing Operator</SelectItem>
-                  <SelectItem value="Custom">Custom Role</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2 pt-2 border-t border-border/60">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Module Authorization
-                </Label>
-                <span className="text-[11px] text-muted-foreground">
-                  {selectedPermissions.length} / {AVAILABLE_PERMISSIONS.length} Enabled
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {AVAILABLE_PERMISSIONS.map((perm) => {
-                  const isChecked = selectedPermissions.includes(perm.id);
-                  return (
-                    <div 
-                      key={perm.id}
-                      onClick={() => handleTogglePermission(perm.id)}
-                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-left cursor-pointer transition-colors ${
-                        isChecked 
-                          ? 'border-primary/50 bg-primary/5 dark:bg-primary/10' 
-                          : 'border-border/60 hover:bg-muted/40'
-                      }`}
-                    >
-                      <input 
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => handleTogglePermission(perm.id)}
-                        className="mt-0.5 rounded text-primary focus:ring-primary h-3.5 w-3.5"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold leading-none">{perm.label}</p>
-                        <p className="text-[10px] text-muted-foreground mt-1 leading-tight">{perm.description}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <DialogFooter className="pt-3 gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsEditModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" size="sm" disabled={isSubmitting} className="font-semibold">
-                {isSubmitting ? "Saving..." : "Save Changes"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <EditStaffDialog
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+        editingStaff={editingStaff}
+        fullName={fullName}
+        setFullName={setFullName}
+        email={email}
+        phone={phone}
+        setPhone={setPhone}
+        selectedRole={selectedRole}
+        onRolePresetChange={handleRolePresetChange}
+        selectedPermissions={selectedPermissions}
+        visiblePermissions={visiblePermissions}
+        onTogglePermission={handleTogglePermission}
+        onSaveEdit={handleSaveEdit}
+        isSubmitting={isSubmitting}
+      />
 
       {/* Password Reset Modal */}
-      <Dialog open={isPasswordModalOpen} onOpenChange={setIsPasswordModalOpen}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Key className="w-4 h-4 text-primary" /> Reset Staff Password
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Assign a new login password for {targetStaffForPassword?.name}.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSaveNewPassword} className="space-y-4 pt-1">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold">New Password</Label>
-                <button
-                  type="button"
-                  onClick={generateRandomNewPassword}
-                  className="text-[11px] text-primary hover:underline font-medium"
-                >
-                  Generate Strong
-                </button>
-              </div>
-              <div className="relative">
-                <Input 
-                  type={showNewPassword ? "text" : "password"}
-                  placeholder="Minimum 8 characters (e.g. Staff@1234)" 
-                  value={newStaffPassword}
-                  onChange={(e) => setNewStaffPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  className="h-9 text-xs pr-9"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            <DialogFooter className="pt-2 gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsPasswordModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" size="sm" disabled={isSubmitting} className="font-semibold">
-                {isSubmitting ? "Updating..." : "Update Password"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <PasswordResetDialog
+        open={isPasswordModalOpen}
+        onOpenChange={setIsPasswordModalOpen}
+        targetStaff={targetStaffForPassword}
+        newStaffPassword={newStaffPassword}
+        setNewStaffPassword={setNewStaffPassword}
+        showNewPassword={showNewPassword}
+        setShowNewPassword={setShowNewPassword}
+        onGenerateRandomPassword={generateRandomNewPassword}
+        onSaveNewPassword={handleSaveNewPassword}
+        isSubmitting={isSubmitting}
+      />
 
       {/* Success Credentials Modal */}
-      <Dialog open={isSuccessModalOpen} onOpenChange={setIsSuccessModalOpen}>
-        <DialogContent className="sm:max-w-[460px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold text-center">
-              Credentials Updated
-            </DialogTitle>
-            <DialogDescription className="text-xs text-center">
-              Share the updated credentials with {createdCredentials?.name}.
-            </DialogDescription>
-          </DialogHeader>
-
-          {createdCredentials && (
-            <div className="space-y-3 my-2">
-              <div className="bg-muted/40 p-3.5 rounded-lg space-y-2 border border-border/70 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Portal URL:</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[11px] truncate max-w-[180px]">{createdCredentials.loginUrl}</span>
-                    <button onClick={() => copyToClipboard(createdCredentials.loginUrl, 'Portal URL')}>
-                      {copiedField === 'Portal URL' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Account ID:</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                      #{generateAccountId(createdCredentials.email)}
-                    </span>
-                    <button onClick={() => copyToClipboard(generateAccountId(createdCredentials.email), 'Account ID')}>
-                      {copiedField === 'Account ID' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Email:</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[11px] font-semibold">{createdCredentials.email}</span>
-                    <button onClick={() => copyToClipboard(createdCredentials.email, 'Email')}>
-                      {copiedField === 'Email' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
-                    </button>
-                  </div>
-                </div>
-
-                {createdCredentials.password && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Password:</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">
-                        {createdCredentials.password}
-                      </span>
-                      <button onClick={() => copyToClipboard(createdCredentials.password || '', 'Password')}>
-                        {copiedField === 'Password' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const text = `Portal: ${createdCredentials.loginUrl}\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.password || ''}\nRole: ${createdCredentials.role}`;
-                    copyToClipboard(text, 'All Credentials');
-                  }}
-                  className="text-xs"
-                >
-                  <Copy className="w-3 h-3 mr-1.5" /> Copy Details
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={shareCredentialsWhatsApp}
-                  className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  <Share2 className="w-3 h-3 mr-1.5" /> WhatsApp
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="pt-2">
-            <Button size="sm" className="w-full" onClick={() => setIsSuccessModalOpen(false)}>
-              Done
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CredentialsSuccessDialog
+        open={isSuccessModalOpen}
+        onOpenChange={setIsSuccessModalOpen}
+        createdCredentials={createdCredentials}
+        copiedField={copiedField}
+        onCopyToClipboard={copyToClipboard}
+        onShareWhatsApp={shareCredentialsWhatsApp}
+      />
 
       {/* Delete Confirmation Modal */}
-      <AlertDialog open={!!deleteStaffTarget} onOpenChange={() => setDeleteStaffTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-base font-bold text-destructive flex items-center gap-2">
-              <Trash2 className="w-4 h-4" /> Remove Staff Member
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs">
-              Are you sure you want to remove <strong className="text-foreground">{deleteStaffTarget?.name}</strong> ({deleteStaffTarget?.email})? They will immediately lose access to company data.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteStaff}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs font-semibold"
-            >
-              Remove Staff
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteStaffAlert
+        deleteStaffTarget={deleteStaffTarget}
+        onClose={() => setDeleteStaffTarget(null)}
+        onConfirmDelete={handleDeleteStaff}
+      />
     </div>
   );
 }

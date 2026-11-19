@@ -72,12 +72,12 @@ const ProfitLossReport = () => {
       .eq('party_id', partyId);
 
     if (startDate) {
-      q = q.gte('created_at', startDate);
+      q = q.gte('transaction_date', startDate);
     }
     if (endDate) {
       const adjustedEndDate = new Date(endDate);
       adjustedEndDate.setHours(23, 59, 59, 999);
-      q = q.lte('created_at', adjustedEndDate.toISOString());
+      q = q.lte('transaction_date', adjustedEndDate.toISOString());
     }
     if (debouncedSearch) {
       q = q.ilike('remarks', `%${debouncedSearch}%`);
@@ -119,6 +119,7 @@ const ProfitLossReport = () => {
       if (!pageQ) return;
 
       const { data: pageData, count, error: pageErr } = await pageQ
+        .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false })
         .range((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE - 1);
 

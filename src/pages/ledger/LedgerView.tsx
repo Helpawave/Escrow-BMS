@@ -1499,6 +1499,7 @@ const LedgerView = () => {
           printStartDate={printStartDate}
           printEndDate={printEndDate}
           printOpeningBalance={printOpeningBalance}
+          isLofferUser={isLofferUser}
         />
       )}
     </>

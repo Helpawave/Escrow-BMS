@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { checkIsRegularUser } from '@/utils/userType';
 
 export interface Party {
   id: string;
   party_name: string;
   sr_no: string;
-  phone?: string | null;
   status: 'take' | 'give';
   commission_rate: number;
-  commission_type?: 'with' | 'without';
   monday_final: boolean;
   system_type: 'normal' | 'commission' | 'company';
-  balance?: number;
+  phone?: string | null;
 }
 
 export interface Transaction {
@@ -70,10 +69,10 @@ export const useLedgerTransactions = ({
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [printTransactions, setPrintTransactions] = useState<Transaction[]>([]);
   const [closingBalance, setClosingBalance] = useState(0);
-  const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [selectedTnsIds, setSelectedTnsIds] = useState<Set<string>>(new Set());
   const [selectedPartyIds, setSelectedPartyIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   // DC Report Modal States
   const [isDcModalOpen, setIsDcModalOpen] = useState(false);
@@ -102,18 +101,13 @@ export const useLedgerTransactions = ({
   }, [selectedParty?.id]);
 
   const getBalance = async (partyId: string) => {
-    try {
-      const { data } = await supabase
-        .from('transactions')
-        .select('balance')
-        .eq('party_id', partyId)
-        .order('transaction_date', { ascending: false })
-        .limit(1);
-      return data?.[0]?.balance || 0;
-    } catch (e) {
-      console.warn("getBalance error:", e);
-    }
-    return 0;
+    const { data } = await supabase
+      .from('transactions')
+      .select('balance')
+      .eq('party_id', partyId)
+      .order('transaction_date', { ascending: false })
+      .limit(1);
+    return data?.[0]?.balance || 0;
   };
 
   const fetchTransactions = async (partyId: string, showArchived: boolean = false, isSilent: boolean = false) => {
@@ -144,100 +138,170 @@ export const useLedgerTransactions = ({
           .range(page * pageSize, (page + 1) * pageSize - 1);
 
         if (tnsError) throw tnsError;
-        if (!pageData || pageData.length === 0) {
-          hasMore = false;
+
+        if (pageData && pageData.length > 0) {
+          currentTns = currentTns.concat(pageData as Transaction[]);
+          if (pageData.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
         } else {
-          currentTns = [...currentTns, ...pageData];
-          hasMore = pageData.length === pageSize;
-          page++;
+          hasMore = false;
         }
       }
+      
       const linkedIds = currentTns.map(t => t.linked_transaction_id).filter(Boolean) as string[];
-      if (linkedIds.length > 0) {
-        const { data: partnerData } = await supabase
-          .from('transactions')
-          .select('linked_transaction_id, party_id, parties(party_name, system_type)')
-          .in('linked_transaction_id', linkedIds)
-          .neq('party_id', partyId);
-        
-        if (partnerData) {
-          const partnerNameMap = new Map<string, string>();
-          const partnerTypeMap = new Map<string, string>();
-          partnerData.forEach((p: any) => {
-            if (p.parties?.system_type !== 'commission' || !partnerNameMap.has(p.linked_transaction_id)) {
-              partnerNameMap.set(p.linked_transaction_id, p.parties?.party_name || 'System');
-              partnerTypeMap.set(p.linked_transaction_id, p.parties?.system_type || 'normal');
-            }
-          });
-          
-          currentTns.forEach(t => {
-            if (t.linked_transaction_id) {
-              t.partner_party_name = partnerNameMap.get(t.linked_transaction_id);
-              t.partner_system_type = partnerTypeMap.get(t.linked_transaction_id) as any;
-            }
-          });
+      const uniqueLinkedIds = Array.from(new Set(linkedIds));
+      if (uniqueLinkedIds.length > 0) {
+        const partnerNameMap = new Map<string, string>();
+        const partnerTypeMap = new Map<string, string>();
+        const chunkSize = 200;
+
+        const chunks: string[][] = [];
+        for (let i = 0; i < uniqueLinkedIds.length; i += chunkSize) {
+          chunks.push(uniqueLinkedIds.slice(i, i + chunkSize));
         }
+
+        const partnerResults = await Promise.all(
+          chunks.map(chunk =>
+            supabase
+              .from('transactions')
+              .select('linked_transaction_id, party_id, parties(party_name, system_type)')
+              .in('linked_transaction_id', chunk)
+              .neq('party_id', partyId)
+          )
+        );
+
+        partnerResults.forEach(({ data: partnerData }) => {
+          if (partnerData) {
+            partnerData.forEach((p: any) => {
+              const rawParties = Array.isArray(p.parties) ? p.parties[0] : p.parties;
+              const partyName = rawParties?.party_name || 'System';
+              const systemType = rawParties?.system_type || 'normal';
+              const id = p.linked_transaction_id;
+
+              if (id) {
+                const existingType = partnerTypeMap.get(id);
+                if (!partnerNameMap.has(id) || (existingType === 'commission' && systemType !== 'commission')) {
+                  partnerNameMap.set(id, partyName);
+                  partnerTypeMap.set(id, systemType);
+                }
+              }
+            });
+          }
+        });
+
+        currentTns.forEach(t => {
+          if (t.linked_transaction_id) {
+            t.partner_party_name = partnerNameMap.get(t.linked_transaction_id);
+            t.partner_system_type = partnerTypeMap.get(t.linked_transaction_id) as any;
+          }
+        });
       }
 
-      // Dynamically compute accurate live running balance on every transaction
-      let running = 0;
-      currentTns.forEach(t => {
-        t.transaction_date = t.created_at || (t as any).transaction_date || new Date().toISOString();
-        if (t.is_settlement && t.balance !== undefined) {
-          running = Number(t.balance) || 0;
-        } else {
-          running += (Number(t.credit) || 0) - (Number(t.debit) || 0);
-          t.balance = running;
+      if (showArchived) {
+        try {
+          const savedOldChecked = localStorage.getItem(`ledger_checked_old_${partyId}`);
+          if (savedOldChecked !== null) {
+            const checkedSet = new Set(JSON.parse(savedOldChecked));
+            currentTns.forEach(t => {
+              t.is_checked = checkedSet.has(t.id);
+            });
+          }
+        } catch (e) {
+          console.error('Error reading archived checked state from localStorage:', e);
         }
-      });
+      }
 
       setTransactions(currentTns);
-      if (!showArchived) {
-        setClosingBalance(running);
-      }
+      setClosingBalance(currentTns.length > 0 ? currentTns[currentTns.length - 1].balance : 0);
     } catch (err) {
       console.error('Error fetching transactions:', err);
     } finally {
-      setLoadingTransactions(false);
+      if (!isSilent) {
+        setLoadingTransactions(false);
+      }
     }
   };
 
   const fetchAllTransactionsForPrint = async (partyId: string) => {
     try {
-      const { data: tnsData, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('party_id', partyId)
-        .order('created_at', { ascending: true });
-        
-      if (error) throw error;
-      
-      const currentTns = (tnsData || []) as Transaction[];
-      const linkedIds = currentTns.map(t => t.linked_transaction_id).filter(Boolean) as string[];
-      if (linkedIds.length > 0) {
-        const { data: partnerData } = await supabase
+      let currentTns: Transaction[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: pageData, error } = await supabase
           .from('transactions')
-          .select('linked_transaction_id, party_id, parties(party_name, system_type)')
-          .in('linked_transaction_id', linkedIds)
-          .neq('party_id', partyId);
-        
-        if (partnerData) {
-          const partnerNameMap = new Map<string, string>();
-          const partnerTypeMap = new Map<string, string>();
-          partnerData.forEach((p: any) => {
-            if (p.parties?.system_type !== 'commission' || !partnerNameMap.has(p.linked_transaction_id)) {
-              partnerNameMap.set(p.linked_transaction_id, p.parties?.party_name || 'System');
-              partnerTypeMap.set(p.linked_transaction_id, p.parties?.system_type || 'normal');
-            }
-          });
-          
-          currentTns.forEach(t => {
-            if (t.linked_transaction_id) {
-              t.partner_party_name = partnerNameMap.get(t.linked_transaction_id);
-              t.partner_system_type = partnerTypeMap.get(t.linked_transaction_id) as any;
-            }
-          });
+          .select('*')
+          .eq('party_id', partyId)
+          .order('transaction_date', { ascending: true })
+          .order('created_at', { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        if (pageData && pageData.length > 0) {
+          currentTns = currentTns.concat(pageData as Transaction[]);
+          if (pageData.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
         }
+      }
+      
+      const linkedIds = currentTns.map(t => t.linked_transaction_id).filter(Boolean) as string[];
+      const uniqueLinkedIds = Array.from(new Set(linkedIds));
+      if (uniqueLinkedIds.length > 0) {
+        const partnerNameMap = new Map<string, string>();
+        const partnerTypeMap = new Map<string, string>();
+        const chunkSize = 200;
+
+        const chunks: string[][] = [];
+        for (let i = 0; i < uniqueLinkedIds.length; i += chunkSize) {
+          chunks.push(uniqueLinkedIds.slice(i, i + chunkSize));
+        }
+
+        const partnerResults = await Promise.all(
+          chunks.map(chunk =>
+            supabase
+              .from('transactions')
+              .select('linked_transaction_id, party_id, parties(party_name, system_type)')
+              .in('linked_transaction_id', chunk)
+              .neq('party_id', partyId)
+          )
+        );
+
+        partnerResults.forEach(({ data: partnerData }) => {
+          if (partnerData) {
+            partnerData.forEach((p: any) => {
+              const rawParties = Array.isArray(p.parties) ? p.parties[0] : p.parties;
+              const partyName = rawParties?.party_name || 'System';
+              const systemType = rawParties?.system_type || 'normal';
+              const id = p.linked_transaction_id;
+
+              if (id) {
+                const existingType = partnerTypeMap.get(id);
+                if (!partnerNameMap.has(id) || (existingType === 'commission' && systemType !== 'commission')) {
+                  partnerNameMap.set(id, partyName);
+                  partnerTypeMap.set(id, systemType);
+                }
+              }
+            });
+          }
+        });
+
+        currentTns.forEach(t => {
+          if (t.linked_transaction_id) {
+            t.partner_party_name = partnerNameMap.get(t.linked_transaction_id);
+            t.partner_system_type = partnerTypeMap.get(t.linked_transaction_id) as any;
+          }
+        });
       }
       setPrintTransactions(currentTns);
     } catch (err) {
@@ -251,27 +315,38 @@ export const useLedgerTransactions = ({
         .from('transactions')
         .select('*')
         .eq('party_id', partyId)
-        .neq('is_finalized', true)
+        .or('is_finalized.is.null,is_finalized.eq.false')
+        .order('transaction_date', { ascending: true })
         .order('created_at', { ascending: true });
 
       if (error) throw error;
       if (!activeTns || activeTns.length === 0) return;
 
       let runningBalance = 0;
+      const updates = [];
+
       for (let i = 0; i < activeTns.length; i++) {
         const t = activeTns[i];
-        if (t.is_settlement && t.balance !== undefined) {
-          runningBalance = Number(t.balance) || 0;
+        if (t.is_settlement) {
+          runningBalance = t.balance;
         } else {
-          runningBalance = runningBalance + (Number(t.credit) || 0) - (Number(t.debit) || 0);
+          runningBalance = runningBalance + t.credit - t.debit;
+          if (t.balance !== runningBalance) {
+            updates.push({ id: t.id, balance: runningBalance });
+          }
         }
       }
 
-      // Update party's balance in parties table directly
-      await supabase
-        .from('parties')
-        .update({ balance: runningBalance })
-        .eq('id', partyId);
+      if (updates.length > 0) {
+        await Promise.all(
+          updates.map(update =>
+            supabase
+              .from('transactions')
+              .update({ balance: update.balance })
+              .eq('id', update.id)
+          )
+        );
+      }
     } catch (err) {
       console.error('Error recalculating balances:', err);
     }
@@ -280,9 +355,11 @@ export const useLedgerTransactions = ({
   const handleMondayFinal = async () => {
     if (!selectedParty || submitting) return;
     
+    const isLofferUser = checkIsRegularUser(authUser);
+
     setConfirmDialog({
       isOpen: true,
-      title: 'Monday Final Settlement',
+      title: isLofferUser ? 'Final Settlement' : 'Monday Final Settlement',
       message: `Are you sure you want to finalize ${selectedParty.party_name}'s account? This will settle all active entries into a single summary record and archive the history.`,
       type: 'success',
       onConfirm: async () => {
@@ -293,8 +370,8 @@ export const useLedgerTransactions = ({
             .from('transactions')
             .select('*')
             .eq('party_id', selectedParty.id)
-            .neq('is_finalized', true)
-            .order('created_at', { ascending: true });
+            .or('is_finalized.is.null,is_finalized.eq.false')
+            .order('transaction_date', { ascending: true });
 
           if (fErr) throw fErr;
           if (!latestTns || latestTns.length === 0) {
@@ -319,7 +396,7 @@ export const useLedgerTransactions = ({
             p_party_id: selectedParty.id,
             p_user_id: authUser?.id || null,
             p_closing_balance: closingBal,
-            p_remarks: 'MONDAY FINAL SETTLEMENT'
+            p_remarks: isLofferUser ? 'FINAL SETTLEMENT' : 'MONDAY FINAL SETTLEMENT'
           });
 
           if (rpcError) throw rpcError;
@@ -358,8 +435,8 @@ export const useLedgerTransactions = ({
               .from('transactions')
               .select('*')
               .eq('party_id', pId)
-              .neq('is_finalized', true)
-              .order('created_at', { ascending: true });
+              .or('is_finalized.is.null,is_finalized.eq.false')
+              .order('transaction_date', { ascending: true });
 
             if (fetchErr) throw fetchErr;
 
@@ -508,7 +585,7 @@ export const useLedgerTransactions = ({
       const debitB = secondaryType === 'DR' ? absAmt : 0;
       const newBalB = balB + creditB - debitB;
 
-      let { error: insertErr } = await supabase.from('transactions').insert([
+      const { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: anchorId,
           user_id: authUser.id,
@@ -518,10 +595,11 @@ export const useLedgerTransactions = ({
           tns_type: primaryType,
           credit: creditA,
           debit: debitA,
-          amount: absAmt,
-          date: tnsA.created_at || new Date().toISOString(),
-          transaction_date: tnsA.created_at || new Date().toISOString(),
-          created_at: tnsA.created_at || new Date().toISOString()
+          balance: newBalA,
+          transaction_date: tnsA.transaction_date,
+          created_at: tnsA.created_at,
+          updated_at: new Date().toISOString(),
+          is_modified: true
         },
         {
           id: generateUUID(),
@@ -532,50 +610,15 @@ export const useLedgerTransactions = ({
           tns_type: secondaryType,
           credit: creditB,
           debit: debitB,
-          amount: absAmt,
-          date: tnsA.created_at || new Date().toISOString(),
-          transaction_date: tnsA.created_at || new Date().toISOString(),
-          created_at: tnsA.created_at || new Date().toISOString()
+          balance: newBalB,
+          transaction_date: tnsA.transaction_date,
+          created_at: tnsA.created_at,
+          updated_at: new Date().toISOString(),
+          is_modified: true
         }
       ]);
 
-      if (insertErr) {
-        console.warn("Edit transaction insert with created_at failed, retrying minimal:", insertErr);
-        const fbRes = await supabase.from('transactions').insert([
-          {
-            id: anchorId,
-            user_id: authUser.id,
-            party_id: selectedParty.id,
-            linked_transaction_id: anchorId,
-            remarks: editFormData.remarks || '',
-            tns_type: primaryType,
-            credit: creditA,
-            debit: debitA,
-            amount: absAmt,
-            date: tnsA.created_at || new Date().toISOString()
-          },
-          {
-            id: generateUUID(),
-            user_id: authUser.id,
-            party_id: editFormData.linkedParty.id,
-            linked_transaction_id: anchorId,
-            remarks: editFormData.remarks || '',
-            tns_type: secondaryType,
-            credit: creditB,
-            debit: debitB,
-            amount: absAmt,
-            date: tnsA.created_at || new Date().toISOString()
-          }
-        ]);
-        insertErr = fbRes.error;
-      }
-
       if (insertErr) throw insertErr;
-
-      await Promise.all([
-        supabase.from('parties').update({ balance: newBalA }).eq('id', selectedParty.id),
-        supabase.from('parties').update({ balance: newBalB }).eq('id', editFormData.linkedParty.id)
-      ]);
 
       await Promise.all(Array.from(affectedPartyIds).map(pId => recalculateBalances(pId)));
 
@@ -602,8 +645,8 @@ export const useLedgerTransactions = ({
         .from('transactions')
         .select('credit, debit, tns_type')
         .eq('party_id', selectedParty.id)
-        .gte('created_at', `${dcFromDate}T00:00:00.000Z`)
-        .lte('created_at', `${dcToDate}T23:59:59.999Z`);
+        .gte('transaction_date', `${dcFromDate}T00:00:00.000Z`)
+        .lte('transaction_date', `${dcToDate}T23:59:59.999Z`);
         
       if (error) throw error;
       
@@ -814,8 +857,7 @@ export const useLedgerTransactions = ({
           totalVolume = 0;
         }
       } else {
-        // Direct calculation without system company party
-        totalVolume = mainTns.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
+        totalVolume = 0;
       }
     }
     
@@ -827,41 +869,30 @@ export const useLedgerTransactions = ({
     };
   };
 
-  const createTransactionEntry = async (amountVal: string, remarksVal: string, linkedPartyVal: Party, customIdempotencyKey?: string) => {
+  const createTransactionEntry = async (amountVal: string, remarksVal: string, linkedPartyVal: Party, entryDateVal?: string) => {
     if (!selectedParty || !amountVal || parseFloat(amountVal) === 0 || !linkedPartyVal || !authUser) return false;
     setSubmitting(true);
     const parsedAmt = parseFloat(amountVal);
     const numAmt = Math.sign(parsedAmt) * Math.round(Math.abs(parsedAmt));
     const absAmt = Math.abs(numAmt);
-    const firstPartyType = numAmt > 0 ? 'CR' : 'DR';
-    const secondPartyType = numAmt > 0 ? 'DR' : 'CR';
-
     try {
-      // 1. Try atomic database RPC
-      try {
-        const { data: rpcData, error: rpcError } = await supabase.rpc('post_ledger_transaction', {
-          p_user_id: authUser.id,
-          p_party_id: selectedParty.id,
-          p_linked_party_id: linkedPartyVal.id,
-          p_amount: absAmt,
-          p_tns_type: firstPartyType,
-          p_remarks: remarksVal || '',
-          p_idempotency_key: customIdempotencyKey || `op-${crypto.randomUUID()}`
-        });
+      const firstPartyType = numAmt > 0 ? 'CR' : 'DR';
+      const secondPartyType = numAmt > 0 ? 'DR' : 'CR';
 
-        if (!rpcError && rpcData?.success) {
-          await Promise.all([
-            fetchParties(),
-            fetchTransactions(selectedParty.id)
-          ]);
-          return true;
+      const chainId = generateUUID();
+
+      // Format custom transaction date if provided
+      let finalTxnDate: string | undefined = undefined;
+      if (entryDateVal) {
+        const today = new Date();
+        const parts = entryDateVal.split('-').map(Number);
+        if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+          const customDate = new Date(parts[0], parts[1] - 1, parts[2], today.getHours(), today.getMinutes(), today.getSeconds(), today.getMilliseconds());
+          finalTxnDate = customDate.toISOString();
         }
-      } catch (rpcEx) {
-        console.warn("RPC post_ledger_transaction fallback to direct insert:", rpcEx);
       }
 
-      // 2. Direct insert
-      const chainId = generateUUID();
+      // Get current balances
       const [balA, balB] = await Promise.all([
         getBalance(selectedParty.id),
         getBalance(linkedPartyVal.id)
@@ -875,6 +906,7 @@ export const useLedgerTransactions = ({
       const debitB = secondPartyType === 'DR' ? absAmt : 0;
       const newBalB = balB + creditB - debitB;
 
+      // Insert both transaction records atomically
       const { error: insertErr } = await supabase.from('transactions').insert([
         {
           id: chainId,
@@ -885,10 +917,8 @@ export const useLedgerTransactions = ({
           tns_type: firstPartyType,
           credit: creditA,
           debit: debitA,
-          amount: absAmt,
-          date: new Date().toISOString(),
-          transaction_date: new Date().toISOString(),
-          created_at: new Date().toISOString()
+          balance: newBalA,
+          ...(finalTxnDate ? { transaction_date: finalTxnDate } : {})
         },
         {
           id: generateUUID(),
@@ -899,34 +929,24 @@ export const useLedgerTransactions = ({
           tns_type: secondPartyType,
           credit: creditB,
           debit: debitB,
-          amount: absAmt,
-          date: new Date().toISOString(),
-          transaction_date: new Date().toISOString(),
-          created_at: new Date().toISOString()
+          balance: newBalB,
+          ...(finalTxnDate ? { transaction_date: finalTxnDate } : {})
         }
       ]);
 
       if (insertErr) throw insertErr;
 
-      try {
-        await Promise.all([
-          supabase.from('parties').update({ balance: newBalA }).eq('id', selectedParty.id),
-          supabase.from('parties').update({ balance: newBalB }).eq('id', linkedPartyVal.id)
-        ]);
-      } catch (pErr) {
-        console.warn("Could not update parties table balance directly:", pErr);
-      }
-
+      // Recalculate balances to ensure everything is perfect
       await Promise.all([
         recalculateBalances(selectedParty.id),
         recalculateBalances(linkedPartyVal.id)
       ]);
-      
-      await Promise.all([
-        fetchParties(),
-        fetchTransactions(selectedParty.id)
-      ]);
 
+      await Promise.all([
+        fetchTransactions(selectedParty.id, isOldRecordsView, true),
+        fetchAllTransactionsForPrint(selectedParty.id)
+      ]);
+      
       return true;
     } catch (err) { 
       console.error(err); 
@@ -940,11 +960,11 @@ export const useLedgerTransactions = ({
   return {
     transactions,
     setTransactions,
+    loadingTransactions,
     printTransactions,
     setPrintTransactions,
     closingBalance,
     setClosingBalance,
-    loadingTransactions,
     selectedTnsIds,
     setSelectedTnsIds,
     selectedPartyIds,

@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import React from 'react';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -5,7 +6,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Save, CreditCard } from "lucide-react";
 import { Client } from '@/types/invoice';
 import { InvoiceFormData } from './InvoiceHeader';
-import { useTaxConfig } from '@/contexts/TaxContext';
 
 interface InvoiceTotalsProps {
   currencySymbol: string;
@@ -23,6 +23,7 @@ interface InvoiceTotalsProps {
   onAddExpense: () => void;
   isPurchase?: boolean;
   isDownpayment?: boolean;
+  isCafe?: boolean;
 }
 
 export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
@@ -40,40 +41,41 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
   navigate,
   onAddExpense,
   isPurchase = false,
-  isDownpayment = false
+  isDownpayment = false,
+  isCafe = false
 }) => {
-  const { taxName } = useTaxConfig();
-
   return (
     <div className="space-y-6">
       {/* Notes/Terms and Totals Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6 border-t border-border">
         {/* Left Side: Notes & Terms */}
-        <div className="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={cn("grid gap-4", isCafe ? "lg:col-span-7 grid-cols-1" : "lg:col-span-7 grid-cols-1 md:grid-cols-2")}>
           <div className="space-y-2">
             <Label htmlFor="notes" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
-              {isPurchase ? "Vendor / Dispatch Notes" : "Notes"}
+              {isPurchase ? "Vendor / Dispatch Notes" : isCafe ? "Kitchen & Special Instructions" : "Notes"}
             </Label>
             <Textarea
               id="notes"
               value={formData.notes || ''}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder={isPurchase ? "Enter vendor notes, transport LR details, or delivery notes..." : "Additional notes for the invoice"}
-              className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200 text-sm"
+              placeholder={isPurchase ? "Enter vendor notes, transport LR details, or delivery notes..." : isCafe ? "e.g. Less spicy, extra sauce, parcel separately..." : "Additional notes for the invoice"}
+              className={cn("rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200 text-sm", isCafe ? "min-h-[90px]" : "min-h-[120px]")}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="terms" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
-              {isPurchase ? "Supplier Terms & Conditions" : "Terms & Conditions"}
-            </Label>
-            <Textarea
-              id="terms"
-              value={formData.terms || ''}
-              onChange={(e) => setFormData({ ...formData, terms: e.target.value })}
-              placeholder={isPurchase ? "Payment terms, credit period, or return conditions agreed with supplier..." : "Payment terms and conditions"}
-              className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200 text-sm"
-            />
-          </div>
+          {!isCafe && (
+            <div className="space-y-2">
+              <Label htmlFor="terms" className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
+                {isPurchase ? "Supplier Terms & Conditions" : "Terms & Conditions"}
+              </Label>
+              <Textarea
+                id="terms"
+                value={formData.terms || ''}
+                onChange={(e) => setFormData({ ...formData, terms: e.target.value })}
+                placeholder={isPurchase ? "Payment terms, credit period, or return conditions agreed with supplier..." : "Payment terms and conditions"}
+                className="min-h-[120px] rounded-2xl border-2 focus-visible:ring-primary/20 resize-none bg-muted/5 border-slate-200 text-sm"
+              />
+            </div>
+          )}
         </div>
 
         {/* Right Side: Totals Summary */}
@@ -89,7 +91,7 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
             </div>
             {taxAmount > 0 && (
               <div className="flex justify-between items-center text-sm text-muted-foreground">
-                <span>Tax ({taxName})</span>
+                <span>Tax (GST)</span>
                 <span className="font-bold text-foreground">{currencySymbol} {taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
             )}
@@ -133,7 +135,7 @@ export const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
         <Button
           type="submit"
           variant="hero"
-          disabled={saving || clients.length === 0}
+          disabled={saving || (!isCafe && clients.length === 0)}
           className="w-full h-12 text-base font-bold rounded-2xl shadow-xl shadow-primary/20 order-1 sm:order-2"
           aria-label={submitLabel}
         >

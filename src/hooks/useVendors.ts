@@ -165,9 +165,10 @@ export function vendorMutations(userId: string) {
   return {
     add: async (data: Omit<Vendor, 'id' | 'created_at' | 'user_id'>) => {
       const vendorRecord: Vendor = {
+        name: data.name || '',
+        ...data,
         id: crypto.randomUUID(),
         user_id: userId,
-        ...data,
         created_at: new Date().toISOString()
       };
       saveVendorToCache(userId, vendorRecord);

@@ -34,7 +34,9 @@ import {
   Wallet,
   Filter,
   FileCheck,
-  Clock
+  Clock,
+  Car,
+  Loader2
 } from "lucide-react";
 import { supabase, serviceSupabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,16 +54,32 @@ import { RecordSalesPaymentModal, PaymentFormData } from "@/components/payments/
 import { RecordPurchasePaymentModal } from "@/components/payments/RecordPurchasePaymentModal";
 import { DataTablePagination } from "@/components/DataTablePagination";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useUserType } from "@/hooks/useUserType";
+import { PaymentActiveTab, DownpaymentSubTab, PaymentCategoryFilter } from './payments/types';
+import {
+  PaymentNavigation,
+  PaymentSyncBanner,
+  PaymentFilters,
+  PaymentStatsGrid,
+  PaymentCardItem,
+  PaymentTable,
+  VehicleLedgerView,
+} from './payments/components';
 
 const PaymentsPage = () => {
+  const { isAutomobile } = useUserType();
   const { currencySymbol, formatAmount } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  // Route & Tab state: Sales vs Purchase payments
+  // Route & Tab state: Sales vs Downpayment vs Purchase payments
   const isPurchasePath = location.pathname.includes('purchase-payments') || searchParams.get('type') === 'purchase';
-  const activeTab: 'sales' | 'purchase' = isPurchasePath ? 'purchase' : 'sales';
+  const isDownpaymentParam = searchParams.get('type') === 'downpayment' && isAutomobile;
+  const [localTab, setLocalTab] = useState<'sales' | 'downpayment' | 'purchase'>(
+    isPurchasePath ? 'purchase' : isDownpaymentParam ? 'downpayment' : 'sales'
+  );
+  const activeTab: 'sales' | 'downpayment' | 'purchase' = isPurchasePath ? 'purchase' : (localTab === 'downpayment' && !isAutomobile ? 'sales' : localTab);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -73,6 +91,23 @@ const PaymentsPage = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'downpayment' | 'regular'>(
+    isDownpaymentParam ? 'downpayment' : 'regular'
+  );
+  const [downpaymentSubTab, setDownpaymentSubTab] = useState<'all' | 'advance' | 'partial' | 'ledger'>('all');
+
+  useEffect(() => {
+    if (isPurchasePath) {
+      setLocalTab('purchase');
+    } else if (isDownpaymentParam && isAutomobile) {
+      setLocalTab('downpayment');
+      setCategoryFilter('downpayment');
+    } else {
+      setLocalTab('sales');
+      setCategoryFilter('regular');
+    }
+  }, [isPurchasePath, isDownpaymentParam, isAutomobile]);
+
   const { data: paymentsData, isLoading: loading, isFetching: searchLoading } = usePayments({
     page: currentPage,
     pageSize,
@@ -81,7 +116,8 @@ const PaymentsPage = () => {
     dateFilter,
     startDate,
     endDate,
-    typeFilter: activeTab
+    typeFilter: activeTab === 'purchase' ? 'purchase' : 'sales',
+    categoryFilter: activeTab === 'downpayment' ? 'downpayment' : (activeTab === 'sales' ? 'regular' : categoryFilter)
   });
 
   const { data: invoicesData = [] } = usePendingPaymentInvoices();
@@ -90,6 +126,164 @@ const PaymentsPage = () => {
   const payments = paymentsData?.payments || [];
   const totalPages = paymentsData ? Math.max(1, Math.ceil(paymentsData.totalCount / pageSize)) : 1;
   const queryClient = useQueryClient();
+
+  // Downpayment sub-tab filtering & calculations
+  const downpaymentPayments = useMemo(() => {
+    return payments.filter(p => Boolean(p.is_downpayment || p.display_number?.startsWith('DP-')));
+  }, [payments]);
+
+  const advancePaymentsCount = useMemo(() => {
+    return downpaymentPayments.filter(p => p.downpayment_breakdown?.sequence === 1 || p.downpayment_type === 'downpayment').length;
+  }, [downpaymentPayments]);
+
+  const partialPaymentsCount = useMemo(() => {
+    return downpaymentPayments.filter(p => (p.downpayment_breakdown?.sequence ?? 0) > 1 || p.downpayment_type === 'partial').length;
+  }, [downpaymentPayments]);
+
+  const displayedPayments = useMemo(() => {
+    if (activeTab === 'downpayment') {
+      if (downpaymentSubTab === 'advance') {
+        return downpaymentPayments.filter(p => p.downpayment_breakdown?.sequence === 1 || p.downpayment_type === 'downpayment');
+      }
+      if (downpaymentSubTab === 'partial') {
+        return downpaymentPayments.filter(p => (p.downpayment_breakdown?.sequence ?? 0) > 1 || p.downpayment_type === 'partial');
+      }
+      return downpaymentPayments;
+    }
+    if (activeTab === 'sales') {
+      // Exclude downpayments strictly from sales view
+      return payments.filter(p => !(p.is_downpayment || p.display_number?.startsWith('DP-')));
+    }
+    return payments;
+  }, [activeTab, downpaymentSubTab, downpaymentPayments, payments]);
+
+  // Vehicle Split Ledger items grouped by invoice
+  const vehicleLedgerItems = useMemo(() => {
+    const groupMap: Record<string, {
+      invoiceId: string;
+      invoiceNumber: string;
+      partyName: string;
+      totalAmount: number;
+      status: string;
+      notes?: string;
+      payments: Payment[];
+    }> = {};
+
+    invoices.forEach(inv => {
+      const isDP = Boolean(inv.is_downpayment || inv.invoice_number?.startsWith('DP-'));
+      if (isDP) {
+        groupMap[inv.id] = {
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoice_number,
+          partyName: inv.party_name || inv.clients?.name || 'Customer',
+          totalAmount: Number(inv.total_amount || 0),
+          status: inv.status,
+          notes: inv.notes,
+          payments: []
+        };
+      }
+    });
+
+    downpaymentPayments.forEach(p => {
+      if (p.invoice_id) {
+        if (!groupMap[p.invoice_id]) {
+          groupMap[p.invoice_id] = {
+            invoiceId: p.invoice_id,
+            invoiceNumber: p.display_number || p.invoices?.invoice_number || 'N/A',
+            partyName: p.party_name || p.invoices?.clients?.name || 'Customer',
+            totalAmount: Number(p.invoices?.total_amount || 0),
+            status: p.invoices?.status || 'sent',
+            notes: p.invoices?.notes,
+            payments: []
+          };
+        }
+        if (!groupMap[p.invoice_id].payments.some(existing => existing.id === p.id)) {
+          groupMap[p.invoice_id].payments.push(p);
+        }
+      }
+    });
+
+    return Object.values(groupMap).map(item => {
+      const sortedPayments = [...item.payments].sort((a, b) =>
+        new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
+      );
+      const firstPayment = sortedPayments[0];
+      const secondPayment = sortedPayments[1];
+      const totalPaid = sortedPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      const totalVehiclePrice = Math.max(item.totalAmount, totalPaid);
+      const remainingBalance = Math.max(0, totalVehiclePrice - totalPaid);
+
+      return {
+        ...item,
+        payments: sortedPayments,
+        firstPayment,
+        secondPayment,
+        firstAmount: firstPayment ? Number(firstPayment.amount || 0) : 0,
+        secondAmount: secondPayment ? Number(secondPayment.amount || 0) : 0,
+        totalPaid,
+        totalVehiclePrice,
+        remainingBalance,
+        isFullySettled: remainingBalance <= 0 && totalPaid > 0,
+      };
+    });
+  }, [invoices, downpaymentPayments]);
+
+  const unrecordedPaidInvoices = useMemo(() => {
+    // Cross-check with existing payments already present in state
+    const existingPaymentInvoiceIds = new Set(
+      payments.map(p => p.invoice_id).filter(Boolean)
+    );
+    return invoices.filter(inv => 
+      inv.status === 'paid' && 
+      !inv.has_payment_record && 
+      !existingPaymentInvoiceIds.has(inv.id) && 
+      (inv.total_paid || 0) <= 0 &&
+      inv.type === 'sales'
+    );
+  }, [invoices, payments]);
+
+  const [isSyncingUnrecorded, setIsSyncingUnrecorded] = useState(false);
+
+  const handleSyncUnrecorded = async () => {
+    if (unrecordedPaidInvoices.length === 0 || isSyncingUnrecorded) return;
+    setIsSyncingUnrecorded(true);
+    try {
+      const clientToUse = serviceSupabase || supabase;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      const recordsToInsert = unrecordedPaidInvoices.map(inv => ({
+        invoice_id: inv.id,
+        purchase_invoice_id: null,
+        amount: Number(inv.total_amount || 0),
+        payment_date: todayStr,
+        payment_method: inv.payment_method || 'cash',
+        reference_number: '',
+        notes: `Payment recorded for #${inv.invoice_number}`,
+        user_id: targetUserId || user?.id
+      }));
+
+      const { error } = await clientToUse.from('payments').insert(recordsToInsert);
+      if (error) throw error;
+
+      toast({
+        title: "Payments Synced Successfully! ✅",
+        description: `Created payment records for ${unrecordedPaidInvoices.length} paid invoice(s).`
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices', 'pending-for-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+    } catch (err: any) {
+      console.error('Error syncing unrecorded payments:', err);
+      toast({
+        variant: "destructive",
+        title: "Sync Failed",
+        description: err?.message || "Failed to sync payment records."
+      });
+    } finally {
+      setIsSyncingUnrecorded(false);
+    }
+  };
 
   // Separate, dedicated modal states for Sales and Purchase
   const [salesModalOpen, setSalesModalOpen] = useState(false);
@@ -127,10 +321,16 @@ const PaymentsPage = () => {
   const targetUserId = effectiveUserId || user?.id;
   const { toast } = useToast();
 
-  const handleTabChange = (tab: 'sales' | 'purchase') => {
+  const handleTabChange = (tab: 'sales' | 'downpayment' | 'purchase') => {
     if (tab === 'purchase') {
       navigate('/purchase-payments');
+    } else if (tab === 'downpayment') {
+      setLocalTab('downpayment');
+      setCategoryFilter('downpayment');
+      navigate('/payments?type=downpayment');
     } else {
+      setLocalTab('sales');
+      setCategoryFilter('regular');
       navigate('/payments');
     }
   };
@@ -173,6 +373,54 @@ const PaymentsPage = () => {
     }
   };
 
+  const getPaymentTypeBadge = (payment: any) => {
+    const type = payment.downpayment_type;
+    const seq = payment.downpayment_breakdown?.sequence;
+    if (type === 'full') {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[8px] px-1.5 py-0.5 font-bold uppercase bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400"
+        >
+          Full Payment
+        </Badge>
+      );
+    }
+    if (type === 'downpayment' || seq === 1) {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[8px] px-1.5 py-0.5 font-bold uppercase bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 flex items-center gap-1"
+        >
+          <Car className="w-2.5 h-2.5" />
+          1st: Downpayment Advance
+        </Badge>
+      );
+    }
+    if (type === 'partial' || seq === 2 || (seq && seq > 1)) {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[8px] px-1.5 py-0.5 font-bold uppercase bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-950/40 dark:text-blue-400 flex items-center gap-1"
+        >
+          <CreditCard className="w-2.5 h-2.5" />
+          {seq && seq > 1 ? `${seq}nd: Partial / Balance` : 'Partial Payment'}
+        </Badge>
+      );
+    }
+    if (type === 'finance') {
+      return (
+        <Badge
+          variant="outline"
+          className="text-[8px] px-1.5 py-0.5 font-bold uppercase bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/40 dark:text-indigo-400"
+        >
+          Loan Disbursed
+        </Badge>
+      );
+    }
+    return null;
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -208,6 +456,38 @@ const PaymentsPage = () => {
     } else {
       setEditingSalesData(null);
     }
+    setSalesModalOpen(true);
+  };
+
+  const handleRecordPaymentForInvoice = (invoiceId: string, suggestedAmount?: number) => {
+    const inv = invoices.find(i => i.id === invoiceId);
+    if (!inv) return;
+    const isDP = Boolean(inv.is_downpayment || inv.invoice_number?.startsWith('DP-'));
+    const priorPaid = Number(inv.total_paid || 0);
+    const totalAmount = Number(inv.total_amount || 0);
+    const amt = suggestedAmount !== undefined ? suggestedAmount : (inv.remaining_amount > 0 ? inv.remaining_amount : totalAmount);
+
+    let defaultNote = '';
+    if (isDP) {
+      if (priorPaid > 0) {
+        defaultNote = `2nd Payment (Partial/Balance: ${currencySymbol}${amt}) • Initial Downpayment was ${currencySymbol}${priorPaid} • Total Vehicle Price: ${currencySymbol}${totalAmount}`;
+      } else {
+        defaultNote = `1st Payment (Downpayment Advance: ${currencySymbol}${amt}) • Total Vehicle Price: ${currencySymbol}${totalAmount}`;
+      }
+    } else {
+      defaultNote = `Full payment for Invoice #${inv.invoice_number}`;
+    }
+
+    setEditingSalesData({
+      invoice_id: inv.id,
+      invoice_number: inv.invoice_number,
+      party_name: inv.party_name,
+      amount: amt,
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_method: inv.payment_method || 'cash',
+      reference_number: '',
+      notes: defaultNote
+    });
     setSalesModalOpen(true);
   };
 
@@ -266,6 +546,73 @@ const PaymentsPage = () => {
           .eq('id', editingId);
 
         if (error) throw error;
+
+        // Recalculate invoice status and metadata after editing payment
+        const affectedInvoiceId = data.invoice_id || (payments.find(p => p.id === editingId)?.invoice_id);
+        if (affectedInvoiceId) {
+          const { data: rawRemaining } = await clientToUse
+            .from('payments')
+            .select('amount')
+            .eq('invoice_id', affectedInvoiceId);
+
+          const totalPaid = ((rawRemaining as unknown as { amount: number }[]) || [])
+            .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+          const { data: rawInv } = await clientToUse
+            .from('invoices')
+            .select('id, total_amount, status, invoice_number, notes')
+            .eq('id', affectedInvoiceId)
+            .maybeSingle();
+
+          const invRecord = rawInv as unknown as { id: string; total_amount: number; status: string; invoice_number?: string; notes?: string } | null;
+          if (invRecord) {
+            const invoiceTotal = Number(invRecord.total_amount ?? 0);
+            const isDP = Boolean(
+              invRecord.invoice_number?.startsWith('DP-') ||
+              invRecord.invoice_number?.startsWith('DP') ||
+              invRecord.notes?.includes('"is_downpayment":true')
+            );
+
+            let newStatus = invRecord.status;
+            if (totalPaid >= invoiceTotal && invoiceTotal > 0) {
+              newStatus = 'paid';
+            } else if (totalPaid > 0) {
+              newStatus = 'sent';
+            } else {
+              newStatus = 'pending';
+            }
+
+            const updates: Record<string, any> = { status: newStatus };
+            if (isDP && invRecord.notes) {
+              let metaObj: any = {};
+              const metaMatch = invRecord.notes.match(/\[META:(.*?)\]/);
+              if (metaMatch) {
+                try { metaObj = JSON.parse(metaMatch[1]); } catch {}
+              }
+              if (totalPaid === 0) {
+                if (metaObj.payment) delete metaObj.payment;
+              } else {
+                metaObj.payment = {
+                  ...(metaObj.payment || {}),
+                  type: totalPaid >= invoiceTotal ? 'full' : 'partial',
+                  total_amount: invoiceTotal,
+                  amount_received: totalPaid,
+                  balance_pending: Math.max(0, invoiceTotal - totalPaid),
+                };
+              }
+              const cleanBase = invRecord.notes.replace(/\[META:.*?\]/g, '').trim();
+              updates.notes = Object.keys(metaObj).length > 0 
+                ? `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim() 
+                : cleanBase;
+            }
+
+            await clientToUse
+              .from('invoices')
+              .update(updates)
+              .eq('id', affectedInvoiceId);
+          }
+        }
+
         setSuccessInfo({
           title: "Sales Payment Updated",
           message: "The customer payment record has been successfully modified."
@@ -278,8 +625,25 @@ const PaymentsPage = () => {
         
         const selectedInvoice = invoices.find(inv => inv.id === data.invoice_id);
         const invNumber = selectedInvoice?.invoice_number || '';
-        const baseNote = data.notes || `Sales Invoice #${invNumber} payment`;
-        const paymentNotes = `${baseNote} • Created by: ${creatorName}`;
+        const isDP = Boolean(selectedInvoice?.is_downpayment || invNumber.startsWith('DP-'));
+        const prevPaid = Number(selectedInvoice?.total_paid || 0);
+        const payAmount = Number(data.amount) || 0;
+        const totalAmount = Number(selectedInvoice?.total_amount || 0);
+
+        let pTypeTag = '';
+        let splitNoteTag = '';
+        if (data.payment_type === 'full') {
+          pTypeTag = '[Payment Type: Full Payment]';
+        } else if (data.payment_type === 'downpayment' || (!prevPaid && isDP)) {
+          pTypeTag = '[Payment Type: Downpayment Advance]';
+          splitNoteTag = `🚗 Downpayment Split: 1st Payment (Downpayment Advance: ${currencySymbol}${payAmount}) • Total Vehicle Price: ${currencySymbol}${totalAmount}`;
+        } else if (data.payment_type === 'partial' || (prevPaid > 0 && isDP)) {
+          pTypeTag = '[Payment Type: Partial Payment]';
+          splitNoteTag = `💳 Downpayment Split: 2nd Payment (Partial/Balance: ${currencySymbol}${payAmount}) • Initial Downpayment was: ${currencySymbol}${prevPaid} • Total Vehicle Price: ${currencySymbol}${totalAmount}`;
+        }
+
+        const baseNote = data.notes || (isDP ? `Downpayment receipt #${invNumber} payment` : `Sales Invoice #${invNumber} payment`);
+        const paymentNotes = `${baseNote} ${splitNoteTag ? `• ${splitNoteTag}` : ''} ${pTypeTag} • Created by: ${creatorName}`.trim();
 
         const insertPayload = {
           amount: data.amount,
@@ -298,17 +662,45 @@ const PaymentsPage = () => {
 
         if (error) throw error;
 
-        // Update sales invoice status to paid if not already paid
-        if (selectedInvoice && selectedInvoice.status !== 'paid') {
+        // Update sales invoice status and metadata if downpayment
+        const newPaid = prevPaid + payAmount;
+        const isFullyCleared = newPaid >= totalAmount;
+
+        if (selectedInvoice) {
+          const newStatus = isFullyCleared ? 'paid' : (isDP ? 'sent' : 'paid');
+          const updates: Record<string, any> = { status: newStatus };
+
+          if (isDP && selectedInvoice.notes) {
+            let metaObj: any = {};
+            const metaMatch = selectedInvoice.notes.match(/\[META:(.*?)\]/);
+            if (metaMatch) {
+              try { metaObj = JSON.parse(metaMatch[1]); } catch {}
+            }
+            metaObj.payment = {
+              ...(metaObj.payment || {}),
+              type: isFullyCleared ? 'full' : (data.payment_type || 'partial'),
+              total_amount: totalAmount,
+              amount_received: newPaid,
+              balance_pending: Math.max(0, totalAmount - newPaid),
+              date: data.payment_date,
+              payment_method: data.payment_method,
+              reference: data.reference_number || undefined
+            };
+            const cleanBase = selectedInvoice.notes.replace(/\[META:.*?\]/g, '').trim();
+            updates.notes = `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim();
+          }
+
           await clientToUse
             .from('invoices')
-            .update({ status: 'paid' })
+            .update(updates)
             .eq('id', data.invoice_id);
         }
 
         setSuccessInfo({
-          title: "Sales Payment Recorded",
-          message: `Payment from customer has been recorded for Invoice #${invNumber}.`
+          title: isDP ? "Downpayment Payment Recorded" : "Sales Payment Recorded",
+          message: isDP
+            ? `Payment of ${formatAmount(Number(data.amount))} recorded for Downpayment #${invNumber}.`
+            : `Payment from customer has been recorded for Invoice #${invNumber}.`
         });
         setShowSuccess(true);
       }
@@ -472,7 +864,11 @@ const PaymentsPage = () => {
 
       if (error) throw error;
 
-      // 3. Revert sales invoice status to 'pending' if no full payment remains
+      let isDownpaymentReceipt = false;
+      let remainingTotal = 0;
+      let invoiceTotal = 0;
+
+      // 3. Revert sales invoice status and downpayment metadata if payment is deleted
       if (targetInvoiceId) {
         // First: check remaining payments for this invoice (after deletion)
         const { data: rawRemaining } = await clientToUse
@@ -480,70 +876,114 @@ const PaymentsPage = () => {
           .select('amount')
           .eq('invoice_id', targetInvoiceId);
 
-        const remainingTotal = ((rawRemaining as unknown as { amount: number }[]) || [])
+        remainingTotal = ((rawRemaining as unknown as { amount: number }[]) || [])
           .reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
         // Fetch invoice to compare totals and current status
         const { data: rawInv } = await clientToUse
           .from('invoices')
-          .select('id, total_amount, status')
+          .select('id, total_amount, status, invoice_number, notes')
           .eq('id', targetInvoiceId)
           .maybeSingle();
 
-        const invRecord = rawInv as unknown as { id: string; total_amount: number; status: string } | null;
+        let invRecord = rawInv as unknown as { id: string; total_amount: number; status: string; invoice_number?: string; notes?: string } | null;
+        let dbClientForInvoice = clientToUse;
 
-        if (invRecord) {
-          // Revert if remaining payments don't fully cover the invoice amount
-          const invoiceTotal = Number(invRecord.total_amount ?? 0);
-          if (remainingTotal < invoiceTotal || remainingTotal === 0) {
-            await clientToUse
-              .from('invoices')
-              .update({ status: 'sent' })
-              .eq('id', targetInvoiceId);
-          }
-        } else {
-          // Invoice not found via primary client — try anon supabase as fallback
+        if (!invRecord) {
           const { data: rawFallbackInv } = await supabase
             .from('invoices')
-            .select('id, total_amount, status')
+            .select('id, total_amount, status, invoice_number, notes')
             .eq('id', targetInvoiceId)
             .maybeSingle();
 
-          const fallbackInv = rawFallbackInv as unknown as { id: string; total_amount: number; status: string } | null;
+          if (rawFallbackInv) {
+            invRecord = rawFallbackInv as unknown as { id: string; total_amount: number; status: string; invoice_number?: string; notes?: string };
+            dbClientForInvoice = supabase;
+          }
+        }
 
-          if (fallbackInv) {
-            const invoiceTotal = Number(fallbackInv.total_amount ?? 0);
-            if (remainingTotal < invoiceTotal || remainingTotal === 0) {
-              await supabase
-                .from('invoices')
-                .update({ status: 'sent' })
-                .eq('id', targetInvoiceId);
-            }
+        if (invRecord) {
+          invoiceTotal = Number(invRecord.total_amount ?? 0);
+          const isDP = Boolean(
+            invRecord.invoice_number?.startsWith('DP-') ||
+            invRecord.invoice_number?.startsWith('DP') ||
+            invRecord.notes?.includes('"is_downpayment":true')
+          );
+          isDownpaymentReceipt = isDP;
+
+          // Determine status based on remaining payments
+          let newStatus = invRecord.status;
+          if (remainingTotal >= invoiceTotal && invoiceTotal > 0) {
+            newStatus = 'paid';
+          } else if (remainingTotal > 0) {
+            newStatus = 'sent'; // Partial payment active
           } else {
-            // Check if targetInvoiceId belongs to a purchase bill (legacy fallback)
-            const { data: rawPinv } = await clientToUse
-              .from('purchase_invoices')
-              .select('id, total_amount')
-              .eq('id', targetInvoiceId)
-              .maybeSingle();
+            newStatus = 'pending'; // 0 payments remaining -> fully pending
+          }
 
-            const pinvRecord = rawPinv as unknown as { id: string; total_amount: number } | null;
+          const invoiceUpdates: Record<string, any> = { status: newStatus };
 
-            if (pinvRecord) {
-              const { data: rawPRemaining } = await clientToUse
-                .from('payments')
-                .select('amount')
-                .or(`purchase_invoice_id.eq.${targetInvoiceId},invoice_id.eq.${targetInvoiceId}`);
+          // If Downpayment invoice, synchronize metadata in notes
+          if (isDP && invRecord.notes) {
+            let metaObj: any = {};
+            const metaMatch = invRecord.notes.match(/\[META:(.*?)\]/);
+            if (metaMatch) {
+              try { metaObj = JSON.parse(metaMatch[1]); } catch {}
+            }
 
-              const purchaseTotal = ((rawPRemaining as unknown as { amount: number }[]) || [])
-                .reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-              if (purchaseTotal < Number(pinvRecord.total_amount ?? 0) || purchaseTotal === 0) {
-                await clientToUse
-                  .from('purchase_invoices')
-                  .update({ status: 'pending' })
-                  .eq('id', targetInvoiceId);
+            if (remainingTotal === 0) {
+              // No payments left: remove payment metadata so invoice reverts to fresh booking
+              if (metaObj.payment) {
+                delete metaObj.payment;
               }
+            } else {
+              // Recalculate remaining balance and amount received
+              metaObj.payment = {
+                ...(metaObj.payment || {}),
+                type: remainingTotal >= invoiceTotal ? 'full' : 'partial',
+                total_amount: invoiceTotal,
+                amount_received: remainingTotal,
+                balance_pending: Math.max(0, invoiceTotal - remainingTotal),
+              };
+              if (metaObj.payment.finance && remainingTotal < invoiceTotal) {
+                metaObj.payment.finance.disbursed = false;
+              }
+            }
+
+            const cleanBase = invRecord.notes.replace(/\[META:.*?\]/g, '').trim();
+            invoiceUpdates.notes = Object.keys(metaObj).length > 0 
+              ? `${cleanBase}\n[META:${JSON.stringify(metaObj)}]`.trim() 
+              : cleanBase;
+          }
+
+          await dbClientForInvoice
+            .from('invoices')
+            .update(invoiceUpdates)
+            .eq('id', targetInvoiceId);
+        } else {
+          // Check if targetInvoiceId belongs to a purchase bill (legacy fallback)
+          const { data: rawPinv } = await clientToUse
+            .from('purchase_invoices')
+            .select('id, total_amount')
+            .eq('id', targetInvoiceId)
+            .maybeSingle();
+
+          const pinvRecord = rawPinv as unknown as { id: string; total_amount: number } | null;
+
+          if (pinvRecord) {
+            const { data: rawPRemaining } = await clientToUse
+              .from('payments')
+              .select('amount')
+              .or(`purchase_invoice_id.eq.${targetInvoiceId},invoice_id.eq.${targetInvoiceId}`);
+
+            const purchaseTotal = ((rawPRemaining as unknown as { amount: number }[]) || [])
+              .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+            if (purchaseTotal < Number(pinvRecord.total_amount ?? 0) || purchaseTotal === 0) {
+              await clientToUse
+                .from('purchase_invoices')
+                .update({ status: 'pending' })
+                .eq('id', targetInvoiceId);
             }
           }
         }
@@ -577,9 +1017,15 @@ const PaymentsPage = () => {
         }
       }
 
+      const statusLabel = isDownpaymentReceipt
+        ? (remainingTotal >= invoiceTotal && invoiceTotal > 0 ? 'Paid' : (remainingTotal > 0 ? 'Partial' : 'Pending'))
+        : (remainingTotal > 0 ? 'Sent' : 'Pending');
+
       setSuccessInfo({
         title: "Payment Deleted",
-        message: "The payment record has been removed. The invoice status has been reverted to 'Sent' and 'Mark as Paid' is now available again."
+        message: isDownpaymentReceipt
+          ? `The payment record has been removed. Downpayment status has been updated to '${statusLabel}' and remaining balance recalculated.`
+          : `The payment record has been removed. The invoice status has been reverted to '${statusLabel}' and 'Mark as Paid' is now available again.`
       });
       setShowSuccess(true);
       queryClient.invalidateQueries({ queryKey: ['payments'] });
@@ -639,886 +1085,155 @@ const PaymentsPage = () => {
 
   return (
     <div className="space-y-6">
-      {/* Top Segmented Navigation Tabs: Sales vs Purchase Payments */}
-      <div className="flex items-center gap-2 border-b border-border/60 pb-3">
-        <button
-          onClick={() => handleTabChange('sales')}
-          className={cn(
-            "flex items-center gap-2.5 px-4 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all",
-            activeTab === 'sales'
-              ? "bg-emerald-50 text-emerald-900 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700 shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          )}
-        >
-          <ArrowDownLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span>Sales Payments (Received)</span>
-          <span className={cn(
-            "text-[10px] font-black px-2 py-0.5 rounded-full",
-            activeTab === 'sales'
-              ? "bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200"
-              : "bg-muted text-muted-foreground"
-          )}>
-            {(paymentsData?.stats?.salesRecords ?? 0).toLocaleString('en-IN')}
-          </span>
-        </button>
+      <PaymentNavigation
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        isAutomobile={isAutomobile}
+        pendingSalesCount={paymentsData?.stats?.pendingSalesCount ?? 0}
+        pendingDownpaymentCount={paymentsData?.stats?.pendingDownpaymentCount ?? 0}
+        pendingPurchaseCount={paymentsData?.stats?.pendingPurchaseCount ?? 0}
+        onOpenSalesModal={handleOpenSalesModal}
+        onOpenPurchaseModal={handleOpenPurchaseModal}
+      />
 
-        <button
-          onClick={() => handleTabChange('purchase')}
-          className={cn(
-            "flex items-center gap-2.5 px-4 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all",
-            activeTab === 'purchase'
-              ? "bg-purple-50 text-purple-900 border border-purple-300 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-700 shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          )}
-        >
-          <ArrowUpRight className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-          <span>Purchase Payments (Paid)</span>
-          <span className={cn(
-            "text-[10px] font-black px-2 py-0.5 rounded-full",
-            activeTab === 'purchase'
-              ? "bg-purple-200 text-purple-900 dark:bg-purple-900 dark:text-purple-200"
-              : "bg-muted text-muted-foreground"
-          )}>
-            {(paymentsData?.stats?.purchaseRecords ?? 0).toLocaleString('en-IN')}
-          </span>
-        </button>
-      </div>
+      <PaymentSyncBanner
+        unrecordedPaidInvoices={unrecordedPaidInvoices}
+        isSyncingUnrecorded={isSyncingUnrecorded}
+        onSyncUnrecorded={handleSyncUnrecorded}
+      />
 
-      {/* Header and Primary Action */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl lg:text-3xl font-bold text-foreground">
-              {activeTab === 'sales' ? 'Sales Payments' : 'Purchase Payments'}
-            </h1>
-            <StaffHeaderBadge />
-          </div>
-          <p className="text-muted-foreground mt-1 text-sm">
-            {activeTab === 'sales'
-              ? 'Track customer payment receipts and sales invoice settlements'
-              : 'Track vendor payment outflow and purchase bill settlements'}
-          </p>
-        </div>
+      <PaymentFilters
+        activeTab={activeTab}
+        downpaymentSubTab={downpaymentSubTab}
+        onDownpaymentSubTabChange={setDownpaymentSubTab}
+        downpaymentPaymentsCount={downpaymentPayments.length}
+        advancePaymentsCount={advancePaymentsCount}
+        partialPaymentsCount={partialPaymentsCount}
+        vehicleLedgerCount={vehicleLedgerItems.length}
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+        methodFilter={methodFilter}
+        onMethodFilterChange={setMethodFilter}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
+        startDate={startDate}
+        endDate={endDate}
+        onStartDateChange={setStartDate}
+        onEndDateChange={setEndDate}
+        searchLoading={searchLoading}
+      />
 
-        {activeTab === 'sales' ? (
-          <Button
-            variant="default"
-            size="lg"
-            className="w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95 bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-            onClick={() => handleOpenSalesModal()}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Record Sales Payment
-          </Button>
-        ) : (
-          <Button
-            variant="default"
-            size="lg"
-            className="w-full sm:w-auto h-11 shadow-sm hover:shadow-md transition-all active:scale-95 bg-purple-600 hover:bg-purple-700 text-white font-bold"
-            onClick={() => handleOpenPurchaseModal()}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Record Purchase Payment
-          </Button>
-        )}
-      </div>
+      <PaymentStatsGrid
+        activeTab={activeTab}
+        stats={paymentsData?.stats}
+        methodFilter={methodFilter}
+        onMethodFilterChange={setMethodFilter}
+        dateFilterLabel={dateFilterLabel}
+      />
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={activeTab === 'sales'
-                ? "Search sales payments by invoice #, client, reference..."
-                : "Search purchase payments by bill #, vendor, reference..."}
-              className="pl-9 pr-10 h-11 bg-background border-border/50 rounded-xl"
-            />
-            {searchTerm.trim() && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-
-          <div className="w-full md:w-44">
-            <select
-              className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-              value={methodFilter}
-              onChange={(e) => setMethodFilter(e.target.value)}
-            >
-              <option value="all">All Methods</option>
-              <option value="pending">⚠️ Pending Mode Only</option>
-              <option value="cash">Cash Only</option>
-              <option value="upi">UPI / GPay</option>
-              <option value="bank_transfer">Bank Transfer</option>
-              <option value="cheque">Cheque</option>
-              <option value="credit_card">Credit Card</option>
-              <option value="debit_card">Debit Card</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          <div className="w-full md:w-44">
-            <select
-              className="w-full h-11 rounded-xl border border-border/50 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary font-medium"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-            >
-              <option value="all">All Time</option>
-              <option value="today">Today</option>
-              <option value="this_week">This Week</option>
-              <option value="this_month">This Month</option>
-              <option value="last_month">Last Month</option>
-              <option value="custom">Custom Date Range</option>
-            </select>
-          </div>
-        </div>
-
-        {dateFilter === 'custom' && (
-          <div className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-muted/20 border border-border/50 rounded-xl animate-in fade-in duration-200">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Label className="text-xs font-bold text-muted-foreground whitespace-nowrap">From:</Label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="h-9 text-xs rounded-lg bg-background border-border/60"
-              />
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Label className="text-xs font-bold text-muted-foreground whitespace-nowrap">To:</Label>
-              <Input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="h-9 text-xs rounded-lg bg-background border-border/60"
-              />
-            </div>
-            {(startDate || endDate) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setStartDate(""); setEndDate(""); }}
-                className="text-xs h-8 text-muted-foreground hover:text-foreground"
-              >
-                Clear Dates
-              </Button>
-            )}
-          </div>
-        )}
-
-        {searchLoading && (
-          <div className="flex items-center justify-center h-9 px-4 rounded-md border border-border bg-muted/20 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Searching...
-          </div>
-        )}
-      </div>
-
-      {/* Summary Stats Cards Tailored to Sales vs Purchase & Synchronized with Active Filters */}
-      {(() => {
-        const stats = paymentsData?.stats as any;
-        const isSales = activeTab === 'sales';
-
-        const totalAmount = isSales ? (stats?.salesTotal ?? 0) : (stats?.purchaseTotal ?? 0);
-        const totalCount = isSales ? (stats?.salesRecords ?? 0) : (stats?.purchaseRecords ?? 0);
-        const pendingCount = isSales ? (stats?.pendingSalesCount ?? 0) : (stats?.pendingPurchaseCount ?? 0);
-
-        const cashAmount = isSales ? (stats?.salesCash ?? 0) : (stats?.purchaseCash ?? 0);
-        const cashCount = isSales ? (stats?.salesCashCount ?? 0) : (stats?.purchaseCashCount ?? 0);
-
-        const upiAmount = isSales ? (stats?.salesUpi ?? 0) : (stats?.purchaseUpi ?? 0);
-        const upiCount = isSales ? (stats?.salesUpiCount ?? 0) : (stats?.purchaseUpiCount ?? 0);
-
-        const bankAmount = isSales ? (stats?.salesBankTransfer ?? 0) : (stats?.purchaseBankTransfer ?? 0);
-        const bankCount = isSales ? (stats?.salesBankTransferCount ?? 0) : (stats?.purchaseBankTransferCount ?? 0);
-
-        const chequeAmount = isSales ? (stats?.salesCheque ?? 0) : (stats?.purchaseCheque ?? 0);
-        const chequeCount = isSales ? (stats?.salesChequeCount ?? 0) : (stats?.purchaseChequeCount ?? 0);
-
-        const cardAmount = isSales ? (stats?.salesCard ?? 0) : (stats?.purchaseCard ?? 0);
-        const cardCount = isSales ? (stats?.salesCardCount ?? 0) : (stats?.purchaseCardCount ?? 0);
-
-        const otherAmount = isSales ? (stats?.salesOther ?? 0) : (stats?.purchaseOther ?? 0);
-        const otherCount = isSales ? (stats?.salesOtherCount ?? 0) : (stats?.purchaseOtherCount ?? 0);
-
-        return (
-          <div className="space-y-3.5">
-            {/* Unified Stats Grid: When "all", shows original 5 cards (Total, Records, Settled, Cash, UPI). When filtered, shows only the selected method's stat card (4 cards total). */}
-            <div className={cn(
-              "grid gap-2.5 sm:gap-3",
-              methodFilter === 'all'
-                ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
-                : "grid-cols-2 sm:grid-cols-2 lg:grid-cols-4"
-            )}>
-              {/* 1. Total Received / Total Paid */}
-              <Card
-                onClick={() => setMethodFilter('all')}
-                className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer select-none hover:border-primary/40 hover:bg-muted/30"
-              >
-                <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Total Received" : "Total Paid"}>
-                    {isSales ? "Total Received" : "Total Paid"}
-                  </span>
-                  <div className={cn(
-                    "w-7 h-7 sm:w-8 sm:h-8 rounded-xl shrink-0 flex items-center justify-center",
-                    isSales ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
-                  )}>
-                    {isSales ? <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <ShoppingCart className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                  </div>
-                </div>
-                <div className="my-auto py-0.5 w-full overflow-hidden">
-                  <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                    {formatAmount(Math.round(totalAmount), { decimals: 0 })}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between text-[10px] font-semibold mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                  <span className={cn(isSales ? "text-emerald-600/90 dark:text-emerald-400/90" : "text-purple-600/90 dark:text-purple-400/90", "truncate")}>
-                    {isSales ? "Customer Collections" : "Vendor Outflow"}
-                  </span>
-                  <span className="text-muted-foreground/70 font-normal">({dateFilterLabel})</span>
-                </div>
-              </Card>
-
-              {/* 2. Total Records */}
-              <Card className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title="Total Entries">
-                    Total Records
-                  </span>
-                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 shrink-0 flex items-center justify-center">
-                    <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                </div>
-                <div className="my-auto py-0.5 w-full overflow-hidden">
-                  <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                    {totalCount.toLocaleString('en-IN')}
-                  </p>
-                </div>
-                <p className="text-[10px] font-semibold text-blue-600/90 dark:text-blue-400/90 mt-1.5 pt-1.5 border-t border-border/40 truncate">
-                  {isSales ? "Receipt Entries" : "Payment Entries"}
-                </p>
-              </Card>
-
-              {/* 3. Pending Invoices / Pending Bills */}
-              <Card 
-                onClick={() => navigate(isSales ? '/invoices?status=pending' : '/purchase-invoices?status=pending')}
-                className="p-3 sm:p-4 bg-card dark:bg-card border border-border/70 dark:border-border/60 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer select-none hover:border-amber-500/40 hover:bg-amber-50/10 dark:hover:bg-amber-950/10"
-              >
-                <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                  <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-muted-foreground/80 leading-tight truncate flex-1" title={isSales ? "Pending Invoices" : "Pending Bills"}>
-                    {isSales ? "Pending Invoices" : "Pending Bills"}
-                  </span>
-                  <div className={cn(
-                    "w-7 h-7 sm:w-8 sm:h-8 rounded-xl shrink-0 flex items-center justify-center",
-                    isSales ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                  )}>
-                    <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </div>
-                </div>
-                <div className="my-auto py-0.5 w-full overflow-hidden">
-                  <p className="text-base sm:text-xl lg:text-2xl font-black text-foreground tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                    {pendingCount.toLocaleString('en-IN')}
-                  </p>
-                </div>
-                <p className={cn(
-                  "text-[10px] font-semibold mt-1.5 pt-1.5 border-t border-border/40 truncate",
-                  isSales ? "text-amber-600/90 dark:text-amber-400/90" : "text-orange-600/90 dark:text-orange-400/90"
-                )}>
-                  {isSales ? "Invoices Pending" : "Bills Pending"}
-                </p>
-              </Card>
-
-              {/* 4 & 5. Payment Method Cards */}
-              {methodFilter === 'all' ? (
-                <>
-                  {/* Default: 💵 Cash Card */}
-                  <Card
-                    onClick={() => setMethodFilter('cash')}
-                    className="p-3 sm:p-4 bg-card dark:bg-card border border-emerald-500/20 dark:border-emerald-900/40 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer hover:border-emerald-500/50 hover:bg-emerald-50/20 dark:hover:bg-emerald-950/20"
-                  >
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 leading-tight truncate flex-1" title={isSales ? "Cash Received" : "Cash Disbursed"}>
-                        {isSales ? "Cash Received" : "Cash Disbursed"}
-                      </span>
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0 flex items-center justify-center">
-                        <Banknote className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      </div>
-                    </div>
-                    <div className="my-auto py-0.5 w-full overflow-hidden">
-                      <p className="text-base sm:text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                        {formatAmount(Math.round(cashAmount), { decimals: 0 })}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                      <span className="truncate">{cashCount} {isSales ? 'Inflow' : 'Disbursed'}</span>
-                      <span className="text-[9px] text-muted-foreground/70 font-normal">Cash</span>
-                    </div>
-                  </Card>
-
-                  {/* Default: 📱 UPI Card */}
-                  <Card
-                    onClick={() => setMethodFilter('upi')}
-                    className="p-3 sm:p-4 bg-card dark:bg-card border border-violet-500/20 dark:border-violet-900/40 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between transition-all cursor-pointer hover:border-violet-500/50 hover:bg-violet-50/20 dark:hover:bg-violet-950/20"
-                  >
-                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                      <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 leading-tight truncate flex-1" title={isSales ? "UPI Received" : "Digital Disbursed"}>
-                        {isSales ? "UPI Received" : "Digital Disbursed"}
-                      </span>
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400 shrink-0 flex items-center justify-center">
-                        <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      </div>
-                    </div>
-                    <div className="my-auto py-0.5 w-full overflow-hidden">
-                      <p className="text-base sm:text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                        {formatAmount(Math.round(upiAmount), { decimals: 0 })}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] font-semibold text-violet-600/90 dark:text-violet-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                      <span className="truncate">{upiCount} Collections</span>
-                      <span className="text-[9px] text-muted-foreground/70 font-normal">GPay / QR</span>
-                    </div>
-                  </Card>
-                </>
-              ) : methodFilter === 'cash' ? (
-                /* Selected Filter: 💵 Cash */
-                <Card
-                  onClick={() => setMethodFilter('all')}
-                  className="p-3 sm:p-4 bg-card dark:bg-card border border-emerald-500 ring-2 ring-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
-                  title="Click to clear filter"
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 leading-tight truncate flex-1" title={isSales ? "Cash Received" : "Cash Paid"}>
-                      💵 {isSales ? "Cash Received" : "Cash Paid"}
-                    </span>
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 flex items-center justify-center">
-                      <Banknote className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                  </div>
-                  <div className="my-auto py-0.5 w-full overflow-hidden">
-                    <p className="text-base sm:text-xl lg:text-2xl font-black text-emerald-700 dark:text-emerald-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      {formatAmount(Math.round(cashAmount), { decimals: 0 })}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                    <span className="truncate">{cashCount} {isSales ? 'Cash Inflow' : 'Cash Outflow'}</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-600/15 text-emerald-600 dark:text-emerald-400">Filtered</span>
-                  </div>
-                </Card>
-              ) : methodFilter === 'upi' ? (
-                /* Selected Filter: 📱 UPI */
-                <Card
-                  onClick={() => setMethodFilter('all')}
-                  className="p-3 sm:p-4 bg-card dark:bg-card border border-violet-500 ring-2 ring-violet-500/25 bg-violet-50/70 dark:bg-violet-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
-                  title="Click to clear filter"
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 leading-tight truncate flex-1" title={isSales ? "UPI Received" : "UPI Paid"}>
-                      📱 {isSales ? "UPI Received" : "UPI Paid"}
-                    </span>
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-violet-500/20 text-violet-600 dark:text-violet-400 shrink-0 flex items-center justify-center">
-                      <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                  </div>
-                  <div className="my-auto py-0.5 w-full overflow-hidden">
-                    <p className="text-base sm:text-xl lg:text-2xl font-black text-violet-700 dark:text-violet-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      {formatAmount(Math.round(upiAmount), { decimals: 0 })}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-violet-600/90 dark:text-violet-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                    <span className="truncate">{upiCount} Collections • QR & UPI</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-violet-600/15 text-violet-600 dark:text-violet-400">Filtered</span>
-                  </div>
-                </Card>
-              ) : methodFilter === 'bank_transfer' ? (
-                /* Selected Filter: 🏛️ Bank Transfer */
-                <Card
-                  onClick={() => setMethodFilter('all')}
-                  className="p-3 sm:p-4 bg-card dark:bg-card border border-sky-500 ring-2 ring-sky-500/25 bg-sky-50/70 dark:bg-sky-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
-                  title="Click to clear filter"
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400 leading-tight truncate flex-1" title={isSales ? "Bank Transfer Received" : "Bank Transfer Paid"}>
-                      🏛️ {isSales ? "Bank Transfer Received" : "Bank Transfer Paid"}
-                    </span>
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-sky-500/20 text-sky-600 dark:text-sky-400 shrink-0 flex items-center justify-center">
-                      <Landmark className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                  </div>
-                  <div className="my-auto py-0.5 w-full overflow-hidden">
-                    <p className="text-base sm:text-xl lg:text-2xl font-black text-sky-700 dark:text-sky-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      {formatAmount(Math.round(bankAmount), { decimals: 0 })}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-sky-600/90 dark:text-sky-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                    <span className="truncate">{bankCount} Entries • NEFT / RTGS / IMPS</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-600/15 text-sky-600 dark:text-sky-400">Filtered</span>
-                  </div>
-                </Card>
-              ) : methodFilter === 'cheque' ? (
-                /* Selected Filter: 📑 Cheque */
-                <Card
-                  onClick={() => setMethodFilter('all')}
-                  className="p-3 sm:p-4 bg-card dark:bg-card border border-amber-500 ring-2 ring-amber-500/25 bg-amber-50/70 dark:bg-amber-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
-                  title="Click to clear filter"
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 leading-tight truncate flex-1" title={isSales ? "Cheque Received" : "Cheque Paid"}>
-                      📑 {isSales ? "Cheque Received" : "Cheque Paid"}
-                    </span>
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 flex items-center justify-center">
-                      <FileCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                  </div>
-                  <div className="my-auto py-0.5 w-full overflow-hidden">
-                    <p className="text-base sm:text-xl lg:text-2xl font-black text-amber-700 dark:text-amber-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      {formatAmount(Math.round(chequeAmount), { decimals: 0 })}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-amber-600/90 dark:text-amber-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                    <span className="truncate">{chequeCount} Entries • Cheques & DD</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-600/15 text-amber-600 dark:text-amber-400">Filtered</span>
-                  </div>
-                </Card>
-              ) : (methodFilter === 'credit_card' || methodFilter === 'debit_card' || methodFilter === 'card') ? (
-                /* Selected Filter: 💳 Cards (Credit & Debit) */
-                <Card
-                  onClick={() => setMethodFilter('all')}
-                  className="p-3 sm:p-4 bg-card dark:bg-card border border-rose-500 ring-2 ring-rose-500/25 bg-rose-50/70 dark:bg-rose-950/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
-                  title="Click to clear filter"
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 leading-tight truncate flex-1" title={isSales ? "Cards Received" : "Cards Paid"}>
-                      💳 {isSales ? "Cards Received" : "Cards Paid"}
-                    </span>
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 shrink-0 flex items-center justify-center">
-                      <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                  </div>
-                  <div className="my-auto py-0.5 w-full overflow-hidden">
-                    <p className="text-base sm:text-xl lg:text-2xl font-black text-rose-700 dark:text-rose-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      {formatAmount(Math.round(cardAmount), { decimals: 0 })}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-rose-600/90 dark:text-rose-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                    <span className="truncate">{cardCount} Entries • Credit & Debit</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-600/15 text-rose-600 dark:text-rose-400">Filtered</span>
-                  </div>
-                </Card>
-              ) : (
-                /* Selected Filter: ⚠️ Other / Pending */
-                <Card
-                  onClick={() => setMethodFilter('all')}
-                  className="p-3 sm:p-4 bg-card dark:bg-card border border-slate-500 ring-2 ring-slate-500/25 bg-slate-50/70 dark:bg-slate-900/40 rounded-2xl overflow-hidden shadow-md flex flex-col justify-between transition-all cursor-pointer select-none"
-                  title="Click to clear filter"
-                >
-                  <div className="flex items-center justify-between gap-1.5 mb-1.5">
-                    <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 leading-tight truncate flex-1" title={isSales ? "Other / Pending Received" : "Other / Pending Paid"}>
-                      ⚠️ {methodFilter === 'pending' ? 'Pending Mode' : 'Other Methods'}
-                    </span>
-                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-500/20 text-slate-600 dark:text-slate-400 shrink-0 flex items-center justify-center">
-                      <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                  </div>
-                  <div className="my-auto py-0.5 w-full overflow-hidden">
-                    <p className="text-base sm:text-xl lg:text-2xl font-black text-slate-700 dark:text-slate-300 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis tabular-nums leading-tight">
-                      {formatAmount(Math.round(otherAmount), { decimals: 0 })}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-slate-600/90 dark:text-slate-400/90 mt-1.5 pt-1.5 border-t border-border/40 gap-1 truncate">
-                    <span className="truncate">{otherCount} Entries • Unclassified Modes</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-600/15 text-slate-600 dark:text-slate-400">Filtered</span>
-                  </div>
-                </Card>
-              )}
-            </div>
-
-            {/* Interactive Active Filter Summary Banner */}
-            {methodFilter !== 'all' && (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-xs text-foreground animate-in fade-in duration-200">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-primary text-primary-foreground font-bold text-[11px]">
-                    <Filter className="w-3 h-3" />
-                    <span>Active Filter: {getMethodLabel(methodFilter)}</span>
-                  </div>
-                  <span className="text-muted-foreground">
-                    Matching {isSales ? 'customer collections' : 'vendor disbursements'} for <strong>{dateFilterLabel}</strong>:
-                  </span>
-                  <span className="font-extrabold text-foreground text-sm">
-                    {formatAmount(Math.round(isSales ? (stats?.selectedMethodSalesTotal ?? 0) : (stats?.selectedMethodPurchaseTotal ?? 0)), { decimals: 0 })}
-                  </span>
-                  <span className="text-muted-foreground text-[11px]">
-                    ({isSales ? (stats?.selectedMethodSalesCount ?? 0) : (stats?.selectedMethodPurchaseCount ?? 0)} records found)
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setMethodFilter('all')}
-                  className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-background/80 self-end sm:self-auto shrink-0"
-                >
-                  <X className="w-3.5 h-3.5 mr-1" />
-                  Clear Filter
-                </Button>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Main Table or Empty State */}
-      {payments.length === 0 ? (
+      {/* Main Content: Vehicle Split Ledger View OR Flat Payments Table */}
+      {activeTab === 'downpayment' && downpaymentSubTab === 'ledger' ? (
+        <VehicleLedgerView
+          vehicleLedgerItems={vehicleLedgerItems}
+          onRecordPaymentForInvoice={handleRecordPaymentForInvoice}
+        />
+      ) : displayedPayments.length === 0 ? (
         <Card className="p-6 md:p-12 text-center bg-card dark:bg-card border border-border/70 rounded-2xl shadow-sm">
-          {activeTab === 'sales' ? (
+          {activeTab === 'downpayment' ? (
+            <Car className="w-14 h-14 text-amber-500/40 mx-auto mb-3" />
+          ) : activeTab === 'sales' ? (
             <CreditCard className="w-14 h-14 text-emerald-500/40 mx-auto mb-3" />
           ) : (
             <ShoppingCart className="w-14 h-14 text-purple-500/40 mx-auto mb-3" />
           )}
           <h3 className="text-lg font-bold text-foreground mb-1">
-            {activeTab === 'sales' ? "No Sales Payments Found" : "No Purchase Payments Found"}
+            {activeTab === 'downpayment'
+              ? (downpaymentSubTab === 'advance'
+                  ? "No 1st Payment Downpayment Advances Found"
+                  : downpaymentSubTab === 'partial'
+                  ? "No 2nd Payment Partial / Balance Payments Found"
+                  : "No Downpayment Payments Found")
+              : activeTab === 'sales'
+              ? "No Sales Payments Found"
+              : "No Purchase Payments Found"}
           </h3>
           <p className="text-muted-foreground text-xs sm:text-sm mb-5 max-w-md mx-auto">
-            {activeTab === 'sales'
+            {activeTab === 'downpayment'
+              ? (downpaymentSubTab === 'advance'
+                  ? "No initial downpayment advance records match your criteria."
+                  : downpaymentSubTab === 'partial'
+                  ? "No partial / balance installment payments match your criteria."
+                  : "No vehicle downpayment payments recorded yet matching your criteria.")
+              : activeTab === 'sales'
               ? "No customer payments recorded yet for sales invoices matching your criteria."
               : "No vendor payments recorded yet for purchase bills matching your criteria."}
           </p>
           <Button
             variant="default"
             onClick={() => {
-              if (activeTab === 'sales') {
-                handleOpenSalesModal();
-              } else {
+              if (activeTab === 'purchase') {
                 handleOpenPurchaseModal();
+              } else {
+                handleOpenSalesModal();
               }
             }}
             className={cn(
               "font-bold text-xs h-10 px-5",
-              activeTab === 'purchase' ? "bg-purple-600 hover:bg-purple-700 text-white" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              activeTab === 'purchase'
+                ? "bg-purple-600 hover:bg-purple-700 text-white"
+                : activeTab === 'downpayment'
+                ? "bg-amber-600 hover:bg-amber-700 text-white"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
             <Plus className="w-4 h-4 mr-2" />
-            {activeTab === 'sales' ? "Record Sales Payment" : "Record Purchase Payment"}
+            {activeTab === 'downpayment'
+              ? "Record Downpayment Payment"
+              : activeTab === 'sales'
+              ? "Record Sales Payment"
+              : "Record Purchase Payment"}
           </Button>
         </Card>
       ) : (
         <div className="space-y-3">
           {/* Mobile Card Layout (md:hidden) */}
           <div className="md:hidden space-y-3">
-            {payments.map((payment) => {
-              const invoiceType = (payment as unknown as { invoice_type?: string }).invoice_type;
-              const partyName = (payment as unknown as { party_name?: string }).party_name || payment.invoices?.clients?.name || 'Unknown';
-              const displayNumber = (payment as unknown as { display_number?: string }).display_number || payment.invoices?.invoice_number || 'N/A';
-
-              return (
-                <Card key={payment.id} className="p-4 bg-card dark:bg-card border border-border/80 rounded-2xl shadow-sm space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-bold text-foreground">{displayNumber}</span>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-[8px] px-1.5 py-0.5 font-semibold uppercase",
-                            invoiceType === 'purchase'
-                              ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
-                              : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
-                          )}
-                        >
-                          {invoiceType === 'purchase' ? 'Purchase' : 'Sales'}
-                        </Badge>
-                      </div>
-                      <p className="text-sm font-semibold text-foreground mt-1">{partyName}</p>
-                      <p className="text-xs text-muted-foreground">{safelyToLocaleDate(payment.payment_date)}</p>
-                    </div>
-                    <div className="text-right">
-                      <div className={cn(
-                        "text-base font-black",
-                        invoiceType === 'purchase' ? "text-purple-600 dark:text-purple-400" : "text-emerald-600 dark:text-emerald-400"
-                      )}>
-                        {formatAmount(Math.round(Number(payment.amount || 0)), { decimals: 0 })}
-                      </div>
-                      {payment.reference_number && (
-                        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">Ref: {payment.reference_number}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-border/60">
-                    <div className="flex items-center gap-1.5">
-                      {payment.payment_method === 'pending' || !payment.payment_method ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase border border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                            >
-                              <AlertCircle className="w-3 h-3 text-amber-600" />
-                              <span>Select Method</span>
-                              <ChevronDown className="w-3 h-3 opacity-70 ml-0.5" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="w-48 p-1.5 rounded-2xl shadow-xl border border-border/80 z-50">
-                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'cash')}>
-                              <Banknote className="w-4 h-4 mr-2 text-emerald-600" /> Cash
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'upi')}>
-                              <Smartphone className="w-4 h-4 mr-2 text-violet-600" /> UPI / Online
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'bank_transfer')}>
-                              <CreditCard className="w-4 h-4 mr-2 text-blue-600" /> Bank Transfer
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'cheque')}>
-                              <FileText className="w-4 h-4 mr-2 text-amber-600" /> Cheque
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'credit_card')}>
-                              <CreditCard className="w-4 h-4 mr-2 text-rose-600" /> Credit Card
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdatePaymentMethod(payment.id, 'debit_card')}>
-                              <CreditCard className="w-4 h-4 mr-2 text-indigo-600" /> Debit Card
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-[10px] uppercase font-bold px-2 py-0.5",
-                            payment.payment_method === 'cash' ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400" :
-                            payment.payment_method === 'upi' ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400" :
-                            payment.payment_method === 'bank_transfer' ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400" :
-                            payment.payment_method === 'cheque' ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400" :
-                            payment.payment_method === 'credit_card' ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400" :
-                            payment.payment_method === 'debit_card' ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400" :
-                            "dark:bg-slate-800 dark:text-slate-300"
-                          )}
-                        >
-                          {payment.payment_method.replace('_', ' ').toUpperCase()}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEdit(payment)}
-                        className="h-8 px-2.5 text-xs font-semibold"
-                      >
-                        <Edit className="w-3.5 h-3.5 mr-1" /> Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(payment.id)}
-                        className="h-8 px-2.5 text-xs font-semibold text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
+            {displayedPayments.map((payment) => (
+              <PaymentCardItem
+                key={payment.id}
+                payment={payment}
+                onUpdatePaymentMethod={handleUpdatePaymentMethod}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+              />
+            ))}
           </div>
 
           {/* Desktop Table View (hidden md:block) */}
-          <Card className="hidden md:block overflow-hidden bg-card dark:bg-card border border-border/80 rounded-2xl shadow-sm">
-            <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Payment Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    {activeTab === 'sales' ? 'Sales Invoice #' : 'Purchase Bill #'}
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    {activeTab === 'sales' ? 'Customer Name' : 'Vendor Name'}
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    {activeTab === 'sales' ? 'Amount Received' : 'Amount Paid'}
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Method</th>
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">Reference</th>
-                  <th className="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {payments.map((payment) => {
-                  const invoiceType = (payment as unknown as { invoice_type?: string }).invoice_type;
-                  const partyName = (payment as unknown as { party_name?: string }).party_name || payment.invoices?.clients?.name || 'Unknown';
-                  const displayNumber = (payment as unknown as { display_number?: string }).display_number || payment.invoices?.invoice_number || 'N/A';
-
-                  return (
-                    <tr key={payment.id} className="hover:bg-muted/50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-medium">
-                          {safelyToLocaleDate(payment.payment_date)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-bold text-foreground">{displayNumber}</span>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[8px] px-1 py-0 font-semibold uppercase",
-                              invoiceType === 'purchase'
-                                ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-400"
-                                : "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400"
-                            )}
-                          >
-                            {invoiceType === 'purchase' ? 'Purchase' : 'Sales'}
-                          </Badge>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-medium">{partyName}</div>
-                        <div className="text-[10px] text-muted-foreground/60 font-normal mt-0.5">
-                          {getCreatorTag(payment.notes)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className={cn(
-                          "text-sm font-bold",
-                          invoiceType === 'purchase' ? "text-purple-600 dark:text-purple-400" : "text-emerald-600 dark:text-emerald-400"
-                        )}>
-                          {formatAmount(Math.round(Number(payment.amount || 0)), { decimals: 0 })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {payment.payment_method === 'pending' || !payment.payment_method ? (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all border border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700 shadow-sm cursor-pointer active:scale-95 animate-pulse"
-                                title="Click to select payment method"
-                              >
-                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                <span>Select Method</span>
-                                <ChevronDown className="w-3.5 h-3.5 opacity-70 ml-0.5 text-amber-700" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="w-48 p-1.5 rounded-2xl shadow-xl border border-border/80 z-50">
-                              <div className="px-2 py-1 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-                                Select Payment Method
-                              </div>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePaymentMethod(payment.id, 'cash')}
-                                className="cursor-pointer font-bold text-xs py-2 hover:bg-emerald-50 text-emerald-900 dark:text-emerald-100 rounded-lg flex items-center gap-2"
-                              >
-                                <Banknote className="w-4 h-4 text-emerald-600" />
-                                <span>Cash</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePaymentMethod(payment.id, 'upi')}
-                                className="cursor-pointer font-bold text-xs py-2 hover:bg-violet-50 text-violet-900 dark:text-violet-100 rounded-lg flex items-center gap-2"
-                              >
-                                <Smartphone className="w-4 h-4 text-violet-600" />
-                                <span>UPI / Online</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePaymentMethod(payment.id, 'bank_transfer')}
-                                className="cursor-pointer font-bold text-xs py-2 hover:bg-blue-50 text-blue-900 dark:text-blue-100 rounded-lg flex items-center gap-2"
-                              >
-                                <CreditCard className="w-4 h-4 text-blue-600" />
-                                <span>Bank Transfer</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePaymentMethod(payment.id, 'cheque')}
-                                className="cursor-pointer font-bold text-xs py-2 hover:bg-amber-50 text-amber-900 dark:text-amber-100 rounded-lg flex items-center gap-2"
-                              >
-                                <FileText className="w-4 h-4 text-amber-600" />
-                                <span>Cheque</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePaymentMethod(payment.id, 'credit_card')}
-                                className="cursor-pointer font-bold text-xs py-2 hover:bg-rose-50 text-rose-900 dark:text-rose-100 rounded-lg flex items-center gap-2"
-                              >
-                                <CreditCard className="w-4 h-4 text-rose-600" />
-                                <span>Credit Card</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePaymentMethod(payment.id, 'debit_card')}
-                                className="cursor-pointer font-bold text-xs py-2 hover:bg-indigo-50 text-indigo-900 dark:text-indigo-100 rounded-lg flex items-center gap-2"
-                              >
-                                <CreditCard className="w-4 h-4 text-indigo-600" />
-                                <span>Debit Card</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        ) : (
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-xs uppercase font-bold",
-                              payment.payment_method === 'cash' ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400" :
-                                payment.payment_method === 'upi' ? "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-400" :
-                                  payment.payment_method === 'bank_transfer' ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400" :
-                                    payment.payment_method === 'cheque' ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400" :
-                                      payment.payment_method === 'credit_card' ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400" :
-                                        payment.payment_method === 'debit_card' ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-400" :
-                                          "dark:bg-slate-800 dark:text-slate-300"
-                            )}
-                          >
-                            {payment.payment_method.replace('_', ' ').toUpperCase()}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-muted-foreground">
-                          {payment.reference_number || '-'}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end space-x-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(payment)}
-                            className="h-8 w-8 p-0"
-                            title="Edit Payment"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(payment.id)}
-                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            title="Delete Payment"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
-    )}
+          <PaymentTable
+            payments={displayedPayments}
+            activeTab={activeTab}
+            onUpdatePaymentMethod={handleUpdatePaymentMethod}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            getCreatorTag={getCreatorTag}
+          />
+        </div>
+      )}
 
       {/* Pagination Controls */}
-      <DataTablePagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalCount={paymentsData?.totalCount || 0}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={setPageSize}
-        entityName={activeTab === 'sales' ? 'sales payments' : 'purchase payments'}
-        isLoading={loading}
-      />
+      {!(activeTab === 'downpayment' && downpaymentSubTab === 'ledger') && (
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={activeTab === 'downpayment' ? Math.max(1, Math.ceil(displayedPayments.length / pageSize)) : totalPages}
+          totalCount={activeTab === 'downpayment' ? displayedPayments.length : (paymentsData?.totalCount || 0)}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          entityName={activeTab === 'downpayment' ? 'downpayment payments' : activeTab === 'sales' ? 'sales payments' : 'purchase payments'}
+          isLoading={loading}
+        />
+      )}
 
       <SuccessModal
         isOpen={showSuccess}
@@ -1533,6 +1248,7 @@ const PaymentsPage = () => {
         invoices={invoices}
         onSubmit={handleSaveSalesPayment}
         initialData={editingSalesData}
+        targetCategory={activeTab === 'downpayment' ? 'downpayment' : 'sales'}
       />
 
       <RecordPurchasePaymentModal

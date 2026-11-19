@@ -39,11 +39,31 @@ export async function fetchFullInvoiceData(invoiceId: string, userId?: string): 
   if (itemsRes.error) throw itemsRes.error;
 
   const invoiceData = invoiceRes.data as unknown as (Invoice & { clients: Client; user_id?: string });
-  const effectiveOwnerId = invoiceData.user_id || userId || '';
+  let effectiveOwnerId = invoiceData.user_id || userId || '';
+
+  // If effectiveOwnerId belongs to a staff member, resolve the true company owner ID
+  if (effectiveOwnerId) {
+    try {
+      const { data: staffRow, error: staffError } = await (clientToUse as any)
+        .from('company_staff')
+        .select('company_owner_id')
+        .eq('user_id', effectiveOwnerId)
+        .maybeSingle();
+
+      if (staffError) {
+        console.warn('Staff owner resolution notice:', staffError);
+      } else if (staffRow?.company_owner_id) {
+        effectiveOwnerId = staffRow.company_owner_id;
+      }
+    } catch (err) {
+      console.warn('Staff owner lookup failed:', err);
+      // Ignore resolution failure and proceed with effectiveOwnerId
+    }
+  }
 
   const [settingsRes, profileRes] = await Promise.all([
     effectiveOwnerId ? (clientToUse as any).from('user_settings').select('*').eq('user_id', effectiveOwnerId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-    effectiveOwnerId ? (clientToUse as any).from('profiles').select('*').or(`user_id.eq.${effectiveOwnerId},id.eq.${effectiveOwnerId}`).maybeSingle() : Promise.resolve({ data: null, error: null })
+    effectiveOwnerId ? (clientToUse as any).from('profiles').select('*').eq('user_id', effectiveOwnerId).maybeSingle() : Promise.resolve({ data: null, error: null })
   ]);
 
   const rawItems = (itemsRes.data || []) as any[];
@@ -75,8 +95,6 @@ export async function fetchFullInvoiceData(invoiceId: string, userId?: string): 
  */
 export function formatCompanyData(profile: unknown, userEmail?: string): CompanyData {
   const p = profile as Record<string, unknown> | null;
-  const storedLogo = typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_logo_url') || '') : '';
-  const storedSign = typeof window !== 'undefined' ? (localStorage.getItem('escrow_company_signature_url') || '') : '';
   return {
     company_name: (p?.company_name as string) || (p?.full_name as string) || "Company Name",
     email: (p?.email as string) || userEmail || "",
@@ -84,9 +102,9 @@ export function formatCompanyData(profile: unknown, userEmail?: string): Company
     mobile: (p?.mobile as string) || (p?.phone as string) || "",
     business_address: (p?.business_address as string) || (p?.address as string) || "",
     gstin: (p?.gstin as string) || "",
-    logo_url: (p?.logo_url as string) || storedLogo || "",
+    logo_url: (p?.logo_url as string) || "",
     website: (p?.website as string) || "",
-    signature_url: (p?.signature_url as string) || storedSign || "",
+    signature_url: (p?.signature_url as string) || "",
     bank_name: (p?.bank_name as string) || "",
     account_number: (p?.account_number as string) || "",
     ifsc_code: (p?.ifsc_code as string) || "",
@@ -151,7 +169,9 @@ export function formatInvoiceData(
     currency: invoice.currency,
     notes: invoice.notes,
     terms: effectiveTerms,
-    payment_terms: invoice.payment_terms
+    payment_terms: invoice.payment_terms,
+    vehicle_details: (invoice as any).vehicle_details,
+    payment_details: (invoice as any).payment_details
   };
 }
 
